@@ -48,7 +48,7 @@ class WriteNoticeService:
                 self.driver.get(url)
                 break
             except:
-                print(f"⭐접속 에러 발생. 재시도 중...")
+                print(f"⭐접속 에러 발생. 브라우저 재시작")
                 time.sleep(2)
                 self.restart_driver()
                 if login_required:
@@ -115,7 +115,7 @@ class WriteNoticeService:
             self.driver.execute_script("arguments[0].click();", send_button)
             time.sleep(1)
         except Exception as e:
-            print("응답이 없으므로 드라이버 종료")
+            # print("응답이 없으므로 드라이버 종료")
             self.driver.quit()
 
     def download_survey(self):

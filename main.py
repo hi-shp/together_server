@@ -22,8 +22,6 @@ WEBHOOK_URL = "https://discordapp.com/api/webhooks/1346451155605000223/-6UvPYWZS
 # JSON 파일 불러오기
 with open('env.json', 'r', encoding='utf-8') as f:
     config = json.load(f)
-
-# JSON 데이터를 변수로 할당
 KEYWORD_CATEGORIES = config['KEYWORD_CATEGORIES']
 EXCLUDE_KEYWORDS = config['EXCLUDE_KEYWORDS']
 CATEGORIES = config['CATEGORIES']
