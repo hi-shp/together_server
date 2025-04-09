@@ -1,0 +1,15 @@
+# Python 캐시
+__pycache__/
+*.pyc
+
+# IDE 설정
+.idea/
+*.xml
+
+# 로그 및 텍스트
+*.log
+*log*.txt
+
+# 실행파일, 바이너리
+chromedriver
+google-chrome-stable_current_amd64.deb
