@@ -5,6 +5,7 @@ __pycache__/
 # IDE 설정
 .idea/
 *.xml
+downoads/
 
 # 로그 및 텍스트
 *.log
