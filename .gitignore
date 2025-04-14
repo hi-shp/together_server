@@ -5,7 +5,6 @@ __pycache__/
 # IDE 설정
 .idea/
 *.xml
-downloads/
 
 # 로그 및 텍스트
 *.log
@@ -16,4 +15,5 @@ chromedriver
 google-chrome-stable_current_amd64.deb
 
 .DS_Store
+downloads/
 downloads/
