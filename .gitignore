@@ -14,6 +14,9 @@ __pycache__/
 chromedriver
 google-chrome-stable_current_amd64.deb
 
+# macOS 시스템 파일
 .DS_Store
+
+# 다운로드 폴더
 downloads/
-downloads/
+
