@@ -51,7 +51,7 @@ def recent_title():
                 if saved_date > datetime.now() - timedelta(days=10):
                     recent_titles.append((saved_date, saved_title))
     recent_titles.sort(reverse=True, key=lambda x: x[0])  # 최신순으로 정렬
-    recent_titles = [title for _, title in recent_titles[:4000]]  # 4000개 이하로 자름
+    recent_titles = [title for _, title in recent_titles[:1000]]  # 1000개 이하로 자름
     return recent_titles
 
 def is_recent_title_duplicate(new_title, filename='titles.txt'):
