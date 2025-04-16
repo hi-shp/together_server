@@ -55,6 +55,8 @@ def recent_title():
     return recent_titles
 
 def is_recent_title_duplicate(new_title, filename='titles.txt'):
+    if "교류 수학 안내" in new_title:
+        return '중복 아님'
     recent_titles = []
     if os.path.exists(filename):
         with open(filename, 'r', encoding='utf-8') as file:
