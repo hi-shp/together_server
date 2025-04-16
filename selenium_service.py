@@ -213,7 +213,8 @@ class WriteNoticeService:
                     checkbox.click()
 
                 except Exception as e:
-                    print(f"{student_name} ({student_id}) 체크 실패: {str(e)}", flush=True)
+                    # print(f"{student_name} ({student_id}) 체크 실패", flush=True)
+                    pass
 
             # 메시지 입력 필드 찾기
             message_input = WebDriverWait(self.driver, 10).until(
@@ -296,7 +297,8 @@ class WriteNoticeService:
                     checkbox.click()
 
                 except Exception as e:
-                    print(f"{student_name} ({email}) 체크 실패: {str(e)}", flush=True)
+                    # print(f"{student_name} ({email}) 체크 실패: {str(e)}", flush=True)
+                    pass
 
             # 제목 입력 필드 찾기
             subject_input = WebDriverWait(self.driver, 10).until(
