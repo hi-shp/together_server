@@ -79,6 +79,10 @@ def is_recent_title_duplicate(new_title, filename='titles.txt'):
     title_similarities = [(calculate_similarity(new_title, title), title) for title in cleaned_titles]
     title_similarities.sort(reverse=True, key=lambda x: x[0])  # 유사도 순으로 정렬
 
+    # 비교할 대상이 없음 → 중복 아님
+    if len(title_similarities) == 0:
+        return '중복 아님'
+
     highest_similarity = title_similarities[0][0]  # 가장 높은 유사도
 
     # 유사도가 0.85 이상인 제목이 있으면 '중복' 반환

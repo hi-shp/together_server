@@ -1,6 +1,6 @@
 department,page_url,number
-대학 공지,https://www.pusan.ac.kr/kor/CMS/Board/PopupBoard.do?robot=Y&mgr_seq=3&mode=list&page=2,208
-대학 공지,https://www.pusan.ac.kr/kor/CMS/Board/PopupBoard.do?robot=Y&mgr_seq=3&mode=list&page=1,208
+대학 공지,https://www.pusan.ac.kr/kor/CMS/Board/PopupBoard.do?robot=Y&mgr_seq=3&mode=list&page=2,214
+대학 공지,https://www.pusan.ac.kr/kor/CMS/Board/PopupBoard.do?robot=Y&mgr_seq=3&mode=list&page=1,214
 공과대학 공지사항,https://eng.pusan.ac.kr/eng/23336/subview.do,127
 기계공학부(학부),https://me.pusan.ac.kr/new/sub05/sub01_01.asp,4226
 기계공학부(대학원),https://me.pusan.ac.kr/new/sub05/sub01_02.asp,2924
@@ -68,10 +68,10 @@ AI대학원,https://ai.pusan.ac.kr/ai/60711/subview.do,599
 수학과(취업),https://math.pusan.ac.kr/math/66568/subview.do,1201
 통계학과,https://stat.pusan.ac.kr/stat/15128/subview.do,2209
 통계학과(취업),https://stat.pusan.ac.kr/stat/15129/subview.do,1323
-물리학과(학부),https://phys.pusan.ac.kr/phys/14948/subview.do,3093
+물리학과(학부),https://phys.pusan.ac.kr/phys/14948/subview.do,3094
 물리학과(대학원),https://phys.pusan.ac.kr/phys/14949/subview.do,907
 물리학과(취업),https://phys.pusan.ac.kr/phys/14950/subview.do,389
-화학과,https://chem.pusan.ac.kr/chem/15255/subview.do,3605
+화학과,https://chem.pusan.ac.kr/chem/15255/subview.do,3606
 화학과(취업),https://chem.pusan.ac.kr/chem/15257/subview.do,2114
 생명과학과(학부),https://biology.pusan.ac.kr/biology/16045/subview.do,2453
 생명과학과(대학원),https://biology.pusan.ac.kr/biology/16049/subview.do,554
@@ -90,7 +90,7 @@ AI대학원,https://ai.pusan.ac.kr/ai/60711/subview.do,599
 경제통상대학 공지사항(취업),https://econtr.pusan.ac.kr/econtr/14430/subview.do,150
 경영학과(학부),https://biz.pusan.ac.kr/biz/14344/subview.do,2851
 경영학과(대학원),https://biz.pusan.ac.kr/biz/14345/subview.do,1414
-경영학과(취업),https://biz.pusan.ac.kr/biz/48588/subview.do,1329
+경영학과(취업),https://biz.pusan.ac.kr/biz/48588/subview.do,1331
 경영학과(장학),https://biz.pusan.ac.kr/biz/48589/subview.do,624
 경제학부(학부),https://pnuecon.pusan.ac.kr/pnuecon/16317/subview.do,181
 경제학부(취업),https://pnuecon.pusan.ac.kr/pnuecon/33043/subview.do,61
@@ -116,7 +116,7 @@ AI대학원,https://ai.pusan.ac.kr/ai/60711/subview.do,599
 생활과학대학 공지사항,https://che.pusan.ac.kr/che/14121/subview.do,294
 아동가족학과,https://cdfs.pusan.ac.kr/cdfs/17266/subview.do,1896
 아동가족학과(취업),https://cdfs.pusan.ac.kr/cdfs/17269/subview.do,143
-의류학과,https://fashion.pusan.ac.kr/fashion/17222/subview.do,2699
+의류학과,https://fashion.pusan.ac.kr/fashion/17222/subview.do,2701
 식품영양학과,https://fsn.pusan.ac.kr/fsn/15462/subview.do,324
 식품영양학과(취업),https://fsn.pusan.ac.kr/fsn/15438/subview.do,189
 실내환경디자인학과,https://hid.pusan.ac.kr/hid/17458/subview.do,1031
@@ -175,8 +175,8 @@ IT응용공학과(취업),https://ite.pusan.ac.kr/ite/16028/subview.do,641
 철학과(대학원),https://philosophy.pusan.ac.kr/philosophy/17297/subview.do,385
 철학과(학부 학생회),https://philosophy.pusan.ac.kr/philosophy/71124/subview.do,46
 철학과(대학원 학생회),https://philosophy.pusan.ac.kr/philosophy/71125/subview.do,17
-고고학과(학부),https://archaeology.pusan.ac.kr/archaeology/21071/subview.do,2880
-고고학과(대학원),https://archaeology.pusan.ac.kr/archaeology/65644/subview.do,996
+고고학과(학부),https://archaeology.pusan.ac.kr/archaeology/21071/subview.do,2881
+고고학과(대학원),https://archaeology.pusan.ac.kr/archaeology/65644/subview.do,997
 사회과학대학 공지사항,https://ss.pusan.ac.kr/socio/12850/subview.do,242
 행정학과(학부),https://pub-adm.pusan.ac.kr/pub-adm/15295/subview.do,241
 행정학과(대학원),https://pub-adm.pusan.ac.kr/pub-adm/15296/subview.do,89
@@ -228,20 +228,20 @@ IT응용공학과(취업),https://ite.pusan.ac.kr/ite/16028/subview.do,641
 교육과미디어융합전공,https://edumedia.pusan.ac.kr/edumedia/70864/subview.do,66
 기계기술연구원,https://rimt.pusan.ac.kr/rimt/39690/subview.do,30
 에너지융합발전연소전공/그린설비융합전공/원자력공학전공/발전공학과,http://meindustry.org/page/board/board.php?TREE_NO=88&DEPTH=2,10
-나노반도체공정장비계약학과,https://u-spec.pusan.ac.kr/u-spec/71319/subview.do,47
+나노반도체공정장비계약학과,https://u-spec.pusan.ac.kr/u-spec/71319/subview.do,48
 교육혁신전공/AI융합교육전공,https://gsedu.pusan.ac.kr/gsedu/26088/subview.do,501
-치의학전문대학원,https://dent.pusan.ac.kr/newdent/11881/subview.do,646
+치의학전문대학원,https://dent.pusan.ac.kr/newdent/11881/subview.do,651
 치의학전문대학원(기타),https://dent.pusan.ac.kr/newdent/53492/subview.do,4
 한의학전문대학원,https://kmed.pusan.ac.kr/kmed/13885/subview.do,509
 한의학전문대학원(기타),https://kmed.pusan.ac.kr/kmed/13887/subview.do,86
 한의학전문대학원(취업),https://kmed.pusan.ac.kr/kmed/54499/subview.do,23
-약학과(학부),https://pharmacy.pusan.ac.kr/pharmacy/13582/subview.do,1868
+약학과(학부),https://pharmacy.pusan.ac.kr/pharmacy/13582/subview.do,1869
 약학과(대학원),https://pharmacy.pusan.ac.kr/pharmacy/49158/subview.do,370
-간호학과(학부),https://nursing.pusan.ac.kr/nursing/14523/subview.do,1296
+간호학과(학부),https://nursing.pusan.ac.kr/nursing/14523/subview.do,1298
 간호학과(대학원),https://nursing.pusan.ac.kr/nursing/14524/subview.do,2421
-간호학과(취업),https://nursing.pusan.ac.kr/nursing/49322/subview.do,126
+간호학과(취업),https://nursing.pusan.ac.kr/nursing/49322/subview.do,128
 법학과일반대학원,https://collegeoflaw.pusan.ac.kr/collegeoflaw/19583/subview.do,1326
 법학과일반대학원(자유),https://collegeoflaw.pusan.ac.kr/collegeoflaw/19584/subview.do,200
 법학과일반대학원(취업),https://collegeoflaw.pusan.ac.kr/collegeoflaw/19585/subview.do,217
-법학전문대학원,https://law.pusan.ac.kr/law/19751/subview.do,4934
-법학전문대학원(취업),https://law.pusan.ac.kr/law/19753/subview.do,1453
+법학전문대학원,https://law.pusan.ac.kr/law/19751/subview.do,4936
+법학전문대학원(취업),https://law.pusan.ac.kr/law/19753/subview.do,1454
