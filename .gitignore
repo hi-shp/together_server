@@ -20,3 +20,4 @@ google-chrome-stable_current_amd64.deb
 # 다운로드 폴더
 downloads/
 
+.env
