@@ -16,9 +16,6 @@ from ready import NoticeUpdater
 import glob
 import shutil
 
-
-WEBHOOK_URL = "https://discordapp.com/api/webhooks/1346451155605000223/-6UvPYWZS8BzZXSTg_-6EJYag8xK8z851bvxQDPOem7zVzB1MAWlpBTO3Z3NCzZ879gN"
-
 # JSON 파일 불러오기
 with open('env.json', 'r', encoding='utf-8') as f:
     config = json.load(f)
@@ -89,7 +86,7 @@ def main():
 
     current_datetime = datetime.now().strftime("%Y-%m-%d / %H:%M:%S")
     message = f"{current_datetime} (참여: {highest_num}명/설문: {response_count}개)"
-    requests.post(WEBHOOK_URL, json={"content": message})
+    requests.post(os.getenv('WEBHOOK_URL'), json={"content": message})
 
     updater.update_university_notices()
     page_url_manager = PageUrlManager()
