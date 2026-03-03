@@ -40,7 +40,8 @@ def filter_bmp_characters(text):
 
 def get_anns_url(announcementPage, n):  # 각 사이트마다 공지 url 추출
     try:
-        response = requests.get(announcementPage.page_url)
+        # SSL 인증서 오류 해결을 위해 verify=False 유지
+        response = requests.get(announcementPage.page_url, verify=False)
         response.raise_for_status()
     except requests.exceptions.RequestException as e:
         print(e, flush=True)
@@ -58,7 +59,7 @@ def get_anns_url(announcementPage, n):  # 각 사이트마다 공지 url 추출
             idx = 1
             break  # tbody 태그를 찾으면 즉시 종료
         time.sleep(0.1)  # 0.1초 간격으로 재확인
-        response = requests.get(announcementPage.page_url)
+        response = requests.get(announcementPage.page_url, verify=False)
         response.raise_for_status()
         soup = BeautifulSoup(response.text, 'html.parser')
 
@@ -68,7 +69,7 @@ def get_anns_url(announcementPage, n):  # 각 사이트마다 공지 url 추출
             if table_element:
                 break  # tbody 태그를 찾으면 즉시 종료
             time.sleep(3)  # 0.1초 간격으로 재확인
-            response = requests.get(announcementPage.page_url)
+            response = requests.get(announcementPage.page_url, verify=False)
             response.raise_for_status()
             soup = BeautifulSoup(response.text, 'html.parser')
 
@@ -97,8 +98,13 @@ def get_anns_url(announcementPage, n):  # 각 사이트마다 공지 url 추출
                     number_tag = row.find("td", class_="num")
                     number_text = number_tag.get_text(strip=True).replace("<br>", "").strip()
                 except AttributeError:
-                    # 세 개의 시도가 모두 실패한 경우: 계속 다음으로 넘어감
-                    continue
+                    try:
+                        # 네 번째 시도: td-num 클래스의 td 태그 찾기 (고분자공학과 등 최신 양식)
+                        number_tag = row.find("td", class_="td-num")
+                        number_text = number_tag.get_text(strip=True)
+                    except AttributeError:
+                        # 모든 시도가 실패한 경우
+                        continue
 
         if number_text.isdigit():  # 숫자인 경우만 처리
             announcement_numbers.append(int(number_text))
@@ -124,17 +130,16 @@ def get_anns_url(announcementPage, n):  # 각 사이트마다 공지 url 추출
 
         # URL 추출
         for row in rows:
-            # 첫 번째 시도: _artclTdNum 및 _artclTdTitle 클래스 사용 (나머지 모두)
+            # 1~3번째 시도는 기존 코드 로직 유지
             number_tag = row.find("td", class_="_artclTdNum")
             if number_tag is None or not number_tag.get_text(strip=True).isdigit():
                 try:
-                    # 두 번째 시도: number 클래스 및 JavaScript URL 처리 (기계과)
+                    # 두 번째 시도: 기계과
                     number_tag = row.find("td", class_="number")
                     if number_tag is None or not number_tag.get_text(strip=True).replace("<br>", "").strip().isdigit():
                         try:
-                            # 세 번째 시도: num 및 subject 클래스 사용 (대학공지)
+                            # 세 번째 시도: 대학공지
                             number_tag = row.find("td", class_="num")
-                            # 숫자가 포함된 경우
                             if number_tag and number_tag.get_text(strip=True).isdigit():
                                 announcement_number = int(number_tag.get_text(strip=True))
                                 if announcement_number > announcementPage.number:
@@ -144,18 +149,16 @@ def get_anns_url(announcementPage, n):  # 각 사이트마다 공지 url 추출
                                         if element:
                                             url = element['href']
                                             urls.append(urljoin(announcementPage.page_url, url))
-
-                            # <img> 태그가 포함된 경우 (예: 공지 이미지가 있는 경우)
+                            
+                            # <img> 태그 포함 경우 (대학공지 특수)
                             elif number_tag and number_tag.find("img"):
                                 title_tag = row.find("td", class_="subject")
                                 if title_tag:
                                     element = title_tag.find("a")
                                     if element:
                                         title = element.get_text(strip=True)
-
                                         if title == last_yesterday_title:
-                                            idx += 1 # 패스
-
+                                            idx += 1
                                         if idx == 0:
                                             recent_titles = recent_title()
                                             if title in recent_titles:
@@ -167,46 +170,48 @@ def get_anns_url(announcementPage, n):  # 각 사이트마다 공지 url 추출
                                             else:
                                                 url = element['href']
                                                 urls.append(urljoin(announcementPage.page_url, url))
-                                                print(idx, flush=True)
                                                 idx += 1
-
                                                 if num_idx == 0:
-                                                    # yesterday.txt 두 번째 줄을 title로 업데이트
                                                     lines[1] = title
                                                     with open("yesterday.txt", "w", encoding="utf-8") as file:
                                                         file.writelines(lines)
                                                     num_idx += 1
+                            
+                            # 네 번째 시도 (고분자공학과 등 td-num, td-title 사용 사이트)
+                            else:
+                                number_tag = row.find("td", class_="td-num")
+                                if number_tag and number_tag.get_text(strip=True).isdigit():
+                                    announcement_number = int(number_tag.get_text(strip=True))
+                                    if announcement_number > announcementPage.number:
+                                        title_tag = row.find("td", class_="td-title")
+                                        if title_tag:
+                                            element = title_tag.find('a')
+                                            if element:
+                                                url = element['href']
+                                                urls.append(urljoin(announcementPage.page_url, url))
 
                         except AttributeError:
-                            # 세 가지 시도가 모두 실패한 경우: 계속 다음으로 넘어감
                             continue
                     else:
+                        # 기계과 URL 처리 로직 유지
                         announcement_number = int(number_tag.get_text(strip=True).replace("<br>", "").strip())
                         if announcement_number > announcementPage.number:
                             element = row.find('a', href=True)
                             if element:
                                 href_value = element['href']
                                 if href_value.startswith("javascript:goDetail("):
-                                    # 자바스크립트 매개변수 추출
                                     detail_id = href_value.split('(')[1].split(')')[0]
-
-                                    # 실제 URL 생성 - 첫 번째 경우
                                     if "sub01_01.asp" in announcementPage.page_url:
                                         url = f"{announcementPage.page_url.split('?')[0]}?seq={detail_id}&db=hakbunotice&page=1&perPage=20&SearchPart=BD_SUBJECT&SearchStr=&page_mode=view"
-
-                                    # 실제 URL 생성 - 두 번째 경우
                                     elif "sub01_02.asp" in announcementPage.page_url:
                                         url = f"{announcementPage.page_url.split('?')[0]}?seq={detail_id}&db=gradnotice&page=1&perPage=20&SearchPart=BD_SUBJECT&SearchStr=&page_mode=view"
-
-                                    # 실제 URL 생성 - 세 번째 경우
                                     elif "sub01_05.asp" in announcementPage.page_url:
                                         url = f"{announcementPage.page_url.split('?')[0]}?seq={detail_id}&db=supervision&page=1&perPage=20&SearchPart=BD_SUBJECT&SearchStr=&page_mode=view"
-
                                     urls.append(url)
                 except AttributeError:
-                    # 두 번째 시도에서 실패한 경우: 계속 다음으로 넘어감
                     continue
             else:
+                # 첫 번째 시도 (나머지 학과들) 로직 유지
                 announcement_number = int(number_tag.get_text(strip=True))
                 if announcement_number > announcementPage.number:
                     title_tag = row.find("td", class_="_artclTdTitle")

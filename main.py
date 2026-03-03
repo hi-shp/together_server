@@ -86,7 +86,8 @@ def main():
 
     current_datetime = datetime.now().strftime("%Y-%m-%d / %H:%M:%S")
     message = f"{current_datetime} (참여: {highest_num}명/설문: {response_count}개)"
-    requests.post(os.getenv('WEBHOOK_URL'), json={"content": message})
+    WEBHOOK_URL = os.getenv('WEBHOOK_URL')
+    requests.post(WEBHOOK_URL, json={"content": message})
 
     updater.update_university_notices()
     page_url_manager = PageUrlManager()
