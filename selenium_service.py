@@ -561,6 +561,7 @@ class WriteNoticeService:
 
                     rows = self.driver.find_elements(By.CSS_SELECTOR, "tbody tr")
                     found_star = False
+                    found_older_post = False
 
                     # 별이 있는 게시글을 수정하면, 그 게시글을 제외하고 탐색하도록 설정
                     last_checked_index = len(rows) - 1  # 초기값: 마지막 행부터 탐색
@@ -585,6 +586,8 @@ class WriteNoticeService:
                             if date_text == today_date:
                                 last_checked_index -= 1
                                 continue
+
+                            found_older_post = True
 
                             if title_text.startswith("⭐"):
                                 new_title = title_text[1:].strip()
@@ -627,7 +630,7 @@ class WriteNoticeService:
 
                         last_checked_index -= 1  # 다음 글로 이동
 
-                    if not found_star:
+                    if found_older_post and not found_star:
                         if board_name == "취업 정보":
                             print("모든 게시판 수정 완료", flush=True)
                         else:
