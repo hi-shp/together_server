@@ -251,6 +251,12 @@ def crawl_ann_partial(url: str) -> Announcement:  # 제목+내용만 부분 추�
     if not title_element:
         title_element = soup.find("h4", class_="vtitle")
     if not title_element:
+        dt_elements = soup.find_all("dt")
+        for dt in dt_elements:
+            if "제목" in dt.get_text():
+                title_element = dt.find_next_sibling("dd")
+                break
+    if not title_element:
         title_div = soup.find("div", class_="title")
         if title_div:
             title_element = title_div.find("strong")
