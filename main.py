@@ -164,7 +164,7 @@ def main():
             updates = {}
 
     now = datetime.now()
-    if 6 <= now.hour < 24:
+    if 6 <= now.hour < 7:
         print("\n공지글 수정 작업을 시작합니다.", flush=True)
         writenoticeService.remove_stars(course_url, today_date)
     os.system("pkill -f chrome")
