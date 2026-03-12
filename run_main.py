@@ -25,7 +25,6 @@ def cleanup_old_logs(log_dir):
 
 def send_log_to_discord(log_filepath):
     webhook_url = "https://discordapp.com/api/webhooks/1352626299767885946/pKG3WtU7H5hfJ6IxmYNrpZSUV_L0zqvlBPXPnHFcLIThH3S49nQmY9UI16WmMtBzyun6"
-
     try:
         with open(log_filepath, "rb") as f:
             files = {
