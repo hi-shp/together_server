@@ -375,11 +375,12 @@ def crawl_ann(url: str, category: str) -> Announcement:  # 전부 추출
 
         # 3. 기계과 공지
         for link_tag in soup.select('dl.half-box01 a.add-file'):
-            if link_tag and 'download.asp' in link_tag["href"]:
+            if link_tag and ('download.asp' in link_tag["href"] or 'download.php' in link_tag["href"]):
                 file_url = link_tag["href"]
-                file_name = sanitize_filename(link_tag.get_text(strip=True).split('(')[0].strip())
+                raw_text = link_tag.get_text(strip=True)
+                file_name_text = raw_text.rsplit(' (', 1)[0] if ' (' in raw_text else raw_text
+                file_name = sanitize_filename(file_name_text.strip())
                 download_file(file_url, file_name)
-
         # 4. 신규 템플릿 공지
         for li in soup.select('div.attachment ul li'):
             link_tag = li.find("a", href=True)
