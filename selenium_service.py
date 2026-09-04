@@ -30,14 +30,14 @@ class WriteNoticeService:
 
         self.driver = None  # 드라이버는 나중에 생성
         self.init_driver()
-        self.safe_get('https://plato.pusan.ac.kr/')
+        self.safe_get('https://dev-plato.pusan.ac.kr/')
         self.login(self.plato_id, self.plato_pw)
 
     def login_ready(self, timeout=30):
         self.driver.set_page_load_timeout(timeout)
         while True:
             try:
-                self.driver.get("https://plato.pusan.ac.kr/")
+                self.driver.get("https://dev-plato.pusan.ac.kr/")
                 break
             except TimeoutException:
                 self.restart_driver()
@@ -119,7 +119,7 @@ class WriteNoticeService:
             self.driver.quit()
 
     def download_survey(self):
-        self.safe_get("https://plato.pusan.ac.kr/mod/feedback/view.php?id=2007210&lang=ko", login_required=True)
+        self.safe_get("https://dev-plato.pusan.ac.kr/mod/feedback/view.php?id=2007210&lang=ko", login_required=True)
         # 응답 개수 크롤링
         
         response_count_element = WebDriverWait(self.driver, 10).until(
@@ -165,7 +165,7 @@ class WriteNoticeService:
 
     def send_message(self, title, url, department):
         # 쪽지 보내기 버튼 클릭 → 학번/이름 기반 체크박스 클릭 → 쪽지 작성 및 전송
-        self.safe_get("https://plato.pusan.ac.kr/local/ubmessage/send.php?id=157301&lang=ko", login_required=True)
+        self.safe_get("https://dev-plato.pusan.ac.kr/local/ubmessage/send.php?id=157301&lang=ko", login_required=True)
 
         # message.csv 파일 로드
         download_path = os.path.join(os.path.expanduser("~"), "Downloads", "message.csv")
@@ -245,11 +245,11 @@ class WriteNoticeService:
             message_bot_url = "https://discordapp.com/api/webhooks/1352641014388752455/ZyseDfp3Ggw7mc89pMCOVeUeiAd-r8s_QcXezeVFf4HF1RYPIW6SoeYYp0usrtKykwxi"
             requests.post(message_bot_url, json={"content": discord_message})
 
-        self.safe_get("https://plato.pusan.ac.kr/course/view.php?id=157301&lang=ko", login_required=True)
+        self.safe_get("https://dev-plato.pusan.ac.kr/course/view.php?id=157301&lang=ko", login_required=True)
 
     def send_email(self, title, url, content, department):
         # 이메일 보내기 버튼 클릭 → 이름/이메일 기반 체크박스 클릭 → 메일 작성 및 전송
-        self.safe_get("https://plato.pusan.ac.kr/local/ubmessage/email_send.php?id=157301&lang=ko", login_required=True)
+        self.safe_get("https://dev-plato.pusan.ac.kr/local/ubmessage/email_send.php?id=157301&lang=ko", login_required=True)
         
         # email.csv 파일 로드
         download_path = os.path.join(os.path.expanduser("~"), "Downloads", "email.csv")
@@ -383,9 +383,9 @@ class WriteNoticeService:
                 together_text.string = "부산대학교의 모든 공지사항을 한곳에서 편리하게, 자율강좌 투게더"
 
                 # 링크 추가 (작은 글씨, 중앙 정렬)
-                together_link = soup.new_tag("a", href="https://plato.pusan.ac.kr/course/view.php?id=157301",
+                together_link = soup.new_tag("a", href="https://dev-plato.pusan.ac.kr/course/view.php?id=157301",
                                              style="font-size: 12px; color: #007bff; display: block;")
-                together_link.string = "https://plato.pusan.ac.kr/course/view.php?id=157301"
+                together_link.string = "https://dev-plato.pusan.ac.kr/course/view.php?id=157301"
 
                 # footer에 요소 추가 (이미지 → 텍스트 → 링크 순서)
                 footer.append(together_image)
@@ -414,7 +414,7 @@ class WriteNoticeService:
             email_bot_url = "https://discordapp.com/api/webhooks/1352641189945540781/Rf_4-md9I_qKoRsNulv_IjIUd0qArCJJmovMf5a6AS150JmpWyV5TMiU-fuQuF0aDtoO"
             requests.post(email_bot_url, json={"content": discord_message})
 
-        self.safe_get("https://plato.pusan.ac.kr/course/view.php?id=157301&lang=ko", login_required=True)
+        self.safe_get("https://dev-plato.pusan.ac.kr/course/view.php?id=157301&lang=ko", login_required=True)
 
     def write_notices(self, course_url: str, announcements: List[Announcement], department):
         self.safe_get(course_url, login_required=True)
@@ -665,7 +665,7 @@ class WriteNoticeService:
     def update_participants(self):
 
         # 참여자 목록 페이지로 이동
-        self.driver.get("https://plato.pusan.ac.kr/user/users.php?id=157301")
+        self.driver.get("https://dev-plato.pusan.ac.kr/user/users.php?id=157301")
 
         # HTML 파싱
         html = self.driver.page_source
@@ -682,7 +682,7 @@ class WriteNoticeService:
         formatted_number = "{:,}".format(highest_number)
 
         # 편집 페이지로 이동
-        self.driver.get("https://plato.pusan.ac.kr/course/editsection.php?id=1814053&sr")
+        self.driver.get("https://dev-plato.pusan.ac.kr/course/editsection.php?id=1814053&sr")
 
         # 'id_summary_editoreditable' 요소가 로드될 때까지 대기
         content_div = WebDriverWait(self.driver, 10).until(
