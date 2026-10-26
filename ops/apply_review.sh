@@ -1,9 +1,15 @@
 #!/usr/bin/env bash
-# 사용법: bash ops/apply_review.sh <검토한 커밋 SHA>
+# 사용법: bash ops/apply_review.sh <검토한 커밋 SHA> [--no-start]
 # ubuntu 계정에서 실행하며, 적용 전에 별도 경로에서 검사한다.
 set -euo pipefail
 revision=${1:?검증한 40자리 커밋 SHA를 입력하세요}
 [[ "$revision" =~ ^[0-9a-f]{40}$ ]] || { echo '잘못된 SHA'; exit 1; }
+start_service=true
+case "${2:-}" in
+    '') ;;
+    --no-start) start_service=false ;;
+    *) echo '지원하지 않는 옵션입니다.'; exit 1 ;;
+esac
 cd /home/ubuntu/together/Source
 [[ $(git rev-parse --show-toplevel) == "$PWD" ]] || exit 1
 python3 - <<'PY'
@@ -53,8 +59,12 @@ sudo install -m 644 "$backup_dir/together-tmpfiles.conf" /etc/tmpfiles.d/togethe
 sudo systemctl enable --now systemd-tmpfiles-clean.timer
 sudo install -m 644 ops/together-crawler.service /etc/systemd/system/together-crawler.service
 sudo systemctl daemon-reload
-sudo systemctl enable --now together-crawler.service
-systemctl is-active together-crawler.service
+if "$start_service"; then
+    sudo systemctl enable --now together-crawler.service
+    systemctl is-active together-crawler.service
+else
+    echo '서버 파일과 운영 설정을 적용했습니다. 크롤러는 시작하지 않았습니다.'
+fi
 df -h /
 echo "적용 완료. 데이터/.env 백업: $backup_dir"
 echo "검증 worktree는 추후 git worktree remove 명령으로 정리할 수 있습니다: $check_dir"

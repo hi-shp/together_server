@@ -55,6 +55,8 @@ python3 tools/check_links.py --csv pages.csv --output link-audit.csv
 
 기존 서버에 적용할 때는 `bash ops/apply_review.sh <검토한 커밋 SHA>`를 사용합니다. 별도 경로에서 검사하고 데이터와 `.env`를 백업한 뒤 서버의 `main`을 해당 커밋까지 갱신합니다. 기존 웹훅 값은 서버 안에서 그대로 이전합니다.
 
+파일과 설정만 적용하고 실행은 나중에 하려면 마지막에 `--no-start`를 붙입니다.
+
 ## 브랜치
 
 - `main`: 최신 코드. 이후 수정 사항도 이 브랜치에 반영합니다.
