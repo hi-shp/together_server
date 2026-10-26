@@ -59,7 +59,7 @@ python3 tools/check_links.py --csv pages.csv --output link-audit.csv
 
 파일과 설정만 적용하고 실행은 나중에 하려면 마지막에 `--no-start`를 붙입니다.
 
-분류·중복 판별의 기준, 이력 분석 결과와 재현 방법은 [공지 분류 안내](docs/notice-intelligence.md)에 정리했습니다. 대표 원문 비교는 별도 기록이며, 기존 게시글의 본문·첨부파일 자동 수정은 수행하지 않습니다.
+분류·중복 판별의 기준과 검증 범위는 [공지 분류 안내](docs/notice-intelligence.md)에 정리했습니다. `NOTICE_ENRICHMENT_MODE=enabled`이면 이후 직접 게시하고 등록한 공지에 더 충실한 원문을 보강합니다. 기존 본문과 첨부파일을 보존하며, 사람이 수정한 글은 자동 수정에서 제외합니다.
 
 ## 브랜치
 

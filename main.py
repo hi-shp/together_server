@@ -19,6 +19,7 @@ from datetime import datetime
 from ready import NoticeUpdater
 from notice_intelligence.routing import category_hint, configured_classifier
 from notice_intelligence.shadow import observe_notice, observe_category, finish_cycle
+from notice_intelligence.enrichment import find_target, register_post, apply_enrichment
 
 with open('env.json', 'r', encoding='utf-8') as f:
     config = json.load(f)
@@ -63,6 +64,17 @@ def update_csv_with_announcement_numbers(updates, filename: str):
 
     df['number'] = df['number'].fillna(0).astype(int)
     df.to_csv(filename, index=False)
+
+
+def fetch_complete_notice(url, category):
+    for _ in range(10):
+        announcement = crawl_ann(url, category)
+        if announcement is not None:
+            announcement.title = re.sub(r'【.*?】\s*', '', announcement.title)
+            if announcement.title != '제목 없음' and announcement.content_text != '내용 없음':
+                return announcement
+        time.sleep(1)
+    raise RuntimeError(f'공지 본문 추출 실패; 공지 번호 유지: {url}')
 
 def run_cycle(writenoticeService):
     gc.collect()
@@ -115,35 +127,41 @@ def run_cycle(writenoticeService):
                 raise RuntimeError(f'공지 추출 실패; 공지 번호 유지: {url}')
 
             observe_notice(partial_ann, department)
+            enrichment_target = find_target(partial_ann, department, BASE_DIR)
             duplicate_check = is_recent_title_duplicate(partial_ann.title, identity_title=getattr(partial_ann, 'original_title', partial_ann.title))
             print(f"중복 체크 결과: {duplicate_check} - {partial_ann.title}", flush=True)
 
-            if duplicate_check != "중복":
-                category = categorize_announcement(partial_ann.title, partial_ann.content_text)
+            if enrichment_target or duplicate_check != "중복":
+                if enrichment_target:
+                    category = enrichment_target['board'] if enrichment_target['board'] in CATEGORIES else '해당없음'
+                else:
+                    category = categorize_announcement(partial_ann.title, partial_ann.content_text)
                 print(f"카테고리 분류 결과: {category}", flush=True)
                 message = f"{partial_ann.title}\n＞ {category}"
-                notify(message)
-                for _ in range(10):
-                    full_ann = crawl_ann(url, category)
-                    if full_ann is None:
-                        time.sleep(1)
-                        continue
-                    full_ann.title = re.sub(r'【.*?】\s*', '', full_ann.title)
-                    if full_ann.title != "제목 없음" and full_ann.content_text != "내용 없음":
-                        break
-                    time.sleep(1)
-
-                if full_ann is None or full_ann.title == "제목 없음" or full_ann.content_text == "내용 없음":
-                    raise RuntimeError(f'공지 본문 추출 실패; 공지 번호 유지: {url}')
+                if not enrichment_target:
+                    notify(message)
+                full_ann = fetch_complete_notice(url, category)
 
                 if category == "해당없음" or category not in CATEGORIES:
                     full_ann.notice_board_name = "기타 공지사항"
                 else:
                     full_ann.notice_board_name = category
 
-                writenoticeService.write_notices(course_url, [full_ann], department)
-                print(f"게시글 작성 완료", flush=True)
-                save_title(partial_ann.title, category)
+                should_publish = not enrichment_target
+                if enrichment_target:
+                    outcome = apply_enrichment(writenoticeService, enrichment_target, full_ann, department, BASE_DIR)
+                    if outcome is None and duplicate_check != '중복':
+                        category = categorize_announcement(partial_ann.title, partial_ann.content_text)
+                        full_ann = fetch_complete_notice(url, category)
+                        full_ann.notice_board_name = category if category in CATEGORIES and category != '해당없음' else '기타 공지사항'
+                        notify(f'{partial_ann.title}\n＞ {category}')
+                        should_publish = True
+                if should_publish:
+                    receipts = writenoticeService.write_notices(course_url, [full_ann], department)
+                    if isinstance(receipts, list) and receipts:
+                        register_post(writenoticeService, full_ann, department, receipts[0], BASE_DIR)
+                    print(f"게시글 작성 완료", flush=True)
+                    save_title(partial_ann.title, category)
 
             recent_titles = recent_title()
             if "CMS/Board/PopupBoard" in url:

@@ -19,6 +19,7 @@ import re
 from threading import Thread
 from runtime_config import notify
 from browser_runtime import new_workspace, cleanup_workspace, driver_children, stop_children
+from notice_intelligence.post_editor import validate_article_url, PostEditError, upload_file_in_manager
 
 class WriteNoticeService:
     def __init__(self):
@@ -396,13 +397,15 @@ class WriteNoticeService:
 
     def write_notices(self, course_url: str, announcements: List[Announcement], department):
         self.safe_get(course_url, login_required=True)
-
+        receipts = []
         for announcement in announcements:
             self.move_to_notice_board(announcement.notice_board_name)
-            self.write_notice_in_board(announcement.title, announcement.url, announcement.content_html,
-                                    announcement.files, announcement.notice_board_name, department)
+            receipt = self.write_notice_in_board(announcement.title, announcement.url, announcement.content_html,
+                                                 announcement.files, announcement.notice_board_name, department)
+            receipts.append(receipt)
 
             self.safe_get(course_url, login_required=True)
+        return receipts
 
 
     def write_notice_in_board(self, subject: str, url: str, content: str, files: List[str], notice_board_name: str, department: str):
@@ -471,22 +474,20 @@ class WriteNoticeService:
         else:
             self.click_with_js('input[type="submit"].btn-primary')
 
+        WebDriverWait(self.driver, 45).until(EC.staleness_of(input_subject))
+        try:
+            validate_article_url(self.driver.current_url)
+            return {'article_url': self.driver.current_url, 'subject': subject, 'source_url': url}
+        except PostEditError:
+            # 게시 주소가 확인되지 않으면 자동 수정 대상으로 등록하지 않는다.
+            return None
+
     def upload_files(self, files: List[str]):
         for file_path in files:
             self.upload_file(file_path)
 
     def upload_file(self, file_path: str):
-        self.click_with_js('a[role="button"][title="추가 ..."].btn.btn-default.btn-sm')
-
-        file_input = WebDriverWait(self.driver, 20).until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, 'input[type="file"]'))
-        )
-
-        absolute_path = os.path.abspath(file_path)
-
-        file_input.send_keys(absolute_path)
-
-        self.click_with_js('button.fp-upload-btn.btn-primary.btn')
+        upload_file_in_manager(self.driver, file_path)
 
     def click_with_js(self, css_selector: str):
         element = WebDriverWait(self.driver, 5).until(
