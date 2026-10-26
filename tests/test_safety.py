@@ -14,6 +14,7 @@ from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.modules['gpt_client'] = types.SimpleNamespace(answer_gpt=MagicMock(), check_title_similarity=MagicMock())
+sys.modules['together.integrations.openai_client'] = sys.modules['gpt_client']
 
 import browser_runtime
 import crawl_announcement as crawl
@@ -195,7 +196,8 @@ class SupervisorSafety(unittest.TestCase):
             try:
                 (root / '.runtime').mkdir()
                 with patch.object(run_main, 'BASE_DIR', root), patch.object(run_main, 'MAX_LOG_BYTES', 4096), \
-                     patch.object(run_main, 'scratch_root', return_value=root / '.runtime'):
+                     patch.object(run_main, 'scratch_root', return_value=root / '.runtime'), \
+                     patch.object(run_main.sys, 'stdout', types.SimpleNamespace(buffer=io.BytesIO())):
                     self.assertEqual(run_main.run_cycle(root / 'log.txt', max_seconds=0.5), 124)
                 self.assertLessEqual((root / 'log.txt').stat().st_size, 4200)
                 self.assertEqual(list((root / '.runtime').glob('run-*')), [])

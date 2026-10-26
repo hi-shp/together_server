@@ -119,6 +119,73 @@ class QualityTests(unittest.TestCase):
 
 
 class TransportTests(unittest.TestCase):
+    def test_restart_recovers_a_late_email_receipt_without_another_post(self):
+        import requests
+        with tempfile.TemporaryDirectory() as temp:
+            client=self.build(temp);client.student_ids={'42':'202600001'}
+            client.session.post.side_effect=requests.ReadTimeout()
+            client.email_history=MagicMock(side_effect=[[],[]])
+            try:
+                with self.assertRaises(NotificationOutcomeUnknown):client.send('email',[],'제목','본문','event')
+            finally:client.close()
+            resumed=self.build(temp)
+            resumed.email_history=MagicMock(return_value=[{'eid':'2','subject':'제목','student_ids':{'202600001'}}])
+            try:
+                self.assertEqual(resumed.send('email',[],'제목','본문','event')['deduplicated'],1)
+                resumed.session.post.assert_not_called()
+            finally:resumed.close()
+
+    def test_all_recipients_are_sent_in_one_request(self):
+        with tempfile.TemporaryDirectory() as temp:
+            client=self.build(temp,'199명에게 메세지가 전달되었습니다.')
+            ids=[str(i) for i in range(1,200)]
+            client.prepare.return_value=({},ids,[])
+            try:
+                result=client.send('message',[],'','본문','event')
+                self.assertEqual(result['sent'],199);client.session.post.assert_called_once()
+                payload=client.session.post.call_args.kwargs['data']
+                self.assertEqual([value for key,value in payload if key=='tousers[]'],ids)
+            finally:client.close()
+
+    def test_legacy_batches_are_not_resent_after_switching_to_one_request(self):
+        import hashlib
+        with tempfile.TemporaryDirectory() as temp:
+            client=self.build(temp);ids=[str(i) for i in range(1,200)]
+            client.prepare.return_value=({},ids,[])
+            for batch in (ids[:100],ids[100:]):
+                key=hashlib.sha256(json.dumps(['message','event',batch],ensure_ascii=False).encode()).hexdigest()
+                client.ledger.claim(key,'message',len(batch));client.ledger.finish(key,'sent',1)
+            try:
+                self.assertEqual(client.send('message',[],'','본문','event')['deduplicated'],199)
+                client.session.post.assert_not_called()
+            finally:client.close()
+
+    def test_changed_recipient_order_does_not_resend_existing_users(self):
+        with tempfile.TemporaryDirectory() as temp:
+            client=self.build(temp,'2명에게 메세지가 전달되었습니다.')
+            client.prepare.return_value=({},['1','2'],[])
+            try:
+                client.send('message',[],'','본문','event')
+                client.prepare.return_value=({},['2','1','3'],[])
+                client.session.post.return_value=Response('1명에게 메세지가 전달되었습니다.')
+                result=client.send('message',[],'','본문','event')
+                self.assertEqual((result['sent'],result['deduplicated']),(1,2))
+                self.assertEqual([value for key,value in client.session.post.call_args.kwargs['data'] if key=='tousers[]'],['3'])
+            finally:client.close()
+
+    def test_timeout_is_reconciled_from_new_email_history_without_resending(self):
+        import requests
+        with tempfile.TemporaryDirectory() as temp:
+            client=self.build(temp);client.student_ids={'42':'202600001'}
+            client.session.post.side_effect=requests.ReadTimeout()
+            receipt={'eid':'2','subject':'제목','student_ids':{'202600001'}}
+            client.email_history=MagicMock(side_effect=[[],[receipt]])
+            try:
+                self.assertEqual(client.send('email',[],'제목','본문','event')['sent'],1)
+                self.assertEqual(client.send('email',[],'제목','본문','event')['deduplicated'],1)
+                client.session.post.assert_called_once()
+            finally:client.close()
+
     def test_email_preflight_failure_does_not_claim_or_send(self):
         with tempfile.TemporaryDirectory() as temp:
             client=self.build(temp);client.student_ids={'42':'202600001'}
@@ -134,7 +201,7 @@ class TransportTests(unittest.TestCase):
             client=self.build(temp,'redirect');client.student_ids={'42':'202600001'}
             old={'eid':'1','subject':'제목','student_ids':{'202600001'}}
             wrong={'eid':'2','subject':'제목','student_ids':{'202600002'}}
-            client.email_history=MagicMock(side_effect=[[old],[old,wrong]])
+            client.email_history=MagicMock(side_effect=[[old],[old,wrong],[old,wrong]])
             try:
                 with self.assertRaises(NotificationOutcomeUnknown):client.send('email',[],'제목','본문','event')
                 with self.assertRaises(NotificationOutcomeUnknown):client.send('email',[],'제목','본문','event')
@@ -228,6 +295,10 @@ class ApiUsageTests(unittest.TestCase):
 
 
 class HealthTests(unittest.TestCase):
+    def test_manual_runner_is_not_reported_as_a_stopped_service(self):
+        issues,_=evaluate(self.metrics(expected_running=True,crawler_running=True))
+        self.assertEqual(issues,[])
+
     def metrics(self,**kwargs):
         return dict({'free_bytes':30*1024**3,'memory_percent':50,'service':'inactive','expected_running':False,'runner':{}},**kwargs)
 

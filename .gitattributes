@@ -1,0 +1,2 @@
+# 원본 이메일 양식의 공백과 줄바꿈을 유지한다.
+together/plato/templates/notice_email.html whitespace=-blank-at-eol,-blank-at-eof

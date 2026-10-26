@@ -6,21 +6,22 @@ import shutil,sqlite3,subprocess,sys,time
 import psutil
 
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
-from runtime_config import BASE_DIR,notify
-from operations_state import read_state
-from attachment_cache import AttachmentCache,GIB
-from api_accounting import ApiAccounting
+from together.config import BASE_DIR,notify
+from together.operations.state import read_state
+from together.storage.attachments import AttachmentCache,GIB
+from together.storage.api_usage import ApiAccounting
 
 
 def evaluate(metrics,previous=None):
     previous=previous or {};issues=[]
     def add(code,detail):issues.append({'code':code,'detail':detail})
     if metrics['free_bytes']<2*GIB:add('disk_critical','디스크 여유 공간이 2GB 아래입니다.')
-    if metrics.get('expected_running') and metrics.get('service')!='active':add('crawler_stopped','운영하도록 설정한 크롤러가 중지됐습니다.')
+    running=metrics.get('crawler_running',metrics.get('service')=='active')
+    if metrics.get('expected_running') and not running:add('crawler_stopped','운영하도록 설정한 크롤러가 중지됐습니다.')
     runner=metrics.get('runner',{})
     if runner.get('consecutive_failures',0)>=3:add('repeated_cycle_failure','크롤러 실행이 3회 이상 연속 실패했습니다.')
     planned_pause=runner.get('status')=='night_pause' and time.time()<runner.get('next_wake',0)+300
-    if metrics.get('service')=='active' and not planned_pause and time.time()-runner.get('updated_at',time.time())>3*3600:
+    if running and metrics.get('expected_running') and not planned_pause and time.time()-runner.get('updated_at',time.time())>3*3600:
         add('crawler_stalled','운영 상태 갱신이 3시간 이상 멈췄습니다.')
     memory_checks=previous.get('memory_checks',0)+1 if metrics.get('memory_percent',0)>=95 else 0
     if memory_checks>=3:add('memory_critical','메모리 사용률 95% 이상이 반복되고 있습니다.')
@@ -72,6 +73,13 @@ def budget_status(base_dir,api):
 def collect(base_dir):
     base_dir=Path(base_dir)
     service=subprocess.run(['systemctl','is-active','together-crawler.service'],capture_output=True,text=True).stdout.strip()
+    running=service=='active'
+    for process in psutil.process_iter(['name','cmdline']):
+        try:
+            if ('python' in (process.info['name'] or '').lower() and
+                any(Path(arg).name in ('run_main.py','main.py') for arg in process.info['cmdline'] or []) and
+                Path(process.cwd()).resolve()==base_dir.resolve()):running=True
+        except (psutil.NoSuchProcess,psutil.AccessDenied):pass
     runner=read_state(base_dir)
     memory=psutil.virtual_memory();free=shutil.disk_usage(base_dir).free
     api=ApiAccounting(base_dir).summary()
@@ -88,7 +96,7 @@ def collect(base_dir):
     for path in (base_dir/'.runtime').glob('notification-missing-*.json'):
         row=json.loads(path.read_text())
         if time.time()-row['updated']<86400 and len(row['missing_hashes'])>=10 and len(row['missing_hashes'])/max(1,row['requested'])>=.25:mismatch=True
-    return {'checked_at':datetime.now(timezone.utc).isoformat(),'service':service,
+    return {'checked_at':datetime.now(timezone.utc).isoformat(),'service':service,'crawler_running':running,
             'expected_running':os.getenv('OPERATIONS_EXPECT_CRAWLER','0')=='1' or runner.get('expected_running',False),'runner':runner,
             'free_bytes':free,'memory_percent':memory.percent,'attachment_cache':AttachmentCache(base_dir).maintain(),
             'api':api,'budget':budget_status(base_dir,api),'unknown_delivery_recipients':unknown,'recent_quarantined':quarantined,

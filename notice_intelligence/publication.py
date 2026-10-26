@@ -6,7 +6,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from .quality import inspect_rendered_post,PostVerificationError
 from .post_editor import PlatoPostEditor,PostEditError
-from attachment_cache import file_digest
+from together.storage.attachments import file_digest
 
 
 def _path(base_dir):

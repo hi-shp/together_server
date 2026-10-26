@@ -16,6 +16,7 @@ import weakref
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.modules['gpt_client'] = types.SimpleNamespace(answer_gpt=MagicMock(), check_title_similarity=MagicMock())
+sys.modules['together.integrations.openai_client'] = sys.modules['gpt_client']
 
 import duplicate_checker as checker
 import main

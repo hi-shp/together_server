@@ -6,8 +6,9 @@ import types
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 # 브라우저 시험에서는 GPT 클라이언트를 만들지 않는다.
 sys.modules['gpt_client'] = types.SimpleNamespace(answer_gpt=None, check_title_similarity=None)
-from selenium_service import WriteNoticeService
-from browser_runtime import workspace_root
+sys.modules['together.integrations.openai_client'] = sys.modules['gpt_client']
+from together.plato.service import WriteNoticeService
+from together.plato.browser_runtime import workspace_root
 
 
 def main():

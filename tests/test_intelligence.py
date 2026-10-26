@@ -16,6 +16,7 @@ from unittest.mock import MagicMock, patch
 os.environ['NOTICE_INTELLIGENCE_MODE'] = 'off'
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.modules['gpt_client'] = types.SimpleNamespace(answer_gpt=MagicMock(), check_title_similarity=MagicMock())
+sys.modules['together.integrations.openai_client'] = sys.modules['gpt_client']
 
 from bs4 import BeautifulSoup
 from notice_intelligence.text import identity, occurrence_conflict, clean_display_title, NORMALIZATION_VERSION
@@ -219,7 +220,7 @@ class DuplicateContractTests(unittest.TestCase):
 
 class GPTContractTests(unittest.TestCase):
     def load_adapter(self):
-        path = Path(__file__).resolve().parents[1] / 'gpt_client.py'
+        path = Path(__file__).resolve().parents[1] / 'together/integrations/openai_client.py'
         spec = importlib.util.spec_from_file_location('tested_gpt_adapter', path)
         module = importlib.util.module_from_spec(spec)
         with patch('openai.OpenAI') as factory, patch('api_accounting.ApiAccounting') as accounting:

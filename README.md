@@ -30,12 +30,14 @@ python3 run_main.py
 
 | 파일 | 역할 |
 |---|---|
-| `main.py`, `run_main.py` | 공지 처리와 반복 실행 |
-| `crawl_announcement.py` | 제목·본문·첨부파일 수집 |
-| `selenium_service.py` | PLATO 로그인과 게시·알림 처리 |
+| `main.py`, `run_main.py` | 기존 실행 명령 |
+| `together/application.py`, `together/supervisor.py` | 공지 처리와 반복 실행 |
+| `together/crawler/` | 제목·본문·첨부파일과 게시판 관리 |
+| `together/plato/` | PLATO 로그인, 게시, 알림과 이메일 양식 |
+| `together/storage/` | 첨부 보관과 API 사용량 |
+| `together/operations/`, `together/config.py` | 실행 상태와 환경설정 |
+| `together/notices/`, `together/integrations/` | 제목 이력과 GPT 연동 |
 | `notice_intelligence/` | 분류, 중복 판별, 게시 검증과 보강 |
-| `page_url_manager.py`, `ready.py` | 게시판 주소와 마지막 확인 위치 관리 |
-| `runtime_config.py`, `browser_runtime.py` | 환경설정과 브라우저 자원 관리 |
 
 `pages.csv`에는 게시판별 마지막 공지 번호, `titles.txt`에는 중복 검사 이력, `sorted_labeled_data.csv`에는 분류 결과를 저장합니다. `yesterday.txt`는 대학 공지의 마지막 확인 제목을 보관합니다. 서버의 기존 파일을 이어서 사용합니다.
 
@@ -51,7 +53,7 @@ bash ops/apply_review.sh <검증한 커밋 SHA> --no-start
 
 첨부파일 보관 기간은 7일, 기본 보관 상한은 10GB입니다. 브라우저 작업 폴더는 실행별로 만들고 종료할 때 정리합니다. 로그는 파일당 약 8MiB, 합계 128MiB, 7일을 기준으로 관리합니다.
 
-분류·중복·보강의 기준은 [공지 처리 안내](docs/notice-intelligence.md), 게시 검증·전송·장애 감시는 [운영 안내](docs/operations.md)에 정리했습니다.
+분류·중복·보강의 기준은 [공지 처리 안내](docs/notice-intelligence.md), 게시 검증·전송·장애 감시는 [운영 안내](docs/operations.md), 파일별 역할은 [코드 구성](docs/architecture.md)에 정리했습니다.
 
 ## 브랜치
 

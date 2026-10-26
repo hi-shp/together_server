@@ -88,7 +88,7 @@ def _record(method, *args):
     if os.getenv('NOTICE_INTELLIGENCE_MODE', 'off') != 'shadow':
         return
     try:
-        from runtime_config import BASE_DIR
+        from together.config import BASE_DIR
         getattr(_recorder(str(BASE_DIR)), method)(*args)
     except Exception as exc:
         print(f'별도 공지 분석 기록 생략: {type(exc).__name__}', flush=True)
