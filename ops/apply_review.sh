@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Usage: bash ops/apply_review.sh <verified-40-character-commit-sha>
-# Run as ubuntu. The exact code is tested in a separate worktree before switching.
+# 사용법: bash ops/apply_review.sh <검토한 커밋 SHA>
+# ubuntu 계정에서 실행하며, 적용 전에 별도 경로에서 검사한다.
 set -euo pipefail
 revision=${1:?검증한 40자리 커밋 SHA를 입력하세요}
 [[ "$revision" =~ ^[0-9a-f]{40}$ ]] || { echo '잘못된 SHA'; exit 1; }
@@ -52,7 +52,7 @@ python3 ops/configure_webhooks.py --from-ref "$(cat "$backup_dir/previous-commit
 sudo install -d -m 755 /etc/systemd/journald.conf.d
 sudo install -m 644 ops/90-together-limits.conf /etc/systemd/journald.conf.d/90-together-limits.conf
 sudo systemctl restart systemd-journald
-# Age out leftovers from power loss/SIGKILL. Normal cycles are capped at 2h.
+# 비정상 종료로 남은 전용 임시 파일은 하루 뒤 정리한다.
 printf 'e /tmp/together-%s 0700 ubuntu ubuntu 1d\n' "$(id -u ubuntu)" > "$backup_dir/together-tmpfiles.conf"
 sudo install -m 644 "$backup_dir/together-tmpfiles.conf" /etc/tmpfiles.d/together-crawler.conf
 sudo systemctl enable --now systemd-tmpfiles-clean.timer

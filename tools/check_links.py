@@ -1,4 +1,4 @@
-"""Read-only board URL audit. No application imports, CSV/TXT changes, or posting."""
+"""게시판 주소를 조회하고 별도 CSV에 점검 결과를 저장한다."""
 import argparse
 import csv
 import json

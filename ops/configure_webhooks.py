@@ -1,4 +1,4 @@
-"""Move existing webhook literals into .env locally, without printing values."""
+"""기존 코드의 웹훅 값을 서버 안에서 .env로 이전한다."""
 import argparse
 import ast
 from datetime import datetime

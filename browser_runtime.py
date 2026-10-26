@@ -1,4 +1,4 @@
-"""Private, per-driver scratch directories instead of global /tmp deletion."""
+"""브라우저별 임시 경로와 자식 프로세스 정리."""
 import os
 import shutil
 import tempfile
@@ -9,8 +9,7 @@ import stat
 
 
 def scratch_root():
-    # Unix-domain socket paths are limited (~108 bytes). A project path can be
-    # too long for Chromium's temporary SingletonSocket even with a fresh profile.
+    # Chromium 소켓의 경로 길이 제한에 맞춰 임시 경로를 짧게 둔다.
     root = Path(f'/tmp/together-{os.getuid()}')
     root.mkdir(mode=0o700, exist_ok=True)
     info = root.lstat()
@@ -30,7 +29,7 @@ def driver_children(service):
 
 
 def stop_children(children):
-    # Process objects track creation time, protecting against PID reuse.
+    # PID가 재사용된 다른 프로세스를 종료하지 않도록 생성 시각도 확인한다.
     for child in children:
         try:
             child.terminate()
@@ -73,5 +72,5 @@ def cleanup_workspace(path):
     except FileNotFoundError:
         pass
     except OSError as exc:
-        # Do not sudo/chmod globally, and never turn successful posting into a crash.
+        # 정리 실패는 기록하고 다음 실행에서 처리한다.
         print(f'Browser cleanup deferred: {type(exc).__name__}', flush=True)

@@ -5,10 +5,9 @@ from urllib.parse import urljoin, urlparse
 from runtime_config import HTTP_TIMEOUT
 import re
 import time
-import urllib3 # 추가
+import urllib3
 from duplicate_checker import recent_title
 
-# SSL 경고 비활성화
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 """
@@ -35,27 +34,26 @@ class AnnouncementPage:
 
 
 def clean_title(title):
-    return ' '.join(title.split())  # 공지사항 제목을 한 줄로 정리
+    return ' '.join(title.split())
 
-def sanitize_filename(filename):  # 파일 다운로드 시 사용할 수 없는 이름 수정
+def sanitize_filename(filename):
     return re.sub(r'[\/:*?"<>|]', '_', filename)
 
-# BMP 범위 내 문자만 남기기 위한 필터링 함수 추가
 def filter_bmp_characters(text):
     return ''.join(c for c in text if ord(c) <= 0xFFFF)
 
-def get_anns_url(announcementPage, n):  # 각 사이트마다 공지 url 추출
+def get_anns_url(announcementPage, n):
     try:
-        # SSL 인증서 오류 해결을 위해 verify=False 유지
+        # 기존 사이트와의 호환성을 위해 인증서 검증 설정을 유지한다.
         response = requests.get(announcementPage.page_url, verify=False, timeout=HTTP_TIMEOUT)
         response.raise_for_status()
     except requests.exceptions.RequestException as e:
         print(e, flush=True)
-        return [], announcementPage.number  # 오류 발생 시 빈 리스트 반환
+        return [], announcementPage.number
 
     soup = BeautifulSoup(response.text, 'html.parser')
 
-    # requests receives a complete static response; repeated GETs cannot render JS.
+    # 정적 HTML은 한 번만 받아 파싱한다.
     table_element = soup.find("tbody")
 
     if table_element:
@@ -67,7 +65,7 @@ def get_anns_url(announcementPage, n):  # 각 사이트마다 공지 url 추출
     announcement_numbers = []
     urls = []
 
-    # A layout change must never silently advance past a row without a link.
+    # 새 공지의 링크가 없으면 저장된 공지 번호를 유지한다.
     for row in rows:
         number = row.select_one('td._artclTdNum, td.number, td.num, td.td-num')
         if number and number.get_text(strip=True).isdigit() and int(number.get_text(strip=True)) > announcementPage.number:
@@ -80,29 +78,28 @@ def get_anns_url(announcementPage, n):  # 각 사이트마다 공지 url 추출
 
     for row in rows:
         try:
-            # 첫 번째 시도: _artclTdNum 클래스의 td 태그 찾기(나머지 모두)
+            # 일반 학과 게시판
             number_tag = row.find("td", class_="_artclTdNum")
             number_text = number_tag.get_text(strip=True)
         except AttributeError:
             try:
-                # 두 번째 시도: number 클래스의 td 태그 찾기(기계과)
+                # 기계공학부 게시판
                 number_tag = row.find("td", class_="number")
                 number_text = number_tag.get_text(strip=True).replace("<br>", "").strip()
             except AttributeError:
                 try:
-                    # 세 번째 시도: num 클래스의 td 태그 찾기(대학공지)
+                    # 대학 공지 게시판
                     number_tag = row.find("td", class_="num")
                     number_text = number_tag.get_text(strip=True).replace("<br>", "").strip()
                 except AttributeError:
                     try:
-                        # 네 번째 시도: td-num 클래스의 td 태그 찾기 (고분자공학과 등 최신 양식)
+                        # td-num 형식 게시판
                         number_tag = row.find("td", class_="td-num")
                         number_text = number_tag.get_text(strip=True)
                     except AttributeError:
-                        # 모든 시도가 실패한 경우
                         continue
 
-        if number_text.isdigit():  # 숫자인 경우만 처리
+        if number_text.isdigit():
             announcement_numbers.append(int(number_text))
 
     if announcement_numbers:
@@ -118,23 +115,19 @@ def get_anns_url(announcementPage, n):  # 각 사이트마다 공지 url 추출
         idx = 0
         num_idx = 0
 
-        # yesterday.txt에서 두 번째 줄 읽기
+        # 둘째 줄은 대학 공지의 마지막 확인 제목이다.
         with open("yesterday.txt", "r", encoding="utf-8") as file:
             lines = file.readlines()
         last_yesterday_title = lines[1].strip() if len(
-            lines) >= 2 else None  # 두 번째 줄 가져오기
+            lines) >= 2 else None
 
-        # URL 추출
         for row in rows:
-            # 첫 번째 시도: 나머지 모두
             number_tag = row.find("td", class_="_artclTdNum")
             if number_tag is None or not number_tag.get_text(strip=True).isdigit():
                 try:
-                    # 두 번째 시도: 기계과
                     number_tag = row.find("td", class_="number")
                     if number_tag is None or not number_tag.get_text(strip=True).replace("<br>", "").strip().isdigit():
                         try:
-                            # 세 번째 시도: 대학공지
                             number_tag = row.find("td", class_="num")
                             if number_tag and number_tag.get_text(strip=True).isdigit():
                                 announcement_number = int(number_tag.get_text(strip=True))
@@ -146,7 +139,7 @@ def get_anns_url(announcementPage, n):  # 각 사이트마다 공지 url 추출
                                             url = element['href']
                                             urls.append(urljoin(response.url, url))
 
-                            # <img> 태그 포함 경우 (대학공지 특수)
+                            # 번호 대신 이미지가 표시되는 대학 공지
                             elif number_tag and number_tag.find("img"):
                                 title_tag = row.find("td", class_="subject")
                                 if title_tag:
@@ -173,7 +166,7 @@ def get_anns_url(announcementPage, n):  # 각 사이트마다 공지 url 추출
                                                         file.writelines(lines)
                                                     num_idx += 1
                             
-                            # 네 번째 시도 (고분자공학과 등 td-num, td-title 사용 사이트)
+                            # td-num 형식 게시판
                             else:
                                 number_tag = row.find("td", class_="td-num")
                                 if number_tag and number_tag.get_text(strip=True).isdigit():
@@ -189,7 +182,7 @@ def get_anns_url(announcementPage, n):  # 각 사이트마다 공지 url 추출
                         except AttributeError:
                             continue
                     else:
-                        # 기계과 URL 처리 로직 (UnboundLocalError 방지 처리)
+                        # 기계공학부의 goDetail 호출을 상세 주소로 변환한다.
                         announcement_number = int(number_tag.get_text(strip=True).replace("<br>", "").strip())
                         if announcement_number > announcementPage.number:
                             element = row.find('a', href=True)
@@ -200,7 +193,7 @@ def get_anns_url(announcementPage, n):  # 각 사이트마다 공지 url 추출
                                     if not detail_id.isdigit():
                                         continue
                                     
-                                    url = None # 초기화
+                                    url = None
                                     
                                     if "sub01_01.php" in announcementPage.page_url:
                                         url = f"{announcementPage.page_url.split('?')[0]}?seq={detail_id}&db=hakbunotice&page=1&perPage=20&SearchPart=BD_SUBJECT&SearchStr=&page_mode=view"
@@ -209,12 +202,12 @@ def get_anns_url(announcementPage, n):  # 각 사이트마다 공지 url 추출
                                     elif "sub01_05.php" in announcementPage.page_url:
                                         url = f"{announcementPage.page_url.split('?')[0]}?seq={detail_id}&db=supervision&page=1&perPage=20&SearchPart=BD_SUBJECT&SearchStr=&page_mode=view"
                                     
-                                    if url: # url 변수가 생성되었을 때만 추가
+                                    if url:
                                         urls.append(url)
                 except AttributeError:
                     continue
             else:
-                # 첫 번째 시도 (나머지 학과들) 로직 유지
+                # 일반 학과 게시판
                 announcement_number = int(number_tag.get_text(strip=True))
                 if announcement_number > announcementPage.number:
                     title_tag = row.find("td", class_="_artclTdTitle")
@@ -223,7 +216,7 @@ def get_anns_url(announcementPage, n):  # 각 사이트마다 공지 url 추출
                         if element:
                             url = element['href']
                             urls.append(urljoin(response.url, url))
-        # Do not advance past an unrecognized/new row with no usable detail URL.
+        # 상세 링크 추출에 실패하면 공지 번호를 넘기지 않는다.
         urls = list(dict.fromkeys(urls))
         if any(urlparse(url).scheme not in ('http', 'https') for url in urls):
             raise ValueError(f'Invalid notice link: {announcementPage.page_url}')
@@ -236,7 +229,7 @@ def get_anns_url(announcementPage, n):  # 각 사이트마다 공지 url 추출
         return [], announcementPage.number
 
 
-def crawl_ann_partial(url: str) -> Announcement:  # 제목+내용만 부분 추출해서 중복/카테고리 판단
+def crawl_ann_partial(url: str) -> Announcement:
     try:
         response = requests.get(url, verify=False, timeout=HTTP_TIMEOUT)
         response.raise_for_status()
@@ -246,7 +239,7 @@ def crawl_ann_partial(url: str) -> Announcement:  # 제목+내용만 부분 추�
 
     soup = BeautifulSoup(response.text, 'html.parser')
 
-    # 제목 찾기 (우선순위: 일반 -> 기계과 -> 신규양식)
+    # 일반 학과, 기계공학부, 신규 양식 순으로 제목을 찾는다.
     title_element = soup.find("h2", class_="artclViewTitle")
     if not title_element:
         title_element = soup.find("h4", class_="vtitle")
@@ -263,7 +256,7 @@ def crawl_ann_partial(url: str) -> Announcement:  # 제목+내용만 부분 추�
 
     title = filter_bmp_characters(clean_title(title_element.get_text(strip=True))) if title_element else "제목 없음"
 
-    # 본문 찾기 (우선순위: 일반 -> 기계과 -> 대학공지 -> 신규양식)
+    # 게시판 양식에 맞는 본문 영역을 찾는다.
     content_text_element = soup.find('div', class_="artclView")
     if not content_text_element:
         content_text_element = soup.find('div', id="boardContents")
@@ -283,7 +276,7 @@ def crawl_ann_partial(url: str) -> Announcement:  # 제목+내용만 부분 추�
         files=[]
     )
 
-def crawl_ann(url: str, category: str) -> Announcement:  # 전부 추출
+def crawl_ann(url: str, category: str) -> Announcement:
     try:
         response = requests.get(url, verify=False, timeout=HTTP_TIMEOUT)
         response.raise_for_status()
@@ -294,7 +287,6 @@ def crawl_ann(url: str, category: str) -> Announcement:  # 전부 추출
     soup = BeautifulSoup(response.text, 'html.parser')
     base_url = response.url
 
-    # 제목 찾기
     title_element = soup.find("h2", class_="artclViewTitle")
     if not title_element:
         title_element = soup.find("h4", class_="vtitle")
@@ -311,7 +303,6 @@ def crawl_ann(url: str, category: str) -> Announcement:  # 전부 추출
 
     title = filter_bmp_characters(clean_title(title_element.get_text(strip=True))) if title_element else "제목 없음"
 
-    # 본문 및 HTML 찾기
     content_text_element = soup.find('div', class_="artclView")
     if not content_text_element:
         content_text_element = soup.find('div', id="boardContents")
@@ -332,7 +323,6 @@ def crawl_ann(url: str, category: str) -> Announcement:  # 전부 추출
         content_html = ""
         content_text = "내용 없음"
 
-    # 첨부파일 다운로드 로직
     files = []
     if category != "해당없음":
         file_extensions_to_exclude = ['.png', '.jpg', '.jpeg', '.gif']
@@ -353,7 +343,7 @@ def crawl_ann(url: str, category: str) -> Announcement:  # 전부 추출
                 except Exception as e:
                     print(f'다운로드 실패: {file_name} ({e})', flush=True)
 
-        # 1. 나머지 공지
+        # 일반 학과 첨부파일
         for insert in soup.find_all('dd', class_="artclInsert"):
             for li in insert.find_all("li"):
                 link_tag = li.find("a")
@@ -362,7 +352,7 @@ def crawl_ann(url: str, category: str) -> Announcement:  # 전부 추출
                     file_name = sanitize_filename(link_tag.get_text(strip=True))
                     download_file(file_url, file_name)
 
-        # 2. 대학공지
+        # 대학 공지 첨부파일
         for li in soup.select('div.board-view-winfo div.board-winfo-files ul.board-view-filelist li'):
             link_tag = li.find("a")
             if link_tag and 'downloadRun.do' in link_tag["href"]:
@@ -370,7 +360,7 @@ def crawl_ann(url: str, category: str) -> Announcement:  # 전부 추출
                 file_name = sanitize_filename(link_tag.get_text(strip=True).split('(')[0].strip())
                 download_file(file_url, file_name)
 
-        # 3. 기계과 공지
+        # 기계공학부 첨부파일
         for link_tag in soup.select('dl.half-box01 a.add-file'):
             if link_tag and ('download.asp' in link_tag["href"] or 'download.php' in link_tag["href"]):
                 file_url = link_tag["href"]
@@ -378,13 +368,12 @@ def crawl_ann(url: str, category: str) -> Announcement:  # 전부 추출
                 file_name_text = raw_text.rsplit(' (', 1)[0] if ' (' in raw_text else raw_text
                 file_name = sanitize_filename(file_name_text.strip())
                 download_file(file_url, file_name)
-        # 4. 신규 템플릿 공지
+        # 신규 양식 첨부파일
         for li in soup.select('div.attachment ul li'):
             link_tag = li.find("a", href=True)
-            # 미리보기 버튼(class="preview")은 제외하고 다운로드 링크만 필터링
+            # 미리보기 링크는 다운로드에서 제외한다.
             if link_tag and 'download.do' in link_tag["href"] and not link_tag.has_attr("class"):
                 file_url = link_tag["href"]
-                # 이미지 태그 텍스트 무시하고 파일명만 가져오기
                 file_name = sanitize_filename(link_tag.get_text(strip=True))
                 download_file(file_url, file_name)
 

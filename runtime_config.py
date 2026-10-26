@@ -1,4 +1,4 @@
-"""Shared configuration; never print credentials or webhook URLs."""
+"""환경설정과 Discord 알림."""
 import os
 from pathlib import Path
 
@@ -12,11 +12,7 @@ _warned = set()
 
 
 def notify(content=None, *, channel='WEBHOOK_URL', log_path=None):
-    """Discord is optional; a notification failure must not repeat a posted notice.
-
-    Do not retry POSTs: a timeout can happen after Discord accepted the message.
-    Log only exception types/statuses, because requests exceptions contain URLs.
-    """
+    """Discord 알림을 보낸다. 중복 전송을 막기 위해 실패 시 재시도하지 않는다."""
     url = os.getenv(channel, '').strip()
     if not url:
         if channel not in _warned:

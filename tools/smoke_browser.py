@@ -1,11 +1,10 @@
-"""Exercise real Chrome start/restart/quit without credentials or website writes."""
+"""로그인 없이 Chrome 시작·재시작·종료를 확인한다."""
 from pathlib import Path
 import sys
 import types
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-# Selenium's module imports the crawler's duplicate checker. This smoke test must
-# not initialize or call the GPT client, even if production credentials exist.
+# 브라우저 시험에서는 GPT 클라이언트를 만들지 않는다.
 sys.modules['gpt_client'] = types.SimpleNamespace(answer_gpt=None, check_title_similarity=None)
 from selenium_service import WriteNoticeService
 from browser_runtime import workspace_root

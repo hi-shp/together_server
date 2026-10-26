@@ -1,4 +1,4 @@
-"""Offline regression tests. Never log in, post notices, or contact Discord/GPT."""
+"""외부 전송 없이 크롤러 동작을 검사한다."""
 import contextlib
 import csv
 import io
@@ -203,7 +203,7 @@ class SupervisorSafety(unittest.TestCase):
                 child_pid = int((root / 'log.txt').read_text().splitlines()[0].split('=')[1])
                 try:
                     state = Path(f'/proc/{child_pid}/stat').read_text().split()[2]
-                    self.assertEqual(state, 'Z')  # reaped asynchronously by init
+                    self.assertEqual(state, 'Z')  # 종료된 자식은 init이 회수한다.
                 except FileNotFoundError:
                     pass
             finally:

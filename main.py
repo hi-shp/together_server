@@ -18,7 +18,6 @@ import requests
 from datetime import datetime
 from ready import NoticeUpdater
 
-# JSON 파일 불러오기
 with open('env.json', 'r', encoding='utf-8') as f:
     config = json.load(f)
 KEYWORD_CATEGORIES = config['KEYWORD_CATEGORIES']
@@ -26,9 +25,8 @@ EXCLUDE_KEYWORDS = config['EXCLUDE_KEYWORDS']
 CATEGORIES = config['CATEGORIES']
 
 def categorize_by_keywords(title, content_text):
-    # 제목과 내용에서 키워드를 검색하여 게시판을 직접 분류. 매핑된 카테고리가 있는 경우 해당 카테고리로 분류, 아니면 None 반환
     for keyword, category in KEYWORD_CATEGORIES.items():
-        if keyword in title:  # + content_text
+        if keyword in title:
             return category
 
     for keyword in EXCLUDE_KEYWORDS:
@@ -37,32 +35,28 @@ def categorize_by_keywords(title, content_text):
     return None
 
 def categorize_announcement(title, content_text):
-    # 먼저 키워드를 기반으로 카테고리 분류 시도
     category = categorize_by_keywords(title, content_text)
     if category:
         return category
     else:
-        # 사전 정의된 키워드로 분류되지 않으면 ChatGPT를 통해 카테고리 분류
+        # 키워드로 분류되지 않은 공지만 GPT로 분류한다.
         combined_text = f"{title}\n{content_text}"
-        truncated_content = truncate_text(combined_text, 1000)  # 토큰 수 제한(1000토큰 = 약 500~700글자)
+        truncated_content = truncate_text(combined_text, 1000)
         return answer_gpt(truncated_content)
 
 def update_csv_with_announcement_numbers(updates, filename: str):
     df = pd.read_csv(f'{filename}')
 
-    # 각 URL에 대한 공지 번호 업데이트
     for page_url, announcement_number in updates.items():
         df.loc[df['page_url'] == page_url, 'number'] = announcement_number
 
-    # CSV 파일 다시 쓰기
     df['number'] = df['number'].fillna(0).astype(int)
     df.to_csv(filename, index=False)
 
 def run_cycle(writenoticeService):
     gc.collect()
-    #print("모듈 로드 완료", flush=True)
-    today_date = datetime.now().strftime("%Y-%m-%d") # 오늘 날짜 가져오기
-    current_datetime = datetime.now().strftime("%Y-%m-%d / %H:%M:%S") # 현재 날짜와 시간(년-월-일 / 시:분:초)
+    today_date = datetime.now().strftime("%Y-%m-%d")
+    current_datetime = datetime.now().strftime("%Y-%m-%d / %H:%M:%S")
     print(current_datetime, flush=True)
     updater = NoticeUpdater()
 
@@ -70,21 +64,17 @@ def run_cycle(writenoticeService):
     os.makedirs(DOWNLOADS_DIR, exist_ok=True)
     for filename in ("email.csv", "message.csv", "알림 신청하기.csv"):
         file_path = os.path.join(DOWNLOADS_DIR, filename)
-        if os.path.isfile(file_path):  # 파일만 삭제
+        if os.path.isfile(file_path):
             os.remove(file_path)
     announcements = []
     page_url_manager = PageUrlManager()
-    #print("데이터 초기화 완료", flush=True)
 
-    updates = {}  # 업데이트할 URL과 공지 번호 저장
-    course_url = "https://dev-plato.pusan.ac.kr/course/view.php?id=157301"  # 실제 course_url 사용
-    #print("Selenium 클래스 로드 완료", flush=True)
+    updates = {}
+    course_url = "https://dev-plato.pusan.ac.kr/course/view.php?id=157301"
 
     highest_num = writenoticeService.update_participants()
-    #print(f"참여자 수 업데이트 완료 ({highest_num}명)", flush=True)
 
     response_count = writenoticeService.download_survey()
-    #print(f"설문 다운로드 완료 ({response_count}명)", flush=True)
 
     current_datetime = datetime.now().strftime("%Y-%m-%d / %H:%M:%S")
     message = f"{current_datetime} (참여: {highest_num}명/설문: {response_count}개)"
@@ -92,18 +82,15 @@ def run_cycle(writenoticeService):
 
     updater.update_university_notices()
     page_url_manager = PageUrlManager()
-    #print("", flush=True)
     n = 1
     for announcement_page in page_url_manager.announcement_pages:
-        ann_urls, latest_announcement_number = get_anns_url(announcement_page, n)  # 각 페이지에서 공지사항 URL 가져오기
+        ann_urls, latest_announcement_number = get_anns_url(announcement_page, n)
         department = announcement_page.department
         n += 1
         for url in ann_urls:
 
-            # 메모리 누수를 방지하기 위해 주기적으로 가비지 컬렉션 실행
             gc.collect()
 
-            # 제목+내용만 부분적으로 크롤링
             for _ in range(10):
                 partial_ann = crawl_ann_partial(url)
                 if partial_ann is None:
@@ -111,23 +98,20 @@ def run_cycle(writenoticeService):
                     continue
                 partial_ann.title = re.sub(r'【.*?】\s*', '', partial_ann.title)
                 if partial_ann.title != "제목 없음" and partial_ann.content_text != "내용 없음":
-                    break  # 유효한 데이터가 생겼으므로 종료
+                    break
                 time.sleep(1)
 
             if partial_ann is None or partial_ann.title == "제목 없음" or partial_ann.content_text == "내용 없음":
                 raise RuntimeError(f'공지 추출 실패; 공지 번호 유지: {url}')
 
-            # 제목 중복 체크
             duplicate_check = is_recent_title_duplicate(partial_ann.title)
             print(f"중복 체크 결과: {duplicate_check} - {partial_ann.title}", flush=True)
 
             if duplicate_check != "중복":
-                # 키워드 기반 카테고리 분류 시도
                 category = categorize_announcement(partial_ann.title, partial_ann.content_text)
                 print(f"카테고리 분류 결과: {category}", flush=True)
                 message = f"{partial_ann.title}\n＞ {category}"
                 notify(message)
-                # 전체 공지사항 크롤링
                 for _ in range(10):
                     full_ann = crawl_ann(url, category)
                     if full_ann is None:
@@ -147,7 +131,7 @@ def run_cycle(writenoticeService):
                     full_ann.notice_board_name = category
 
                 announcements.append(full_ann)
-                writenoticeService.write_notices(course_url, [full_ann], department)  # 공지사항 작성
+                writenoticeService.write_notices(course_url, [full_ann], department)
                 print(f"게시글 작성 완료", flush=True)
                 save_title(partial_ann.title, category)
 
@@ -169,7 +153,7 @@ def run_cycle(writenoticeService):
             writenoticeService.send_email(partial_ann.title, partial_ann.url, partial_ann.content_html, department)
             print("", flush=True)
 
-        # URL의 최신 공지 번호를 업데이트 딕셔너리에 저장
+        # 해당 게시판 처리가 끝난 뒤 마지막 공지 번호를 저장한다.
         if latest_announcement_number > announcement_page.number:
             updates[announcement_page.source_url] = latest_announcement_number
             update_csv_with_announcement_numbers(updates, os.getenv('PAGE_NAME'))
@@ -181,7 +165,6 @@ def run_cycle(writenoticeService):
         print("\n공지글 수정 작업을 시작합니다.", flush=True)
         writenoticeService.remove_stars(course_url, today_date)
 
-    # 다운로드 폴더 경로 수정
     DOWNLOADS_DIR = os.path.join(os.path.expanduser("~"), "Downloads")
 
     files_to_delete = [
@@ -194,7 +177,6 @@ def run_cycle(writenoticeService):
         if os.path.exists(file):
             os.remove(file)
 
-    # 다운로드 폴더 내 모든 파일 삭제 (폴더 유지)
     folder_path = os.path.join("downloads")
     os.makedirs(folder_path, exist_ok=True)
     for file_name in os.listdir(folder_path):

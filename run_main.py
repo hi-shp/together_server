@@ -1,4 +1,4 @@
-"""Single-instance supervisor with bounded logs and per-cycle process cleanup."""
+"""크롤러 반복 실행과 로그 관리."""
 import fcntl
 import os
 from pathlib import Path
@@ -35,7 +35,7 @@ def cleanup_old_logs(log_dir):
 
 
 def stop_process_group(process):
-    # Called only for a child started with start_new_session=True.
+    # 이 실행에서 만든 자식 프로세스 그룹만 종료한다.
     try:
         os.killpg(process.pid, signal.SIGTERM)
     except ProcessLookupError:
