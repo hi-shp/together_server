@@ -48,7 +48,7 @@ else
     git switch -c "$branch" "$revision"
 fi
 sha256sum --check "$backup_dir/state.sha256"
-python3 ops/configure_webhooks.py
+python3 ops/configure_webhooks.py --from-ref "$(cat "$backup_dir/previous-commit.txt")"
 sudo install -d -m 755 /etc/systemd/journald.conf.d
 sudo install -m 644 ops/90-together-limits.conf /etc/systemd/journald.conf.d/90-together-limits.conf
 sudo systemctl restart systemd-journald

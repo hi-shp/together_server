@@ -107,7 +107,7 @@ def run_main():
             now = datetime.now()
             if now.hour < 6:
                 wake = now.replace(hour=6, minute=0, second=0, microsecond=0)
-                notify('-' * 100)
+                notify('-' * 100, channel='DISCORD_NIGHT_WEBHOOK_URL')
                 time.sleep((wake - now).total_seconds())
                 continue
             log_path = log_dir / f'log_{now:%Y-%m-%d_%H-%M-%S}.txt'

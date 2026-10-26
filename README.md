@@ -2,7 +2,7 @@
 
 ## 변경 범위
 
-- Discord 웹훅은 `.env`에서 읽습니다. 기존 `WEBHOOK_URL`은 공통 알림용으로 유지하며 로그·쪽지·이메일 알림은 각각 `DISCORD_LOG_WEBHOOK_URL`, `DISCORD_MESSAGE_WEBHOOK_URL`, `DISCORD_EMAIL_WEBHOOK_URL`을 사용합니다. 미설정이나 전송 실패는 공지 게시를 중단하지 않습니다. POST를 자동 재시도하지 않습니다.
+- Discord 웹훅은 `.env`에서 읽습니다. 기존 `WEBHOOK_URL`은 공통 알림용으로 유지하며 로그·야간 구분선·쪽지·이메일 알림은 각각 `DISCORD_LOG_WEBHOOK_URL`, `DISCORD_NIGHT_WEBHOOK_URL`, `DISCORD_MESSAGE_WEBHOOK_URL`, `DISCORD_EMAIL_WEBHOOK_URL`을 사용합니다. 미설정이나 전송 실패는 공지 게시를 중단하지 않습니다. POST를 자동 재시도하지 않습니다.
 - Chrome마다 전용 프로필·캐시·TMPDIR을 만들고 정상 종료, 오류, 재시작 시 해당 자원만 정리합니다. `/tmp` 공통 폴더의 `chmod`, `sudo rm`, 전체 Chrome `pkill`은 제거했습니다. 임시 경로는 Chromium의 Unix socket 경로 제한 때문에 `/tmp/together-<uid>` 아래의 짧은 경로를 사용합니다.
 - `run_main.py`는 같은 Python 실행 환경을 사용하며 중복 실행을 막습니다. 자식 프로세스 그룹만 종료하고, 실행당 2시간 제한을 둡니다. 실패한 실행은 최대 5분까지 재시작 간격을 늘립니다. 직접 `main.py`를 실행해도 중복 공지 실행을 차단합니다.
 - 로그는 파일당 약 8 MiB, 합계 128 MiB, 보관 7일로 제한합니다. 전체 출력을 외부 `output.log`에 계속 복제하지 않습니다. systemd 저널 제한 설정도 제공합니다. 프로세스 강제 종료, 전원 장애로 남은 전용 임시 폴더는 일반 `/tmp` 보관 정책 대상입니다.
@@ -36,9 +36,9 @@ python3 tools/smoke_browser.py --driver /home/ubuntu/together/Source/chromedrive
 
 테스트는 GPT/Discord 전송이나 로그인/게시를 하지 않습니다. 실제 Chrome smoke test는 data URL만 사용하여 시작·재시작·종료 후 임시 폴더 정리를 확인합니다.
 
-검토한 커밋을 운영에 적용할 때는 그 커밋의 `ops/apply_review.sh`를 받아 실행하세요. 인자는 정확한 40자리 커밋 SHA입니다. 스크립트는 별도 worktree에서 테스트하고, 운영 CSV/TXT와 `.env`를 권한이 제한된 백업 경로에 복사한 뒤 별도 `review-<sha>` 브랜치를 체크아웃합니다. `main`에 커밋하거나 PR을 병합하지 않습니다. 기존 크롤러나 로컬 코드 변경이 있으면 중단합니다. 데이터 체크섬 일치 확인 후 웹훅 값을 숨겨 입력받고 systemd 서비스를 시작합니다. 서비스 시작부터 기존 공지/쪽지/이메일 동작이 재개됩니다.
+검토한 커밋을 운영에 적용할 때는 그 커밋의 `ops/apply_review.sh`를 받아 실행하세요. 인자는 정확한 40자리 커밋 SHA입니다. 스크립트는 별도 worktree에서 테스트하고, 운영 CSV/TXT와 `.env`를 권한이 제한된 백업 경로에 복사한 뒤 별도 `review-<sha>` 브랜치를 체크아웃합니다. `main`에 커밋하거나 PR을 병합하지 않습니다. 기존 크롤러나 로컬 코드 변경이 있으면 중단합니다. 데이터 체크섬 일치 확인 후 기존 코드의 웹훅 값을 서버 내부에서 .env로 그대로 이전하고 systemd 서비스를 시작합니다. 이미 설정된 값은 유지하며 재입력하지 않습니다. 서비스 시작부터 기존 공지/쪽지/이메일 동작이 재개됩니다.
 
-공개된 기존 Discord 웹훅은 Discord에서 삭제하고 새로 발급해야 합니다. `.env`는 `chmod 600 .env`로 보관하며 저장소에 추가하지 마세요. 이번 변경은 과거 Git 이력을 재작성하지 않습니다. 기존 시크릿을 새 값으로 사용하지 마세요.
+기존 Discord 웹훅은 사용자의 요청에 따라 그대로 유지합니다. `python3 ops/configure_webhooks.py --root /home/ubuntu/together/Source`는 기존 코드의 문자열을 실행하지 않고 AST로 읽어 .env로 이전합니다. 적용 후에는 `--from-ref`로 이전 커밋을 지정할 수 있습니다. 값은 출력하거나 전송하지 않으며 이전 전후 일치를 확인합니다. `.env`는 권한 600으로 보관하고 변경 전 백업을 만듭니다. 새 파일 내용에는 시크릿을 넣지 않으며 과거 Git 이력은 재작성하지 않습니다.
 
 상태 확인:
 
