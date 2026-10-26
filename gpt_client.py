@@ -1,88 +1,59 @@
+import json
 import os
+
 from openai import OpenAI
-from dotenv import load_dotenv
 
-load_dotenv()
-api_key = os.getenv("GPT_API_KEY")
+from runtime_config import BASE_DIR
+from notice_intelligence.prompts import category_request, duplicate_request
+from notice_intelligence.text import occurrence_conflict, requires_department_evidence
 
-client = OpenAI(api_key=api_key,)
+with (BASE_DIR / 'env.json').open(encoding='utf-8') as handle:
+    CATEGORIES = json.load(handle)['CATEGORIES']
+
+client = OpenAI(api_key=os.getenv('GPT_API_KEY'), timeout=30, max_retries=1)
+CATEGORY_MODEL = os.getenv('GPT_CATEGORY_MODEL') or 'gpt-5.4-mini-2026-03-17'
+DUPLICATE_MODEL = os.getenv('GPT_DUPLICATE_MODEL') or 'gpt-5.4-mini-2026-03-17'
+
+
+def _decision(model, request):
+    response = client.chat.completions.create(model=model, max_completion_tokens=500,
+                                             reasoning_effort='none', **request)
+    content = response.choices[0].message.content
+    if not content:
+        raise ValueError('Empty classification response')
+    result = json.loads(content)
+    if not isinstance(result, dict):
+        raise ValueError('Invalid classification response')
+    return result
+
 
 def answer_gpt(user_content):
-    messages = [
-        {
-            "role": "system",
-            "content": (
-        "Categorize the following text into the appropriate category and only state the category.\n"
-        "Consider variations in wording and synonyms as matching the relevant category.\n"
-        "If the text includes the keywords '공모전' or '경진대회', categorize it into the most appropriate [공모전] category.\n"
-        "[Competition/Contest] Engineering/Information Technology/Software =([공모전] 공학/IT/SW)\n"
-        "[Competition/Contest] Ideas/Planning =([공모전] 아이디어/기획)\n"
-        "[Competition/Contest] Art/Design/Architecture =([공모전] 미술/디자인/건축)\n"
-        "[Competition/Contest] Literature/Personal Narrative/Essay =([공모전] 문학/수기/에세이)\n"
-        "[Competition/Contest] Miscellaneous (for contests not clearly falling into other categories or if uncertain) =([공모전] 기타)\n"
-        "Kind of Education/Lecture/Program or International assignment/Exchange student including Survey Participation Invitation =(교육/특강/프로그램)\n"
-        "Scholarship/Scholar (only those awarded, including work-study students) =(장학금)\n"
-        "Supporters/Ambassadors =(서포터즈)\n"
-        "Volunteer Work/Mentoring/Tutoring =(봉사활동)\n"
-        "Employment Information/Job Fair/Recruitment Fair (only company hiring, excluding graduate school, dormitories, etc.) =(취업 정보)\n"
-        "If the text is too short, unclear, or does not fit into any category, respond with 해당없음.\n"
-        "If the text could fit into multiple categories, prioritize the most relevant category or the first applicable one.\n"
-        "The output must be one of the following: \n"
-        "[공모전] 공학/IT/SW,\n"
-        "[공모전] 아이디어/기획,\n"
-        "[공모전] 미술/디자인/건축,\n"
-        "[공모전] 문학/수기/에세이,\n"
-        "[공모전] 기타,\n"
-        "교육/특강/프로그램,\n"
-        "장학금,\n"
-        "서포터즈,\n"
-        "봉사활동,\n"
-        "취업 정보,\n"
-        "해당없음\n\n"
-        "Never include any punctuation, quotation marks, or extra text. Only provide the exact category name as the output. The output must be in Korean. Never say anything else."
-)
-        },
-        {"role": "user", "content": user_content}
-    ]
+    title, separator, body = user_content.partition('\n')
+    result = _decision(CATEGORY_MODEL, category_request(title, CATEGORIES, body if separator else ''))
+    category = result.get('category')
+    if category == '판단보류':
+        print('분류 보류: 기타 공지사항으로 처리합니다.', flush=True)
+        return '해당없음'
+    if category not in CATEGORIES:
+        raise ValueError('Unknown notice category')
+    return category
 
-    response = client.chat.completions.create(
-        model="gpt-3.5-turbo",
-        messages=messages
-    )
-
-    assistant_content = response.choices[0].message.content
-
-    return assistant_content
 
 def check_title_similarity(new_title, recent_titles):
-    system_message = {
-        "role": "system",
-        "content": ("""
-    Determine if the new title is a duplicate of any recent titles. 
-    Consider it 중복 if:
-
-    - The title is identical or nearly identical, including minor variations.
-    - The title has the same core message, even with different wording or details.
-
-    If the title differs significantly in content or context, output 중복 아님.
-
-    The output should be either 중복 or 중복 아님, with no extra text.
-    """)
-}
-
-
-    user_message = {
-        "role": "user",
-        "content": f"최근 제목들: " + "\n".join(recent_titles) + f"\n새로운 제목: {new_title}"
-    }
-
-    messages = [system_message, user_message]
-
-    response = client.chat.completions.create(
-        model="gpt-3.5-turbo",
-        messages=messages
-    )
-
-    assistant_content = response.choices[0].message.content
-
-    return assistant_content
+    # 학과별 모집은 모델이 동일 제목을 중복으로 판단하더라도 근거 없이 누락하지 않는다.
+    if requires_department_evidence(new_title):
+        return '중복 아님'
+    candidates = [title for title in recent_titles[:3]
+                  if not occurrence_conflict(new_title, title) and not requires_department_evidence(title)]
+    if not candidates:
+        return '중복 아님'
+    result = _decision(DUPLICATE_MODEL, duplicate_request(new_title, candidates))
+    relation = result.get('relation')
+    if relation == 'same_event':
+        index = result.get('matched_index')
+        if type(index) is not int or not 0 <= index < len(candidates):
+            raise ValueError('Invalid duplicate match index')
+        return '중복'
+    if relation in ('different_event', 'related_update', 'needs_context'):
+        return '중복 아님'
+    raise ValueError('Unknown duplicate relation')

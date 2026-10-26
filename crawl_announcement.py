@@ -7,6 +7,7 @@ import re
 import time
 import urllib3
 from duplicate_checker import recent_title
+from notice_intelligence.metadata import extract_metadata
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -19,8 +20,10 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 """
 
 class Announcement:
-    def __init__(self, title: str, content_html: str, content_text: str, notice_board_name: str, url: str, files: list):
+    def __init__(self, title: str, content_html: str, content_text: str, notice_board_name: str, url: str, files: list, metadata=None):
         self.title = title
+        self.original_title = title
+        self.metadata = metadata or {}
         self.url = url
         self.content_html = content_html
         self.content_text = content_text
@@ -273,7 +276,8 @@ def crawl_ann_partial(url: str) -> Announcement:
         notice_board_name="",
         content_html=str(content_text_element) if content_text_element else "",
         content_text=content_text,
-        files=[]
+        files=[],
+        metadata=extract_metadata(soup, response.url)
     )
 
 def crawl_ann(url: str, category: str) -> Announcement:
@@ -383,5 +387,6 @@ def crawl_ann(url: str, category: str) -> Announcement:
         notice_board_name="",
         content_html=content_html,
         content_text=content_text,
-        files=files
+        files=files,
+        metadata=extract_metadata(soup, response.url)
     )

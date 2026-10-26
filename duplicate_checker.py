@@ -6,6 +6,9 @@ from gpt_client import check_title_similarity
 from difflib import SequenceMatcher
 import csv
 import heapq
+from collections import defaultdict, deque
+from notice_intelligence.text import occurrence_conflict
+from notice_intelligence.events import Notice, compare_notices
 
 _TITLE_TIMESTAMP = re.compile(r'[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}')
 
@@ -78,7 +81,7 @@ def recent_title():
     recent_titles = [title for _, title in recent_titles[:1000]]
     return recent_titles
 
-def is_recent_title_duplicate(new_title, filename='titles.txt'):
+def is_recent_title_duplicate(new_title, filename='titles.txt', *, identity_title=None):
     recent_titles = []
     if os.path.exists(filename):
         with open(filename, 'r', encoding='utf-8') as file:
@@ -91,26 +94,40 @@ def is_recent_title_duplicate(new_title, filename='titles.txt'):
 
     # 최근 10일 이내 제목 중 최대 1,000개를 비교한다.
     recent_titles.sort(reverse=True, key=lambda x: x[0])
-    recent_titles = [title for _, title in recent_titles[:1000]]
+    recent_entries = recent_titles[:1000]
+    mode = os.getenv('NOTICE_DUPLICATE_MODE') or 'hybrid'
+    original_title = identity_title or new_title
+    if mode != 'legacy':
+        recent_entries = [(date, title) for date, title in recent_entries if not occurrence_conflict(original_title, title)]
+    recent_titles = [title for _, title in recent_entries]
 
     cleaned_titles = [remove_brackets(title).strip() for title in recent_titles]
 
-    title_similarities = _top_title_similarities(new_title, cleaned_titles)
+    query_title = new_title if mode == 'legacy' else remove_brackets(new_title).strip()
+    title_similarities = _top_title_similarities(query_title, cleaned_titles)
 
     if len(title_similarities) == 0:
         return '중복 아님'
 
     highest_similarity = title_similarities[0][0]
 
-    # 유사도 0.85 이상은 중복으로 처리한다.
-    if highest_similarity >= 0.85:
+    if mode == 'legacy' and highest_similarity >= 0.85:
         print(f"유사도: {highest_similarity:.5f}", flush=True)
         return '중복'
     print(f"유사도: {highest_similarity:.5f}", flush=True)
 
-    # 가장 비슷한 제목 3개로 GPT 중복 검사를 진행한다.
-    top_3_titles = [title for _, title in title_similarities[:3]]
-    return check_title_similarity(new_title, top_3_titles)
+    if mode == 'legacy':
+        return check_title_similarity(new_title, [title for _, title in title_similarities[:3]])
+    originals = defaultdict(deque)
+    for date, title in recent_entries:
+        originals[remove_brackets(title).strip()].append((date, title))
+    candidates = [originals[cleaned].popleft() for _, cleaned in title_similarities[:3]]
+    current = Notice(original_title, datetime.now().isoformat())
+    for date, title in candidates:
+        result = compare_notices(current, Notice(title, date.isoformat()))
+        if result['relation'] == 'same_event':
+            return '중복'
+    return check_title_similarity(original_title, [title for _, title in candidates])
 
 
 def save_title(title, category, filename='sorted_labeled_data.csv'):

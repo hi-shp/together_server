@@ -1,0 +1,59 @@
+{
+  "sources": {
+    "titles.txt": {
+      "sha256": "8f0aae1853b5bf83d06b3aa1cd386cab77790307fcbf56db2b260060cbcc67eb",
+      "bytes": 3247260
+    },
+    "sorted_labeled_data.csv": {
+      "sha256": "b3890523980dbb4eb28bb150ac9eab55240e0632eb858c96de04505c6a6e3971",
+      "bytes": 1386449
+    }
+  },
+  "history_rows": 31029,
+  "labeled_rows": 13819,
+  "invalid_labels": 2319,
+  "local_category_review": {
+    "review_rows": 195,
+    "title_decidable_rows": 175,
+    "local_decisions": 46,
+    "local_errors": 0,
+    "uncertain_rows_decided": 0,
+    "decision_agreement": 1.0,
+    "wilson95_lower": 0.9229238226702192,
+    "method_counts": {
+      "needs_context": 149,
+      "administrative_intent": 24,
+      "intent_and_model_agreement": 21,
+      "selective_local_model": 1
+    },
+    "approval_gate_passed": true,
+    "review_provenance": "assistant_title_only_review_not_independent_human_gold",
+    "development_sample_not_population_estimate": true,
+    "review_sha256": "f4ef59293fe4c33342f2fc7f9f197cb5e6c927e168f332fa22f586653642be83"
+  },
+  "local_event_review": {
+    "review_pairs": 75,
+    "local_same_event_decisions": 4,
+    "local_same_event_disagreements": [],
+    "relation_counts": {
+      "needs_review": 30,
+      "same_event": 4,
+      "different_occurrence": 30,
+      "possible_duplicate": 11
+    },
+    "review_provenance": "assistant_title_only_development_sample_not_population_estimate"
+  },
+  "api_challenge": {
+    "distinct_categories": 24,
+    "category_confident": 21,
+    "confident_disagreements": 0,
+    "category_abstentions": 3,
+    "distinct_pairs": 12,
+    "strict_pair_relation_matches": 10,
+    "pair_suppression_matches": 12,
+    "api_calls_recorded": 48,
+    "review_is_independent_human_gold": false,
+    "development_retests_included": true
+  },
+  "model_sha256": "190e13fedde41b7e743ffe6943512bfe072083438d22ef25d99f23b918a72b2a"
+}

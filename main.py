@@ -17,6 +17,8 @@ import time
 import requests
 from datetime import datetime
 from ready import NoticeUpdater
+from notice_intelligence.routing import category_hint, configured_classifier
+from notice_intelligence.shadow import observe_notice, observe_category, finish_cycle
 
 with open('env.json', 'r', encoding='utf-8') as f:
     config = json.load(f)
@@ -35,14 +37,23 @@ def categorize_by_keywords(title, content_text):
     return None
 
 def categorize_announcement(title, content_text):
-    category = categorize_by_keywords(title, content_text)
-    if category:
-        return category
-    else:
-        # 키워드로 분류되지 않은 공지만 GPT로 분류한다.
+    hint = {'category': None, 'method': 'needs_context'}
+    try:
+        if os.getenv('NOTICE_CLASSIFIER_MODE', 'hybrid') == 'legacy':
+            hint = {'category': categorize_by_keywords(title, content_text), 'method': 'legacy_keyword'}
+        else:
+            hint = category_hint(title, KEYWORD_CATEGORIES, configured_classifier(BASE_DIR))
+    except Exception as exc:
+        print(f'로컬 분류 생략: {type(exc).__name__}', flush=True)
+    category = hint['category']
+    method = hint['method']
+    if not category:
         combined_text = f"{title}\n{content_text}"
         truncated_content = truncate_text(combined_text, 1000)
-        return answer_gpt(truncated_content)
+        category = answer_gpt(truncated_content)
+        method = 'gpt_context_review'
+    observe_category(title, category, method)
+    return category
 
 def update_csv_with_announcement_numbers(updates, filename: str):
     df = pd.read_csv(f'{filename}')
@@ -103,7 +114,8 @@ def run_cycle(writenoticeService):
             if partial_ann is None or partial_ann.title == "제목 없음" or partial_ann.content_text == "내용 없음":
                 raise RuntimeError(f'공지 추출 실패; 공지 번호 유지: {url}')
 
-            duplicate_check = is_recent_title_duplicate(partial_ann.title)
+            observe_notice(partial_ann, department)
+            duplicate_check = is_recent_title_duplicate(partial_ann.title, identity_title=getattr(partial_ann, 'original_title', partial_ann.title))
             print(f"중복 체크 결과: {duplicate_check} - {partial_ann.title}", flush=True)
 
             if duplicate_check != "중복":
@@ -196,6 +208,7 @@ def main():
             run_cycle(service)
         finally:
             service.close()
+            finish_cycle()
 
 
 def _terminate(signum, frame):
