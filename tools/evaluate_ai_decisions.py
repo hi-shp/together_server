@@ -2,6 +2,7 @@
 import argparse
 import csv
 from datetime import datetime
+from difflib import SequenceMatcher
 import json
 import os
 from pathlib import Path
@@ -9,12 +10,22 @@ import sys
 import time
 import subprocess
 import types
+import re
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from notice_intelligence.prompts import category_request, event_request
 
 CATEGORY_IDS = '6 5410 6241 8165 863 874 939 865 871 7888 5151 13402 10682 5592 5289 327 8871 11886 674 10581 7572 11455 6426 7709'.split()
 PAIR_IDS = {8, 41, 44, 47, 50, 51, 52, 53, 54, 57, 63, 74}
+
+
+def legacy_pair_inputs(row):
+    entries = sorted(((datetime.fromisoformat(row['left_time']), row['left_title']),
+                      (datetime.fromisoformat(row['right_time']), row['right_title'])))
+    (older, candidate), (newer, query) = entries
+    pattern = r'\(.*?\)|\]|[<>_\-*/@#$%^&*(),.?":{}|<>]' if '신입' in candidate or '채용' in candidate else r'\[.*?\]|\(.*?\)|\]|[<>_\-*/@#$%^&*(),.?":{}|<>]'
+    cleaned = re.sub(pattern, '', candidate).strip()
+    return query, cleaned, (newer - older).total_seconds() < 10 * 86400
 
 
 def main():
@@ -103,17 +114,21 @@ def main():
         for row in pair_rows:
             if ('pair', row['review_id']) in finished:
                 continue
-            score = float(row['legacy_similarity'])
-            if score >= .85:
+            query, candidate, in_window = legacy_pair_inputs(row)
+            score = SequenceMatcher(None, query, candidate).ratio()
+            if not in_window:
+                old, source = 'outside_recent_window', 'ten_day_window'
+            elif score >= .85:
                 old, source = 'same_event', 'similarity_085'
             else:
-                label = old_request(lambda: gpt_client.check_title_similarity(row['left_title'], [row['right_title']]))
+                label = old_request(lambda: gpt_client.check_title_similarity(query, [candidate]))
                 old, source = ('API_UNAVAILABLE' if label == 'API_UNAVAILABLE' else 'same_event' if label.strip() == '중복' else 'different_event'), 'gpt-3.5-turbo'
             prediction = modern(event_request({'title': row['left_title'], 'observed_at': row['left_time']},
                                                {'title': row['right_title'], 'observed_at': row['right_time']}))
             results.append({'task': 'pair', 'id': row['review_id'], 'left': row['left_title'], 'right': row['right_title'],
                             'expected': row['reviewed_relation'], 'old': old, 'old_method': source,
-                            'new': prediction['relation'], 'reason': prediction['reason']})
+                            'new': prediction['relation'], 'reason': prediction['reason'],
+                            'baseline_scope': 'pairwise_only_not_full_1000_candidate_history_replay'})
             print(f'Pair {row["review_id"]} evaluated ({count}/{args.max_calls} calls)', flush=True)
             time.sleep(.3)
         status = 'complete'
