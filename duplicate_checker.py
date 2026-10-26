@@ -5,6 +5,19 @@ import tiktoken
 from gpt_client import check_title_similarity
 from difflib import SequenceMatcher
 import csv
+import heapq
+
+_TITLE_TIMESTAMP = re.compile(r'[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}')
+
+
+def _parse_title_timestamp(value):
+    # 저장 형식이 일치할 때만 빠르게 해석하고, 그 밖에는 기존 방식을 쓴다.
+    if _TITLE_TIMESTAMP.fullmatch(value):
+        try:
+            return datetime.fromisoformat(value)
+        except ValueError:
+            pass
+    return datetime.strptime(value, '%Y-%m-%d %H:%M:%S')
 
 
 def remove_brackets(text):
@@ -32,6 +45,24 @@ def truncate_text(text, max_tokens):
 def calculate_similarity(a, b):
     return SequenceMatcher(None, a, b).ratio()
 
+
+def _top_title_similarities(new_title, titles):
+    best = []
+    for index, title in enumerate(titles):
+        matcher = SequenceMatcher(None, new_title, title)
+        if len(best) == 3:
+            # 상위 3개에 들 수 없는 경우만 정밀 계산을 생략한다.
+            floor = best[0][0]
+            if matcher.real_quick_ratio() < floor or matcher.quick_ratio() < floor:
+                continue
+        # 점수가 같으면 기존 목록에서 먼저 나온 제목을 우선한다.
+        item = (matcher.ratio(), -index, title)
+        if len(best) < 3:
+            heapq.heappush(best, item)
+        elif item > best[0]:
+            heapq.heapreplace(best, item)
+    return [(score, title) for score, _, title in sorted(best, reverse=True)]
+
 def recent_title():
     filename='titles.txt'
     recent_titles = []
@@ -40,7 +71,7 @@ def recent_title():
             lines = file.readlines()
             for line in lines:
                 saved_datetime, saved_title = line.strip().split('$')
-                saved_date = datetime.strptime(saved_datetime, '%Y-%m-%d %H:%M:%S')
+                saved_date = _parse_title_timestamp(saved_datetime)
                 if saved_date > datetime.now() - timedelta(days=10):
                     recent_titles.append((saved_date, saved_title))
     recent_titles.sort(reverse=True, key=lambda x: x[0])
@@ -54,7 +85,7 @@ def is_recent_title_duplicate(new_title, filename='titles.txt'):
             lines = file.readlines()
             for line in lines:
                 saved_datetime, saved_title = line.strip().split('$')
-                saved_date = datetime.strptime(saved_datetime, '%Y-%m-%d %H:%M:%S')
+                saved_date = _parse_title_timestamp(saved_datetime)
                 if saved_date > datetime.now() - timedelta(days=10):
                     recent_titles.append((saved_date, saved_title))
 
@@ -64,8 +95,7 @@ def is_recent_title_duplicate(new_title, filename='titles.txt'):
 
     cleaned_titles = [remove_brackets(title).strip() for title in recent_titles]
 
-    title_similarities = [(calculate_similarity(new_title, title), title) for title in cleaned_titles]
-    title_similarities.sort(reverse=True, key=lambda x: x[0])
+    title_similarities = _top_title_similarities(new_title, cleaned_titles)
 
     if len(title_similarities) == 0:
         return '중복 아님'

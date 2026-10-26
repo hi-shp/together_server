@@ -66,7 +66,6 @@ def run_cycle(writenoticeService):
         file_path = os.path.join(DOWNLOADS_DIR, filename)
         if os.path.isfile(file_path):
             os.remove(file_path)
-    announcements = []
     page_url_manager = PageUrlManager()
 
     updates = {}
@@ -130,7 +129,6 @@ def run_cycle(writenoticeService):
                 else:
                     full_ann.notice_board_name = category
 
-                announcements.append(full_ann)
                 writenoticeService.write_notices(course_url, [full_ann], department)
                 print(f"게시글 작성 완료", flush=True)
                 save_title(partial_ann.title, category)

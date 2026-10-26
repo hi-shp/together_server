@@ -29,12 +29,14 @@
 Ubuntu와 Python 3.10 이상을 사용합니다. Chrome과 ChromeDriver의 버전을 맞춰 설치한 뒤 의존성을 준비합니다.
 
 ```bash
-python3 -m pip install requests beautifulsoup4 pandas python-dotenv selenium psutil tiktoken openai
+python3 -m pip install -r requirements.txt
 test -f .env || cp .env.example .env
 chmod 600 .env
 ```
 
 [.env.example](.env.example)을 참고해 PLATO 계정, GPT API 키, ChromeDriver 경로와 게시판 CSV 경로를 설정합니다. Discord 웹훅도 `.env`에서 읽으며, 비워 두면 해당 알림을 생략합니다. 계정·키·웹훅 값과 신청자 정보는 저장소에 올리지 않습니다.
+
+`requirements.txt`는 현재 Ubuntu/Python 3.10 운영 환경의 주요 패키지 버전입니다. 기존 서버의 패키지를 일괄 업그레이드하지 않습니다.
 
 ```bash
 python3 run_main.py
