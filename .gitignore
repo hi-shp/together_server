@@ -21,6 +21,10 @@ google-chrome-stable_current_amd64.deb
 downloads/
 
 .env
+.env.*
+!.env.example
+.runtime/
+link-audit*.csv
 *.swp
 *.swo
 *.swn

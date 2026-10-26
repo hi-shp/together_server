@@ -5,7 +5,6 @@ from dotenv import load_dotenv
 load_dotenv()
 api_key = os.getenv("GPT_API_KEY")
 
-# OpenAI 클라이언트 설정
 client = OpenAI(api_key=api_key,)
 
 def answer_gpt(user_content):
