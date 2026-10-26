@@ -6,8 +6,13 @@ from runtime_config import HTTP_TIMEOUT
 import re
 import time
 import urllib3
+import tempfile
+import hashlib
+import shutil
 from duplicate_checker import recent_title
 from notice_intelligence.metadata import extract_metadata
+from notice_intelligence.quality import clean_text
+from operations_state import record_board_result
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -43,7 +48,7 @@ def sanitize_filename(filename):
     return re.sub(r'[\/:*?"<>|]', '_', filename)
 
 def filter_bmp_characters(text):
-    return ''.join(c for c in text if ord(c) <= 0xFFFF)
+    return clean_text(text)
 
 def get_anns_url(announcementPage, n):
     try:
@@ -51,6 +56,7 @@ def get_anns_url(announcementPage, n):
         response = requests.get(announcementPage.page_url, verify=False, timeout=HTTP_TIMEOUT)
         response.raise_for_status()
     except requests.exceptions.RequestException as e:
+        record_board_result(False)
         print(e, flush=True)
         return [], announcementPage.number
 
@@ -58,6 +64,7 @@ def get_anns_url(announcementPage, n):
 
     # 정적 HTML은 한 번만 받아 파싱한다.
     table_element = soup.find("tbody")
+    record_board_result(table_element is not None)
 
     if table_element:
         rows = table_element.find_all("tr")
@@ -334,18 +341,30 @@ def crawl_ann(url: str, category: str) -> Announcement:
 
         def download_file(file_url, file_name):
             if not any(file_name.lower().endswith(ext) for ext in file_extensions_to_exclude):
+                pending = None
                 try:
                     full_file_url = urljoin(base_url, file_url)
                     file_path = os.path.join('downloads', file_name)
-                    file_response = requests.get(full_file_url, verify=False, timeout=HTTP_TIMEOUT)
-                    file_response.raise_for_status()
-                    file_data = file_response.content
-                    with open(file_path, 'wb') as f:
-                        f.write(file_data)
-                    files.append(file_path)
+                    digest = hashlib.sha256()
+                    with requests.get(full_file_url, verify=False, timeout=HTTP_TIMEOUT,stream=True) as file_response:
+                        file_response.raise_for_status()
+                        with tempfile.NamedTemporaryFile(dir='downloads',prefix='.download-',delete=False) as handle:
+                            pending=handle.name
+                            for chunk in file_response.iter_content(1024*1024):
+                                if shutil.disk_usage('downloads').free-len(chunk)<1024**3:
+                                    raise OSError('Download free-space floor reached')
+                                handle.write(chunk);digest.update(chunk)
+                    if os.path.exists(file_path):
+                        from attachment_cache import file_digest
+                        if file_digest(file_path)!=digest.hexdigest():
+                            file_path=os.path.join('downloads',digest.hexdigest()[:12]+'-'+file_name)
+                    os.replace(pending,file_path);pending=None
+                    if file_path not in files:files.append(file_path)
                     print(f'파일 다운로드 완료: {file_path}', flush=True)
                 except Exception as e:
-                    print(f'다운로드 실패: {file_name} ({e})', flush=True)
+                    print(f'다운로드 실패: {file_name} ({type(e).__name__})', flush=True)
+                finally:
+                    if pending and os.path.isfile(pending):os.remove(pending)
 
         # 일반 학과 첨부파일
         for insert in soup.find_all('dd', class_="artclInsert"):

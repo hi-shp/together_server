@@ -222,7 +222,8 @@ class GPTContractTests(unittest.TestCase):
         path = Path(__file__).resolve().parents[1] / 'gpt_client.py'
         spec = importlib.util.spec_from_file_location('tested_gpt_adapter', path)
         module = importlib.util.module_from_spec(spec)
-        with patch('openai.OpenAI') as factory:
+        with patch('openai.OpenAI') as factory, patch('api_accounting.ApiAccounting') as accounting:
+            accounting.return_value.cached.return_value = None
             factory.return_value = MagicMock()
             spec.loader.exec_module(module)
         return module

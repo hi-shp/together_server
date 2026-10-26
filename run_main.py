@@ -14,6 +14,7 @@ from datetime import datetime
 
 from runtime_config import BASE_DIR, notify
 from browser_runtime import scratch_root
+from operations_state import update_state,read_state
 
 MAX_LOG_BYTES = 8 * 1024 * 1024
 MAX_TOTAL_LOG_BYTES = 128 * 1024 * 1024
@@ -101,26 +102,33 @@ def run_main():
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
             raise SystemExit('Crawler supervisor is already running')
-        failures = 0
+        failures = read_state(BASE_DIR).get('consecutive_failures',0)
+        update_state(BASE_DIR,expected_running=True,status='starting')
         while True:
             cleanup_old_logs(log_dir)
             now = datetime.now()
             if now.hour < 6:
                 wake = now.replace(hour=6, minute=0, second=0, microsecond=0)
                 notify('-' * 100, channel='DISCORD_NIGHT_WEBHOOK_URL')
+                update_state(BASE_DIR,status='night_pause',next_wake=time.time()+(wake-now).total_seconds())
                 time.sleep((wake - now).total_seconds())
                 continue
             log_path = log_dir / f'log_{now:%Y-%m-%d_%H-%M-%S}.txt'
+            update_state(BASE_DIR,status='running',cycle_started=time.time(),next_wake=0)
             code = run_cycle(log_path)
             notify(log_path.name, channel='DISCORD_LOG_WEBHOOK_URL', log_path=log_path)
             cleanup_old_logs(log_dir)
             failures = min(failures + 1, 5) if code else 0
+            fields={'status':'waiting','last_exit':code,'consecutive_failures':failures}
+            if not code:fields['last_success']=time.time()
+            update_state(BASE_DIR,**fields)
             delay = min(300, 10 * 2 ** failures)
             print(f'Crawler exit={code}; next cycle in {delay}s', flush=True)
             time.sleep(delay)
 
 
 def _terminate(signum, frame):
+    update_state(BASE_DIR,expected_running=False,status='stopped_by_signal')
     raise SystemExit(128 + signum)
 
 

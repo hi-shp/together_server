@@ -13,6 +13,7 @@ from bs4 import BeautifulSoup
 from .events import Notice, compare_notices, quality_details
 from .post_editor import PlatoPostEditor, PostEditError, validate_article_url, MAX_OPERATION_BYTES
 from .text import clean_display_title, normalize_title
+from .quality import display_title,inspect_rendered_post,PostVerificationError,sanitize_html
 
 
 def as_notice(announcement, department):
@@ -40,7 +41,7 @@ def adds_information(old, new):
 
 
 def enriched_subject(current, title, board):
-    title = clean_display_title(title)
+    title = display_title(clean_display_title(title))
     if current.startswith('⭐'):
         return '⭐' + title.lstrip('⭐')
     if board in ('기타 공지사항', '장학금'):
@@ -57,7 +58,7 @@ def merged_body(current_html, announcement, old_notice):
     if new_text and new_text == old_text:
         return current_html + '<hr>' + link
     # 기존 내용과 링크를 보존해 원문 선택 때문에 정보가 사라지지 않게 한다.
-    return current_html + '<hr><p><strong>추가 안내</strong></p>' + link + announcement.content_html
+    return current_html + '<hr><p><strong>추가 안내</strong></p>' + link + sanitize_html(announcement.content_html,announcement.url)
 
 
 class PublishedNoticeStore:
@@ -115,7 +116,7 @@ def register_post(service, announcement, department, receipt, base_dir):
     try:
         validate_article_url(receipt['article_url'])
         editor = PlatoPostEditor(service, Path(base_dir) / '.runtime/intelligence/edit-backups')
-        snapshot = editor.read(receipt['article_url'])
+        snapshot = receipt.get('_snapshot') or editor.read(receipt['article_url'])
         links = {node['href'] for node in BeautifulSoup(snapshot['body_html'],'html.parser').find_all('a',href=True)}
         if snapshot['subject'] != receipt.get('subject') or receipt.get('source_url') != announcement.url or announcement.url not in links:
             raise PostEditError('Published article receipt mismatch')
@@ -166,6 +167,14 @@ def apply_enrichment(service, record, announcement, department, base_dir):
         body = merged_body(current['body_html'], announcement, old_notice)
         if len(body.encode()) > 300000: raise PostEditError('Enriched body exceeds limit')
         result = editor.update(record['article_url'], subject, body, uploads, expected_signature=record['signature'])
+        if os.getenv('POST_VALIDATION_MODE','off')=='enabled':
+            service.safe_get(record['article_url'],login_required=True)
+            expected_text=BeautifulSoup(body,'html.parser').get_text(' ',strip=True)
+            rendered=inspect_rendered_post(service.driver,subject,expected_text,announcement.url)
+            if any(reason!='image_load_unconfirmed' for reason in rendered['reasons']):
+                editor.restore(result)
+                PublishedNoticeStore(base_dir).put(dict(record,ignored_sources=list(dict.fromkeys(record.get('ignored_sources',[])+[announcement.url]))[-10:]))
+                raise PostVerificationError('Enriched post failed display validation and was restored')
     record = dict(record, signature=result['after']['signature'], notice=asdict(new_notice),
                   sources=list(dict.fromkeys(record['sources'] + [announcement.url])),
                   departments=sorted(set(record['departments'] + [department])), updates=record['updates']+1,

@@ -1,0 +1,11 @@
+[Unit]
+Description=Together operational health check
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=ubuntu
+WorkingDirectory=/home/ubuntu/together/Source
+ExecStart=/usr/bin/python3 /home/ubuntu/together/Source/tools/health_check.py --json
+TimeoutStartSec=120
+UMask=0077

@@ -16,10 +16,16 @@ from selenium.common.exceptions import NoAlertPresentException
 from selenium.common.exceptions import TimeoutException
 import base64
 import re
+from html import escape
 from threading import Thread
 from runtime_config import notify
 from browser_runtime import new_workspace, cleanup_workspace, driver_children, stop_children
-from notice_intelligence.post_editor import validate_article_url, PostEditError, upload_file_in_manager
+from notice_intelligence.post_editor import validate_article_url, PostEditError, upload_file_in_manager,set_post_fields
+from notice_intelligence.quality import display_title,PostVerificationError,sanitize_html
+from notice_intelligence.publication import known_receipt,remember_receipt,verify_publication
+from runtime_config import BASE_DIR
+from notification_transport import PlatoNotificationTransport
+from notification_content import email_content
 
 class WriteNoticeService:
     def __init__(self):
@@ -98,6 +104,10 @@ class WriteNoticeService:
             raise
 
     def close(self):
+        transport = getattr(self, '_notification_client', None)
+        if transport is not None:
+            transport.close()
+            self._notification_client = None
         service = getattr(self, '_service', None)
         children = driver_children(service)
         try:
@@ -174,22 +184,62 @@ class WriteNoticeService:
             wait_time += 0.1
 
         if os.path.exists(download_path):
-            df = pd.read_csv(download_path, encoding="utf-8-sig")
+            df = pd.read_csv(download_path, encoding="utf-8-sig", dtype={'학번':str})
 
             df_message = df[['이름', '학번', '(선택/복수 가능) 학과', '(선택/복수 가능) 알림 설정']].copy()
             df_message['Plato 쪽지 여부'] = df_message['(선택/복수 가능) 알림 설정'].apply(
                 lambda x: 'Plato 쪽지' in str(x))
             download_path = os.path.join(os.path.expanduser("~"), "Downloads", "message.csv")
             df_message.to_csv(download_path, index=False, encoding="utf-8-sig")
+            os.chmod(download_path,0o600)
 
             df_email = df[['이름', '(선택/복수 가능) 학과', '(선택/복수 가능) 알림 설정', '이메일 주소']].copy()
             df_email['Email 여부'] = df_email['(선택/복수 가능) 알림 설정'].apply(lambda x: '이메일' in str(x))
             download_path = os.path.join(os.path.expanduser("~"), "Downloads", "email.csv")
             df_email.to_csv(download_path, index=False, encoding="utf-8-sig")
+            os.chmod(download_path,0o600)
 
         return response_count
 
+    def _notification(self):
+        if getattr(self, '_notification_client', None) is None:
+            self._notification_client = PlatoNotificationTransport(self.driver, BASE_DIR)
+        return self._notification_client
+
+    def _recipients(self, kind, department):
+        filename = 'message.csv' if kind == 'message' else 'email.csv'
+        df = pd.read_csv(os.path.join(os.path.expanduser('~'), 'Downloads', filename), dtype=str).fillna('')
+        selected = 'Plato 쪽지' if kind == 'message' else '이메일'
+        df = df[df['(선택/복수 가능) 알림 설정'].str.contains(selected, regex=False)]
+        df = df[df['(선택/복수 가능) 학과'].apply(lambda value: department in value.split('\n'))]
+        if kind == 'message':
+            return [{'name':row['이름'].strip(),'student_id':row['학번'].strip()} for _,row in df.iterrows()]
+        return [{'name':row['이름'].strip(),'email':row['이메일 주소'].strip()} for _,row in df.iterrows()]
+
     def send_message(self, title, url, department):
+        if os.getenv('PLATO_NOTIFICATION_TRANSPORT', 'http') == 'ui':
+            return self._send_message_ui(title,url,department)
+        recipients=self._recipients('message',department)
+        if not recipients:return
+        body=f'✔ [{department}] 새로운 공지가 등록되었습니다.\n제목: {title}\n{url}'
+        result=self._notification().send('message',recipients,'',body,f'{department}|{url}|{title}')
+        print(f"{department}/PLATO 쪽지 전송 접수 {result['sent']}명, 이전 접수 {result['deduplicated']}명, 확인 필요 {result['missing']}명",flush=True)
+        notify(f"{department}/PLATO 쪽지 전송 접수 {result['sent']}명 -{title}",channel='DISCORD_MESSAGE_WEBHOOK_URL')
+        return result
+
+    def send_email(self, title, url, content, department):
+        if os.getenv('PLATO_NOTIFICATION_TRANSPORT', 'http') == 'ui':
+            return self._send_email_ui(title,url,content,department)
+        recipients=self._recipients('email',department)
+        if not recipients:return
+        subject=f'✔ [{department}] {title}'
+        body=email_content(title,url,content,department,BASE_DIR)
+        result=self._notification().send('email',recipients,subject,body,f'{department}|{url}|{title}')
+        print(f"{department}/이메일 전송 접수 {result['sent']}명, 이전 접수 {result['deduplicated']}명, 확인 필요 {result['missing']}명",flush=True)
+        notify(f"{department}/이메일 전송 접수 {result['sent']}명 -{title}",channel='DISCORD_EMAIL_WEBHOOK_URL')
+        return result
+
+    def _send_message_ui(self, title, url, department):
         self.safe_get("https://dev-plato.pusan.ac.kr/local/ubmessage/send.php?id=157301&lang=ko", login_required=True)
 
         download_path = os.path.join(os.path.expanduser("~"), "Downloads", "message.csv")
@@ -256,7 +306,7 @@ class WriteNoticeService:
 
         self.safe_get("https://dev-plato.pusan.ac.kr/course/view.php?id=157301&lang=ko", login_required=True)
 
-    def send_email(self, title, url, content, department):
+    def _send_email_ui(self, title, url, content, department):
         self.safe_get("https://dev-plato.pusan.ac.kr/local/ubmessage/email_send.php?id=157301&lang=ko", login_required=True)
         
         download_path = os.path.join(os.path.expanduser("~"), "Downloads", "email.csv")
@@ -417,6 +467,20 @@ class WriteNoticeService:
         else:
             subject = f"⭐{subject}"
 
+        subject = display_title(subject)
+        content_with_link = '<p>본문 링크 : <a href="{0}">{0}</a></p>'.format(escape(url,quote=True)) + sanitize_html(content,url)
+        soup = BeautifulSoup(content_with_link, 'html.parser')
+        for img in soup.find_all('img'):
+            img['class'] = img.get('class', []) + ['img-responsive', 'atto_image_button_text-bottom']
+        content_with_styles = str(soup)
+        validation = os.getenv('POST_VALIDATION_MODE', 'off') == 'enabled'
+        if validation:
+            previous = known_receipt(BASE_DIR,url)
+            if previous:
+                if previous.get('state') == 'verified':
+                    return dict(previous,reused=True)
+                return verify_publication(self,previous,content_with_styles,files,BASE_DIR)
+
         # 공지가 많을 때 화면 밖으로 밀린 쓰기 버튼을 찾는다.
         write_button = WebDriverWait(self.driver, 60).until(
             EC.presence_of_element_located((By.XPATH, '//a[contains(@class, "btn btn-primary") and contains(text(), "쓰기")]'))
@@ -426,28 +490,7 @@ class WriteNoticeService:
         write_button.click()
 
         input_subject = self.driver.find_element(By.NAME, "subject")
-        input_subject.send_keys(subject)
-
-        input_content = self.driver.find_element(By.ID, "id_contenteditable")
-
-        # 본문 첫 줄에 원문 링크를 넣는다.
-        content_with_link = f'<p>본문 링크 : <a href="{url}">{url}</a></p>' + content
-
-        soup = BeautifulSoup(content_with_link, 'html.parser')
-        images = soup.find_all('img')
-        for img in images:
-            img['class'] = img.get('class', []) + ['img-responsive', 'atto_image_button_text-bottom']
-
-        content_with_styles = str(soup)
-
-        # 편집기에 HTML을 넣고 변경 이벤트를 전달한다.
-        self.driver.execute_script("""
-            arguments[0].innerHTML = arguments[1];
-            arguments[0].focus();
-            arguments[0].dispatchEvent(new Event('focus', { bubbles: true }));
-            arguments[0].dispatchEvent(new Event('blur', { bubbles: true }));
-            arguments[0].blur();
-        """, input_content, content_with_styles)
+        set_post_fields(self.driver,subject,content_with_styles)
 
         """
         # "장학금" 게시판이 아닌 경우에만 공지 글로 설정 (체크박스 클릭)
@@ -469,17 +512,21 @@ class WriteNoticeService:
             except:
                 print("⚠️ 파일 입력 필드가 사라지지 않았지만 저장 버튼을 클릭합니다.", flush=True)
 
-            self.click_with_js('input[type="submit"].btn-primary')
-
-        else:
-            self.click_with_js('input[type="submit"].btn-primary')
+        receipt={'source_url':url,'subject':subject,'board':notice_board_name,'state':'submitting'}
+        if validation:remember_receipt(BASE_DIR,receipt)
+        self.click_with_js('input[type="submit"].btn-primary')
 
         WebDriverWait(self.driver, 45).until(EC.staleness_of(input_subject))
         try:
             validate_article_url(self.driver.current_url)
-            return {'article_url': self.driver.current_url, 'subject': subject, 'source_url': url}
+            receipt.update(article_url=self.driver.current_url,state='created')
+            if validation:
+                remember_receipt(BASE_DIR,receipt)
+                return verify_publication(self,receipt,content_with_styles,files,BASE_DIR)
+            return receipt
         except PostEditError:
             # 게시 주소가 확인되지 않으면 자동 수정 대상으로 등록하지 않는다.
+            if validation:raise PostVerificationError('Published article address needs inspection') from None
             return None
 
     def upload_files(self, files: List[str]):

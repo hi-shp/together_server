@@ -1,67 +1,59 @@
-# 투게더 서버 (Together Server)
+# 투게더 서버
 
-부산대학교에 흩어진 공지사항을 모아 PLATO 자율강좌에 게시하는 서버입니다. 투게더의 공지 수집·분류·알림 기능을 담당합니다.
+부산대학교의 대학·학과 공지를 모아 PLATO 자율강좌에 올리는 프로그램입니다. 공지를 주제별로 나누고, 신청한 학과의 새 소식을 쪽지와 이메일로 전달합니다.
 
 ## 주요 기능
 
-- 대학·학과별 공지 수집 및 첨부파일 다운로드
-- 활동 형식·이력 기반 모델·본문을 이용한 분류 및 회차별 중복 검사
-- PLATO 공지 게시, 새 공지 표시 및 지난 공지 정리
-- 신청 학과에 따른 PLATO 쪽지·이메일 알림
-- 참여자 수 갱신 및 Discord 운영 알림
-
-## 구성
-
-| 파일 | 역할 |
-|---|---|
-| `main.py` | 수집·분류·게시 작업 실행 |
-| `run_main.py` | 반복 실행, 중복 실행 방지, 로그 관리 |
-| `crawl_announcement.py` | 공지 목록·본문·첨부파일 수집 |
-| `selenium_service.py` | PLATO 로그인·게시·알림 처리 |
-| `duplicate_checker.py`, `gpt_client.py` | 제목 중복 검사 및 분류 |
-| `page_url_manager.py`, `ready.py` | 게시판 주소와 마지막 공지 번호 관리 |
-| `runtime_config.py`, `browser_runtime.py` | 환경설정, Discord 알림, 브라우저 자원 관리 |
-
-`pages.csv`는 게시판별 마지막 공지 번호, `titles.txt`는 중복 검사 이력, `sorted_labeled_data.csv`는 분류 결과를 저장합니다. `yesterday.txt`는 대학 공지의 마지막 확인 제목을 저장합니다.
+- 대학·학과 공지와 첨부파일 수집
+- 제목과 본문을 활용한 분류, 같은 행사와 다른 회차 구분
+- 게시 결과 확인과 더 자세한 원문을 활용한 보강
+- 신청 학과별 PLATO 쪽지·이메일 발송
+- 브라우저 임시 파일, 첨부파일, 로그 정리
+- 운영 상태와 API 사용량 기록, 주요 장애 알림
 
 ## 실행
 
-Ubuntu와 Python 3.10 이상을 사용합니다. Chrome과 ChromeDriver의 버전을 맞춰 설치한 뒤 의존성을 준비합니다.
+Ubuntu와 Python 3.10 이상을 기준으로 구성했습니다. Chrome과 ChromeDriver는 서로 맞는 버전을 사용합니다.
 
 ```bash
 python3 -m pip install -r requirements.txt
 test -f .env || cp .env.example .env
 chmod 600 .env
-```
-
-[.env.example](.env.example)을 참고해 PLATO 계정, GPT API 키, ChromeDriver 경로와 게시판 CSV 경로를 설정합니다. Discord 웹훅도 `.env`에서 읽으며, 비워 두면 해당 알림을 생략합니다. 계정·키·웹훅 값과 신청자 정보는 저장소에 올리지 않습니다.
-
-`requirements.txt`는 현재 Ubuntu/Python 3.10 운영 환경의 주요 패키지 버전입니다. 기존 서버의 패키지를 일괄 업그레이드하지 않습니다.
-
-```bash
 python3 run_main.py
 ```
 
-한 번만 실행할 때는 `python3 main.py`를 사용합니다. 실행 시 설정된 PLATO 강좌에 공지를 게시하고 신청자에게 쪽지·이메일을 보냅니다.
+[.env.example](.env.example)을 참고해 서버의 `.env`에 PLATO 계정, GPT API 키, ChromeDriver 경로와 Discord 웹훅을 설정합니다. 기존 서버는 현재 값을 그대로 사용하면 됩니다. `requirements.txt`에는 운영 환경에서 확인한 패키지 버전을 정리했습니다.
 
-## 점검 및 운영
+한 번 실행할 때는 `python3 main.py`를 사용합니다. 실행하면 설정한 강좌에 공지를 게시하고 신청자에게 알림을 보냅니다.
+
+## 구성
+
+| 파일 | 역할 |
+|---|---|
+| `main.py`, `run_main.py` | 공지 처리와 반복 실행 |
+| `crawl_announcement.py` | 제목·본문·첨부파일 수집 |
+| `selenium_service.py` | PLATO 로그인과 게시·알림 처리 |
+| `notice_intelligence/` | 분류, 중복 판별, 게시 검증과 보강 |
+| `page_url_manager.py`, `ready.py` | 게시판 주소와 마지막 확인 위치 관리 |
+| `runtime_config.py`, `browser_runtime.py` | 환경설정과 브라우저 자원 관리 |
+
+`pages.csv`에는 게시판별 마지막 공지 번호, `titles.txt`에는 중복 검사 이력, `sorted_labeled_data.csv`에는 분류 결과를 저장합니다. `yesterday.txt`는 대학 공지의 마지막 확인 제목을 보관합니다. 서버의 기존 파일을 이어서 사용합니다.
+
+## 점검과 적용
 
 ```bash
 python3 -m unittest discover -s tests -v
 python3 tools/check_links.py --csv pages.csv --output link-audit.csv
+bash ops/apply_review.sh <검증한 커밋 SHA> --no-start
 ```
 
-테스트는 외부 발송 없이 수행합니다. 링크 점검은 운영 CSV/TXT를 변경하지 않습니다. Chrome만 확인하려면 `tools/smoke_browser.py --driver <ChromeDriver 경로>`를 사용합니다.
+자동 검사는 모의 데이터로 게시·알림 흐름을 확인합니다. 적용 스크립트는 별도 경로에서 검사하고 운영 데이터와 설정을 백업한 뒤 서버 코드를 갱신합니다. `--no-start`는 파일과 설정까지만 적용할 때 사용합니다.
 
-로그는 파일당 약 8 MiB, 합계 128 MiB, 7일 보관으로 제한합니다. 브라우저 임시 파일은 실행별로 분리하고 종료 시 정리합니다. 변경된 게시판 주소는 `url_overrides.json`에서 관리하며 CSV의 누적 번호는 유지합니다.
+첨부파일 보관 기간은 7일, 기본 보관 상한은 10GB입니다. 브라우저 작업 폴더는 실행별로 만들고 종료할 때 정리합니다. 로그는 파일당 약 8MiB, 합계 128MiB, 7일을 기준으로 관리합니다.
 
-기존 서버에 적용할 때는 `bash ops/apply_review.sh <검토한 커밋 SHA>`를 사용합니다. 별도 경로에서 검사하고 데이터와 `.env`를 백업한 뒤 서버의 `main`을 해당 커밋까지 갱신합니다. 기존 웹훅 값은 서버 안에서 그대로 이전합니다.
-
-파일과 설정만 적용하고 실행은 나중에 하려면 마지막에 `--no-start`를 붙입니다.
-
-분류·중복 판별의 기준과 검증 범위는 [공지 분류 안내](docs/notice-intelligence.md)에 정리했습니다. `NOTICE_ENRICHMENT_MODE=enabled`이면 이후 직접 게시하고 등록한 공지에 더 충실한 원문을 보강합니다. 기존 본문과 첨부파일을 보존하며, 사람이 수정한 글은 자동 수정에서 제외합니다.
+분류·중복·보강의 기준은 [공지 처리 안내](docs/notice-intelligence.md), 게시 검증·전송·장애 감시는 [운영 안내](docs/operations.md)에 정리했습니다.
 
 ## 브랜치
 
-- `main`: 최신 코드. 이후 수정 사항도 이 브랜치에 반영합니다.
-- `legacy/before-crawler-update-2026-10-26`: 크롤러 수정 전 코드와 기존 커밋 기록.
+- `main`: 현재 운영 코드
+- `legacy/before-crawler-update-2026-10-26`: 수정 전 코드와 기존 커밋 기록

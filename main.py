@@ -20,6 +20,9 @@ from ready import NoticeUpdater
 from notice_intelligence.routing import category_hint, configured_classifier
 from notice_intelligence.shadow import observe_notice, observe_category, finish_cycle
 from notice_intelligence.enrichment import find_target, register_post, apply_enrichment
+from notice_intelligence.quality import assess,quarantine,review_for,display_title
+from attachment_cache import archive_files
+from operations_state import update_state,board_summary
 
 with open('env.json', 'r', encoding='utf-8') as f:
     config = json.load(f)
@@ -126,6 +129,15 @@ def run_cycle(writenoticeService):
             if partial_ann is None or partial_ann.title == "제목 없음" or partial_ann.content_text == "내용 없음":
                 raise RuntimeError(f'공지 추출 실패; 공지 번호 유지: {url}')
 
+            validation = os.getenv('POST_VALIDATION_MODE','off') == 'enabled'
+            if validation:
+                result=assess(partial_ann)
+                partial_ann.title=result['title']
+                if not result['ok']:
+                    quarantine(partial_ann,result,BASE_DIR)
+                    print('확인이 필요한 공지를 별도 보관했습니다.',flush=True)
+                    continue
+
             observe_notice(partial_ann, department)
             enrichment_target = find_target(partial_ann, department, BASE_DIR)
             duplicate_check = is_recent_title_duplicate(partial_ann.title, identity_title=getattr(partial_ann, 'original_title', partial_ann.title))
@@ -136,11 +148,19 @@ def run_cycle(writenoticeService):
                     category = enrichment_target['board'] if enrichment_target['board'] in CATEGORIES else '해당없음'
                 else:
                     category = categorize_announcement(partial_ann.title, partial_ann.content_text)
+                if validation:
+                    combined=truncate_text(f'{partial_ann.title}\n{partial_ann.content_text}',1000)
+                    result=assess(partial_ann,review_for(combined))
+                    if not result['ok']:
+                        quarantine(partial_ann,result,BASE_DIR)
+                        continue
                 print(f"카테고리 분류 결과: {category}", flush=True)
                 message = f"{partial_ann.title}\n＞ {category}"
                 if not enrichment_target:
                     notify(message)
                 full_ann = fetch_complete_notice(url, category)
+                if validation:full_ann.title=display_title(full_ann.title)
+                archive_files(full_ann,BASE_DIR)
 
                 if category == "해당없음" or category not in CATEGORIES:
                     full_ann.notice_board_name = "기타 공지사항"
@@ -153,6 +173,8 @@ def run_cycle(writenoticeService):
                     if outcome is None and duplicate_check != '중복':
                         category = categorize_announcement(partial_ann.title, partial_ann.content_text)
                         full_ann = fetch_complete_notice(url, category)
+                        if validation:full_ann.title=display_title(full_ann.title)
+                        archive_files(full_ann,BASE_DIR)
                         full_ann.notice_board_name = category if category in CATEGORIES and category != '해당없음' else '기타 공지사항'
                         notify(f'{partial_ann.title}\n＞ {category}')
                         should_publish = True
@@ -160,8 +182,9 @@ def run_cycle(writenoticeService):
                     receipts = writenoticeService.write_notices(course_url, [full_ann], department)
                     if isinstance(receipts, list) and receipts:
                         register_post(writenoticeService, full_ann, department, receipts[0], BASE_DIR)
-                    print(f"게시글 작성 완료", flush=True)
-                    save_title(partial_ann.title, category)
+                    reused = isinstance(receipts,list) and receipts and isinstance(receipts[0],dict) and receipts[0].get('reused')
+                    print('기존 게시물 확인 완료' if reused else '게시글 작성 완료',flush=True)
+                    if not reused:save_title(partial_ann.title, category)
 
             recent_titles = recent_title()
             if "CMS/Board/PopupBoard" in url:
@@ -215,6 +238,7 @@ def run_cycle(writenoticeService):
 
 def main():
     os.chdir(BASE_DIR)
+    os.environ['API_USAGE_CONTEXT']='crawler'
     (BASE_DIR / '.runtime').mkdir(mode=0o700, exist_ok=True)
     with open(BASE_DIR / '.runtime' / 'cycle.lock', 'a') as lock:
         try:
@@ -227,6 +251,7 @@ def main():
         finally:
             service.close()
             finish_cycle()
+            update_state(BASE_DIR,boards=board_summary())
 
 
 def _terminate(signum, frame):

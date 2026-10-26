@@ -56,9 +56,12 @@ sudo systemctl restart systemd-journald
 # 비정상 종료로 남은 전용 임시 파일은 하루 뒤 정리한다.
 printf 'e /tmp/together-%s 0700 ubuntu ubuntu 1d\n' "$(id -u ubuntu)" > "$backup_dir/together-tmpfiles.conf"
 sudo install -m 644 "$backup_dir/together-tmpfiles.conf" /etc/tmpfiles.d/together-crawler.conf
-sudo systemctl enable --now systemd-tmpfiles-clean.timer
+sudo systemctl start systemd-tmpfiles-clean.timer
 sudo install -m 644 ops/together-crawler.service /etc/systemd/system/together-crawler.service
+sudo install -m 644 ops/together-health.service /etc/systemd/system/together-health.service
+sudo install -m 644 ops/together-health.timer /etc/systemd/system/together-health.timer
 sudo systemctl daemon-reload
+sudo systemctl enable --now together-health.timer
 if "$start_service"; then
     sudo systemctl enable --now together-crawler.service
     systemctl is-active together-crawler.service

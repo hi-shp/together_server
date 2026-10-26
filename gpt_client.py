@@ -6,6 +6,8 @@ from openai import OpenAI
 from runtime_config import BASE_DIR
 from notice_intelligence.prompts import category_request, duplicate_request
 from notice_intelligence.text import occurrence_conflict, requires_department_evidence
+from api_accounting import ApiAccounting
+from notice_intelligence.quality import remember_review
 
 with (BASE_DIR / 'env.json').open(encoding='utf-8') as handle:
     CATEGORIES = json.load(handle)['CATEGORIES']
@@ -16,8 +18,18 @@ DUPLICATE_MODEL = os.getenv('GPT_DUPLICATE_MODEL') or 'gpt-5.4-mini-2026-03-17'
 
 
 def _decision(model, request):
-    response = client.chat.completions.create(model=model, max_completion_tokens=500,
-                                             reasoning_effort='none', **request)
+    accounting = ApiAccounting(BASE_DIR)
+    cached = accounting.cached(model,request)
+    if cached is not None:
+        return cached
+    try:
+        accounting.check_budget()
+        response = client.chat.completions.create(model=model, max_completion_tokens=500,
+                                                 reasoning_effort='none', **request)
+    except Exception as exc:
+        accounting.record(model,request,error=exc)
+        raise
+    accounting.record(model,request,response=response)
     content = response.choices[0].message.content
     if not content:
         raise ValueError('Empty classification response')
@@ -29,13 +41,17 @@ def _decision(model, request):
 
 def answer_gpt(user_content):
     title, separator, body = user_content.partition('\n')
-    result = _decision(CATEGORY_MODEL, category_request(title, CATEGORIES, body if separator else ''))
+    request = category_request(title, CATEGORIES, body if separator else '')
+    result = _decision(CATEGORY_MODEL, request)
     category = result.get('category')
+    remember_review(user_content,result)
     if category == '판단보류':
+        ApiAccounting(BASE_DIR).store(CATEGORY_MODEL,request,result)
         print('분류 보류: 기타 공지사항으로 처리합니다.', flush=True)
         return '해당없음'
     if category not in CATEGORIES:
         raise ValueError('Unknown notice category')
+    ApiAccounting(BASE_DIR).store(CATEGORY_MODEL,request,result)
     return category
 
 
@@ -47,13 +63,16 @@ def check_title_similarity(new_title, recent_titles):
                   if not occurrence_conflict(new_title, title) and not requires_department_evidence(title)]
     if not candidates:
         return '중복 아님'
-    result = _decision(DUPLICATE_MODEL, duplicate_request(new_title, candidates))
+    request = duplicate_request(new_title, candidates)
+    result = _decision(DUPLICATE_MODEL, request)
     relation = result.get('relation')
     if relation == 'same_event':
         index = result.get('matched_index')
         if type(index) is not int or not 0 <= index < len(candidates):
             raise ValueError('Invalid duplicate match index')
+        ApiAccounting(BASE_DIR).store(DUPLICATE_MODEL,request,result)
         return '중복'
     if relation in ('different_event', 'related_update', 'needs_context'):
+        ApiAccounting(BASE_DIR).store(DUPLICATE_MODEL,request,result)
         return '중복 아님'
     raise ValueError('Unknown duplicate relation')

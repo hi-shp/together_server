@@ -49,6 +49,21 @@ def upload_file_in_manager(driver, path):
     wait_file_manager(driver)
 
 
+def set_post_fields(driver,subject,body_html):
+    if not subject.strip() or not body_html.strip():raise PostEditError('Empty post fields')
+    driver.execute_script('''
+        const subject=document.querySelector('input[name="subject"]');
+        const editor=document.getElementById('id_contenteditable');
+        const textarea=document.querySelector('textarea[name="content[text]"]');
+        subject.value=arguments[0];editor.innerHTML=arguments[1];textarea.value=arguments[1];
+        for(const node of [subject,editor,textarea]){
+          node.dispatchEvent(new Event('input',{bubbles:true}));
+          node.dispatchEvent(new Event('change',{bubbles:true}));
+          node.dispatchEvent(new Event('blur',{bubbles:true}));
+        }
+    ''',subject,body_html)
+
+
 def validate_article_url(url):
     parsed = urlsplit(url)
     query = parse_qs(parsed.query)
@@ -186,18 +201,7 @@ class PlatoPostEditor:
             raise PostEditError('Backup capacity reached')
 
     def _set_fields(self, subject, body_html):
-        if not subject.strip() or not body_html.strip(): raise PostEditError('Empty post fields')
-        self.driver.execute_script('''
-            const subject = document.querySelector('input[name="subject"]');
-            const editor = document.getElementById('id_contenteditable');
-            const textarea = document.querySelector('textarea[name="content[text]"]');
-            subject.value = arguments[0]; editor.innerHTML = arguments[1]; textarea.value = arguments[1];
-            for (const node of [subject,editor,textarea]) {
-                node.dispatchEvent(new Event('input',{bubbles:true}));
-                node.dispatchEvent(new Event('change',{bubbles:true}));
-                node.dispatchEvent(new Event('blur',{bubbles:true}));
-            }
-        ''', subject, body_html)
+        set_post_fields(self.driver,subject,body_html)
 
     def _upload(self, path):
         upload_file_in_manager(self.driver, path)
