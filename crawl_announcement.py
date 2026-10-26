@@ -1,7 +1,8 @@
 import requests
 from bs4 import BeautifulSoup
 import os
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse
+from runtime_config import HTTP_TIMEOUT
 import re
 import time
 import urllib3 # 추가
@@ -46,7 +47,7 @@ def filter_bmp_characters(text):
 def get_anns_url(announcementPage, n):  # 각 사이트마다 공지 url 추출
     try:
         # SSL 인증서 오류 해결을 위해 verify=False 유지
-        response = requests.get(announcementPage.page_url, verify=False)
+        response = requests.get(announcementPage.page_url, verify=False, timeout=HTTP_TIMEOUT)
         response.raise_for_status()
     except requests.exceptions.RequestException as e:
         print(e, flush=True)
@@ -54,29 +55,8 @@ def get_anns_url(announcementPage, n):  # 각 사이트마다 공지 url 추출
 
     soup = BeautifulSoup(response.text, 'html.parser')
 
-    # 최대 2초 동안 tbody 태그가 나타날 때까지 반복해서 확인
-    start_time = time.time()
-    table_element = None
-    idx = 0
-    for _ in range(10):
-        table_element = soup.find("tbody")
-        if table_element:
-            idx = 1
-            break  # tbody 태그를 찾으면 즉시 종료
-        time.sleep(0.1)  # 0.1초 간격으로 재확인
-        response = requests.get(announcementPage.page_url, verify=False)
-        response.raise_for_status()
-        soup = BeautifulSoup(response.text, 'html.parser')
-
-    if idx != 1:
-        for _ in range(5):
-            table_element = soup.find("tbody")
-            if table_element:
-                break  # tbody 태그를 찾으면 즉시 종료
-            time.sleep(3)  # 0.1초 간격으로 재확인
-            response = requests.get(announcementPage.page_url, verify=False)
-            response.raise_for_status()
-            soup = BeautifulSoup(response.text, 'html.parser')
+    # requests receives a complete static response; repeated GETs cannot render JS.
+    table_element = soup.find("tbody")
 
     if table_element:
         rows = table_element.find_all("tr")
@@ -86,6 +66,17 @@ def get_anns_url(announcementPage, n):  # 각 사이트마다 공지 url 추출
 
     announcement_numbers = []
     urls = []
+
+    # A layout change must never silently advance past a row without a link.
+    for row in rows:
+        number = row.select_one('td._artclTdNum, td.number, td.num, td.td-num')
+        if number and number.get_text(strip=True).isdigit() and int(number.get_text(strip=True)) > announcementPage.number:
+            link = row.select_one('td._artclTdTitle a[href], td.subject a[href], td.td-title a[href]')
+            if link is None and row.select_one('td.number'):
+                link = row.select_one('a[href]')
+            if link is None or not link.get('href', '').strip():
+                print(f'공지 링크 누락; 번호 유지: {announcementPage.page_url}', flush=True)
+                return [], announcementPage.number
 
     for row in rows:
         try:
@@ -153,7 +144,7 @@ def get_anns_url(announcementPage, n):  # 각 사이트마다 공지 url 추출
                                         element = title_tag.find('a')
                                         if element:
                                             url = element['href']
-                                            urls.append(urljoin(announcementPage.page_url, url))
+                                            urls.append(urljoin(response.url, url))
 
                             # <img> 태그 포함 경우 (대학공지 특수)
                             elif number_tag and number_tag.find("img"):
@@ -174,7 +165,7 @@ def get_anns_url(announcementPage, n):  # 각 사이트마다 공지 url 추출
                                                 print("중복 공지이므로 패스", flush=True)
                                             else:
                                                 url = element['href']
-                                                urls.append(urljoin(announcementPage.page_url, url))
+                                                urls.append(urljoin(response.url, url))
                                                 idx += 1
                                                 if num_idx == 0:
                                                     lines[1] = title
@@ -193,7 +184,7 @@ def get_anns_url(announcementPage, n):  # 각 사이트마다 공지 url 추출
                                             element = title_tag.find('a')
                                             if element:
                                                 url = element['href']
-                                                urls.append(urljoin(announcementPage.page_url, url))
+                                                urls.append(urljoin(response.url, url))
 
                         except AttributeError:
                             continue
@@ -205,7 +196,9 @@ def get_anns_url(announcementPage, n):  # 각 사이트마다 공지 url 추출
                             if element:
                                 href_value = element['href']
                                 if href_value.startswith("javascript:goDetail("):
-                                    detail_id = href_value.split('(')[1].split(')')[0]
+                                    detail_id = href_value.split('(')[1].split(')')[0].strip("'\" ")
+                                    if not detail_id.isdigit():
+                                        continue
                                     
                                     url = None # 초기화
                                     
@@ -229,7 +222,14 @@ def get_anns_url(announcementPage, n):  # 각 사이트마다 공지 url 추출
                         element = title_tag.find('a', class_='artclLinkView')
                         if element:
                             url = element['href']
-                            urls.append(urljoin(announcementPage.page_url, url))
+                            urls.append(urljoin(response.url, url))
+        # Do not advance past an unrecognized/new row with no usable detail URL.
+        urls = list(dict.fromkeys(urls))
+        if any(urlparse(url).scheme not in ('http', 'https') for url in urls):
+            raise ValueError(f'Invalid notice link: {announcementPage.page_url}')
+        if max_announcement_number > announcementPage.number and not urls:
+            print(f'공지 링크 추출 실패; 번호 유지: {announcementPage.page_url}', flush=True)
+            return [], announcementPage.number
         return urls[::-1], max_announcement_number
     else:
         print(f'공지사항을 찾을 수 없습니다 : {announcementPage.page_url}', flush=True)
@@ -238,7 +238,7 @@ def get_anns_url(announcementPage, n):  # 각 사이트마다 공지 url 추출
 
 def crawl_ann_partial(url: str) -> Announcement:  # 제목+내용만 부분 추출해서 중복/카테고리 판단
     try:
-        response = requests.get(url, verify=False)
+        response = requests.get(url, verify=False, timeout=HTTP_TIMEOUT)
         response.raise_for_status()
     except requests.exceptions.RequestException as e:
         print(e, flush=True)
@@ -285,14 +285,14 @@ def crawl_ann_partial(url: str) -> Announcement:  # 제목+내용만 부분 추�
 
 def crawl_ann(url: str, category: str) -> Announcement:  # 전부 추출
     try:
-        response = requests.get(url, verify=False)
+        response = requests.get(url, verify=False, timeout=HTTP_TIMEOUT)
         response.raise_for_status()
     except requests.exceptions.RequestException as e:
         print(e, flush=True)
         return None
 
     soup = BeautifulSoup(response.text, 'html.parser')
-    base_url = response.url.split('/bbs/')[0]
+    base_url = response.url
 
     # 제목 찾기
     title_element = soup.find("h2", class_="artclViewTitle")
@@ -324,12 +324,7 @@ def crawl_ann(url: str, category: str) -> Announcement:  # 전부 추출
         for img_tag in content_text_element.find_all("img"):
             img_url = img_tag.get("src")
             if img_url:
-                if img_url.startswith(".."):
-                    full_img_url = urljoin(base_url, img_url.replace("..\\", "").replace("../", ""))
-                elif not img_url.startswith("http"):
-                    full_img_url = urljoin(base_url, img_url)
-                else:
-                    full_img_url = img_url
+                full_img_url = urljoin(base_url, img_url.replace("\\", "/"))
                 img_tag["src"] = full_img_url
         content_html = filter_bmp_characters(str(content_text_element))
         content_text = filter_bmp_characters(content_text_element.get_text(strip=True))
@@ -348,7 +343,9 @@ def crawl_ann(url: str, category: str) -> Announcement:  # 전부 추출
                 try:
                     full_file_url = urljoin(base_url, file_url)
                     file_path = os.path.join('downloads', file_name)
-                    file_data = requests.get(full_file_url, verify=False).content # 여기도 추가
+                    file_response = requests.get(full_file_url, verify=False, timeout=HTTP_TIMEOUT)
+                    file_response.raise_for_status()
+                    file_data = file_response.content
                     with open(file_path, 'wb') as f:
                         f.write(file_data)
                     files.append(file_path)

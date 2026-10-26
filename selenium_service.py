@@ -17,6 +17,8 @@ from selenium.common.exceptions import TimeoutException
 import base64
 import re
 from threading import Thread
+from runtime_config import notify
+from browser_runtime import new_workspace, cleanup_workspace, driver_children, stop_children
 
 class WriteNoticeService:
     def __init__(self):
@@ -29,26 +31,28 @@ class WriteNoticeService:
         self.plato_pw = os.getenv('PLATO_PW')
 
         self.driver = None  # 드라이버는 나중에 생성
-        self.init_driver()
-        self.safe_get('https://dev-plato.pusan.ac.kr/')
-        self.login(self.plato_id, self.plato_pw)
+        self._workspace = None
+        try:
+            self.init_driver()
+            self.safe_get('https://dev-plato.pusan.ac.kr/')
+            self.login(self.plato_id, self.plato_pw)
+        except BaseException:
+            self.close()
+            raise
 
     def login_ready(self, timeout=30):
         self.driver.set_page_load_timeout(timeout)
-        while True:
-            try:
-                self.driver.get("https://dev-plato.pusan.ac.kr/")
-                break
-            except TimeoutException:
-                self.restart_driver()
+        self.safe_get("https://dev-plato.pusan.ac.kr/")
 
     def safe_get(self, url, login_required=False):
-        while True:
+        for attempt in range(3):
             try:
                 self.driver.get(url)
-                break
-            except:
-                print(f"⭐접속 에러 발생. 브라우저 재시작")
+                return
+            except Exception:
+                if attempt == 2:
+                    raise
+                print("접속 오류: 브라우저 재시작", flush=True)
                 time.sleep(2)
                 self.restart_driver()
                 if login_required:
@@ -56,7 +60,10 @@ class WriteNoticeService:
                     self.login(self.plato_id, self.plato_pw)
 
     def init_driver(self):
+        self._workspace = new_workspace()
         options = webdriver.ChromeOptions()
+        options.add_argument(f'--user-data-dir={self._workspace / "profile"}')
+        options.add_argument(f'--disk-cache-dir={self._workspace / "cache"}')
         options.add_argument('--headless=new')
         options.add_argument('no-sandbox')
         options.add_argument(f'window-size={self.window_size}')
@@ -79,14 +86,38 @@ class WriteNoticeService:
         options.add_argument("--disable-blink-features=AutomationControlled")
 
 
-        service = Service(self.chrome_driver_path)
-        self.driver = webdriver.Chrome(service=service, options=options)
+        driver_env = os.environ.copy()
+        driver_env.update({key: str(self._workspace) for key in ('TMPDIR', 'TMP', 'TEMP')})
+        self._service = Service(self.chrome_driver_path, env=driver_env)
+        try:
+            self.driver = webdriver.Chrome(service=self._service, options=options)
+            self.driver.set_page_load_timeout(45)
+        except BaseException:
+            self.close()
+            raise
+
+    def close(self):
+        service = getattr(self, '_service', None)
+        children = driver_children(service)
+        try:
+            if self.driver is not None:
+                self.driver.quit()
+        except Exception as exc:
+            print(f'Browser quit: {type(exc).__name__}', flush=True)
+        finally:
+            self.driver = None
+            service = getattr(self, '_service', None)
+            if service is not None:
+                try:
+                    service.stop()
+                except Exception as exc:
+                    print(f'Driver stop: {type(exc).__name__}', flush=True)
+            stop_children(children)
+            cleanup_workspace(self._workspace)
+            self._workspace = None
 
     def restart_driver(self):
-        try:
-            self.driver.quit()
-        except:
-            pass
+        self.close()
         self.init_driver()
 
     def login(self, id: str, pw: str):
@@ -242,8 +273,7 @@ class WriteNoticeService:
             message = f"{department}/Plato 쪽지 전송 완료 ({len(student_ids)}명)"
             discord_message = f"{department}/Plato 쪽지 전송 완료 ({len(student_ids)}명) -{title}"
             print(message, flush=True)
-            message_bot_url = "https://discordapp.com/api/webhooks/1352641014388752455/ZyseDfp3Ggw7mc89pMCOVeUeiAd-r8s_QcXezeVFf4HF1RYPIW6SoeYYp0usrtKykwxi"
-            requests.post(message_bot_url, json={"content": discord_message})
+            notify(discord_message, channel='DISCORD_MESSAGE_WEBHOOK_URL')
 
         self.safe_get("https://dev-plato.pusan.ac.kr/course/view.php?id=157301&lang=ko", login_required=True)
 
@@ -411,8 +441,7 @@ class WriteNoticeService:
             message = f"{department}/이메일 전송 완료 ({len(email_addresses)}명)"
             discord_message = f"{department}/이메일 전송 완료 ({len(email_addresses)}명) -{title}"
             print(message, flush=True)
-            email_bot_url = "https://discordapp.com/api/webhooks/1352641189945540781/Rf_4-md9I_qKoRsNulv_IjIUd0qArCJJmovMf5a6AS150JmpWyV5TMiU-fuQuF0aDtoO"
-            requests.post(email_bot_url, json={"content": discord_message})
+            notify(discord_message, channel='DISCORD_EMAIL_WEBHOOK_URL')
 
         self.safe_get("https://dev-plato.pusan.ac.kr/course/view.php?id=157301&lang=ko", login_required=True)
 

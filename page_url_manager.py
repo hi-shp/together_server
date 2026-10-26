@@ -1,6 +1,12 @@
 import pandas as pd
 from dotenv import load_dotenv
 import os
+import json
+from runtime_config import BASE_DIR
+
+
+with open(BASE_DIR / 'url_overrides.json', encoding='utf-8') as handle:
+    URL_OVERRIDES = json.load(handle)
 
 
 def extract_domain_part(url, domain):
@@ -18,7 +24,8 @@ def extract_domain_part(url, domain):
 class AnnouncementPage:
     def __init__(self, department, page_url, default_url, number=0) -> None:
         self.department = department  # 학과명 추가
-        self.page_url = page_url
+        self.source_url = page_url  # CSV key is preserved, including saved notice numbers.
+        self.page_url = URL_OVERRIDES.get(page_url, page_url)
         self.default_url = default_url
         self.number = number  # 공지 번호 추가, 기본값은 0
 

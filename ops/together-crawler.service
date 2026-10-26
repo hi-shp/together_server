@@ -1,0 +1,18 @@
+[Unit]
+Description=Together crawler supervisor
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/together/Source
+ExecStart=/usr/bin/python3 -u /home/ubuntu/together/Source/run_main.py
+Restart=on-failure
+RestartSec=30
+KillMode=control-group
+TimeoutStopSec=20
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

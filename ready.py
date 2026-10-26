@@ -1,6 +1,8 @@
 import requests
 from bs4 import BeautifulSoup
 import csv
+from urllib.parse import urljoin
+from runtime_config import HTTP_TIMEOUT
 
 
 class NoticeUpdater:
@@ -20,7 +22,7 @@ class NoticeUpdater:
     def fetch_notice_number(self, last_title):
         """공지 제목을 검색하여 동일한 제목의 공지 번호를 찾음"""
         for url in self.urls:
-            response = requests.get(url)
+            response = requests.get(url, timeout=HTTP_TIMEOUT)
             response.raise_for_status()
             soup = BeautifulSoup(response.text, "html.parser")
 
@@ -75,7 +77,7 @@ class NoticeUpdater:
 
     def fetch_highest_notice_title(self):
         """공지사항 페이지에서 가장 높은 번호(최신 공지)의 전체 제목을 가져옴"""
-        response = requests.get(self.urls[0])  # 최신 공지를 검색할 페이지 (page=1)
+        response = requests.get(self.urls[0], timeout=HTTP_TIMEOUT)  # 최신 공지를 검색할 페이지 (page=1)
         response.raise_for_status()
         soup = BeautifulSoup(response.text, "html.parser")
 
@@ -118,9 +120,9 @@ class NoticeUpdater:
     def fetch_full_notice_title(self, relative_url):
         """개별 공지 페이지에서 전체 제목을 가져옴"""
         base_url = "https://www.pusan.ac.kr/kor/CMS/Board/PopupBoard.do"
-        full_url = base_url + relative_url  # 절대 URL 만들기
+        full_url = urljoin(base_url, relative_url)  # 절대 URL 만들기
 
-        response = requests.get(full_url)
+        response = requests.get(full_url, timeout=HTTP_TIMEOUT)
         response.raise_for_status()
         soup = BeautifulSoup(response.text, "html.parser")
 

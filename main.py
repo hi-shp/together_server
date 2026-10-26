@@ -1,3 +1,7 @@
+from runtime_config import notify
+from runtime_config import BASE_DIR
+import fcntl
+import signal
 from gpt_client import answer_gpt
 from crawl_announcement import get_anns_url, crawl_ann_partial, crawl_ann
 from selenium_service import WriteNoticeService
@@ -13,8 +17,6 @@ import time
 import requests
 from datetime import datetime
 from ready import NoticeUpdater
-import glob
-import shutil
 
 # JSON 파일 불러오기
 with open('env.json', 'r', encoding='utf-8') as f:
@@ -56,7 +58,7 @@ def update_csv_with_announcement_numbers(updates, filename: str):
     df['number'] = df['number'].fillna(0).astype(int)
     df.to_csv(filename, index=False)
 
-def main():
+def run_cycle(writenoticeService):
     gc.collect()
     #print("모듈 로드 완료", flush=True)
     today_date = datetime.now().strftime("%Y-%m-%d") # 오늘 날짜 가져오기
@@ -65,7 +67,8 @@ def main():
     updater = NoticeUpdater()
 
     DOWNLOADS_DIR = os.path.join(os.path.expanduser("~"), "Downloads")
-    for filename in os.listdir(DOWNLOADS_DIR):
+    os.makedirs(DOWNLOADS_DIR, exist_ok=True)
+    for filename in ("email.csv", "message.csv", "알림 신청하기.csv"):
         file_path = os.path.join(DOWNLOADS_DIR, filename)
         if os.path.isfile(file_path):  # 파일만 삭제
             os.remove(file_path)
@@ -74,7 +77,6 @@ def main():
     #print("데이터 초기화 완료", flush=True)
 
     updates = {}  # 업데이트할 URL과 공지 번호 저장
-    writenoticeService = WriteNoticeService()
     course_url = "https://dev-plato.pusan.ac.kr/course/view.php?id=157301"  # 실제 course_url 사용
     #print("Selenium 클래스 로드 완료", flush=True)
 
@@ -86,8 +88,7 @@ def main():
 
     current_datetime = datetime.now().strftime("%Y-%m-%d / %H:%M:%S")
     message = f"{current_datetime} (참여: {highest_num}명/설문: {response_count}개)"
-    WEBHOOK_URL = os.getenv('WEBHOOK_URL')
-    requests.post(WEBHOOK_URL, json={"content": message})
+    notify(message)
 
     updater.update_university_notices()
     page_url_manager = PageUrlManager()
@@ -105,10 +106,16 @@ def main():
             # 제목+내용만 부분적으로 크롤링
             for _ in range(10):
                 partial_ann = crawl_ann_partial(url)
+                if partial_ann is None:
+                    time.sleep(1)
+                    continue
                 partial_ann.title = re.sub(r'【.*?】\s*', '', partial_ann.title)
                 if partial_ann.title != "제목 없음" and partial_ann.content_text != "내용 없음":
                     break  # 유효한 데이터가 생겼으므로 종료
                 time.sleep(1)
+
+            if partial_ann is None or partial_ann.title == "제목 없음" or partial_ann.content_text == "내용 없음":
+                raise RuntimeError(f'공지 추출 실패; 공지 번호 유지: {url}')
 
             # 제목 중복 체크
             duplicate_check = is_recent_title_duplicate(partial_ann.title)
@@ -119,14 +126,20 @@ def main():
                 category = categorize_announcement(partial_ann.title, partial_ann.content_text)
                 print(f"카테고리 분류 결과: {category}", flush=True)
                 message = f"{partial_ann.title}\n＞ {category}"
-                requests.post(WEBHOOK_URL, json={"content": message})
+                notify(message)
                 # 전체 공지사항 크롤링
                 for _ in range(10):
                     full_ann = crawl_ann(url, category)
+                    if full_ann is None:
+                        time.sleep(1)
+                        continue
                     full_ann.title = re.sub(r'【.*?】\s*', '', full_ann.title)
                     if full_ann.title != "제목 없음" and full_ann.content_text != "내용 없음":
                         break
                     time.sleep(1)
+
+                if full_ann is None or full_ann.title == "제목 없음" or full_ann.content_text == "내용 없음":
+                    raise RuntimeError(f'공지 본문 추출 실패; 공지 번호 유지: {url}')
 
                 if category == "해당없음" or category not in CATEGORIES:
                     full_ann.notice_board_name = "기타 공지사항"
@@ -158,7 +171,7 @@ def main():
 
         # URL의 최신 공지 번호를 업데이트 딕셔너리에 저장
         if latest_announcement_number > announcement_page.number:
-            updates[announcement_page.page_url] = latest_announcement_number
+            updates[announcement_page.source_url] = latest_announcement_number
             update_csv_with_announcement_numbers(updates, os.getenv('PAGE_NAME'))
             gc.collect()
             updates = {}
@@ -167,7 +180,6 @@ def main():
     if 6 <= now.hour < 9:
         print("\n공지글 수정 작업을 시작합니다.", flush=True)
         writenoticeService.remove_stars(course_url, today_date)
-    os.system("pkill -f chrome")
 
     # 다운로드 폴더 경로 수정
     DOWNLOADS_DIR = os.path.join(os.path.expanduser("~"), "Downloads")
@@ -184,16 +196,31 @@ def main():
 
     # 다운로드 폴더 내 모든 파일 삭제 (폴더 유지)
     folder_path = os.path.join("downloads")
+    os.makedirs(folder_path, exist_ok=True)
     for file_name in os.listdir(folder_path):
         file_path = os.path.join(folder_path, file_name)
         if os.path.isfile(file_path):
             os.remove(file_path)
 
-    # chrome,selenium 캐시 파일 삭제
-    for path in glob.glob("/tmp/.org.chromium.Chromium.*") + glob.glob("/tmp/.com.google.Chrome.*") + glob.glob("/dev/shm/.com.google.Chrome.*"):
-        try: shutil.rmtree(path)
-        except (NotADirectoryError, PermissionError): os.chmod(path, 0o777); os.remove(path)
-        except Exception: os.system(f"sudo rm -rf {path}")
+
+def main():
+    os.chdir(BASE_DIR)
+    (BASE_DIR / '.runtime').mkdir(mode=0o700, exist_ok=True)
+    with open(BASE_DIR / '.runtime' / 'cycle.lock', 'a') as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise SystemExit('A crawler cycle is already running')
+        service = WriteNoticeService()
+        try:
+            run_cycle(service)
+        finally:
+            service.close()
+
+
+def _terminate(signum, frame):
+    raise SystemExit(128 + signum)
 
 if __name__ == "__main__":
+    signal.signal(signal.SIGTERM, _terminate)
     main()
