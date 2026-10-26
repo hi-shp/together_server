@@ -53,4 +53,9 @@ python3 tools/check_links.py --csv pages.csv --output link-audit.csv
 
 로그는 파일당 약 8 MiB, 합계 128 MiB, 7일 보관으로 제한합니다. 브라우저 임시 파일은 실행별로 분리하고 종료 시 정리합니다. 변경된 게시판 주소는 `url_overrides.json`에서 관리하며 CSV의 누적 번호는 유지합니다.
 
-기존 서버에 적용할 때는 `bash ops/apply_review.sh <검토한 커밋 SHA>`를 사용합니다. 별도 경로에서 검사하고 데이터와 `.env`를 백업한 뒤 적용합니다. 기존 웹훅 값은 서버 안에서 그대로 이전하며, `main` 브랜치에 직접 커밋하지 않습니다.
+기존 서버에 적용할 때는 `bash ops/apply_review.sh <검토한 커밋 SHA>`를 사용합니다. 별도 경로에서 검사하고 데이터와 `.env`를 백업한 뒤 서버의 `main`을 해당 커밋까지 갱신합니다. 기존 웹훅 값은 서버 안에서 그대로 이전합니다.
+
+## 브랜치
+
+- `main`: 최신 코드. 이후 수정 사항도 이 브랜치에 반영합니다.
+- `legacy/before-crawler-update-2026-10-26`: 크롤러 수정 전 코드와 기존 커밋 기록.

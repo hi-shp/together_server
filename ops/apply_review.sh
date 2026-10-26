@@ -24,9 +24,9 @@ while IFS= read -r path; do
         *) echo "로컬 코드 변경을 먼저 확인하세요: $path"; exit 1 ;;
     esac
 done < <(git diff --name-only)
-git fetch origin fix/crawler-resource-safety
+git fetch origin main
 git cat-file -e "$revision^{commit}"
-[[ $(git rev-parse FETCH_HEAD) == "$revision" ]] || { echo '브랜치가 바뀌었습니다. 최신 PR을 확인하세요.'; exit 1; }
+[[ $(git rev-parse FETCH_HEAD) == "$revision" ]] || { echo 'main이 갱신되었습니다. 적용할 커밋을 다시 확인하세요.'; exit 1; }
 check_dir=$(mktemp -d /home/ubuntu/together-review.XXXXXXXX)
 git worktree add --detach "$check_dir" "$revision"
 echo "검증 경로: $check_dir"
@@ -40,13 +40,8 @@ for file in .env pages.csv sorted_labeled_data.csv titles.txt yesterday.txt; do
     [[ ! -e "$file" ]] || cp -a -- "$file" "$backup_dir/"
 done
 sha256sum pages.csv sorted_labeled_data.csv titles.txt yesterday.txt > "$backup_dir/state.sha256"
-branch="review-${revision:0:12}"
-if git show-ref --verify --quiet "refs/heads/$branch"; then
-    [[ $(git rev-parse "$branch") == "$revision" ]] || exit 1
-    git switch "$branch"
-else
-    git switch -c "$branch" "$revision"
-fi
+git switch main
+git merge --ff-only "$revision"
 sha256sum --check "$backup_dir/state.sha256"
 python3 ops/configure_webhooks.py --from-ref "$(cat "$backup_dir/previous-commit.txt")"
 sudo install -d -m 755 /etc/systemd/journald.conf.d
