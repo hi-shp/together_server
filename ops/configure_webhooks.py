@@ -70,14 +70,19 @@ def main():
     parser.add_argument('--root', type=Path, default=Path(__file__).resolve().parents[1])
     parser.add_argument('--from-ref', help='Local Git revision containing the original code')
     args = parser.parse_args()
+    target = args.root / '.env'
+    if target.is_symlink() or not target.is_file():
+        raise ValueError('Expected an existing regular .env file')
+    previous = dotenv_values(target, interpolate=False)
+    needed_files = {filename for key, (filename, _) in MAPPINGS.items() if not previous.get(key)}
     sources = {}
-    for filename in {item[0] for item in MAPPINGS.values()}:
+    for filename in needed_files:
         if args.from_ref:
             sources[filename] = subprocess.check_output(
                 ['git', 'show', f'{args.from_ref}:{filename}'], cwd=args.root).decode('utf-8')
         else:
             sources[filename] = (args.root / filename).read_text(encoding='utf-8')
-    migrate(args.root / '.env', sources)
+    migrate(target, sources)
 
 
 if __name__ == '__main__':

@@ -3,6 +3,7 @@ import os
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from dotenv import dotenv_values
 
@@ -14,6 +15,69 @@ spec.loader.exec_module(migration)
 
 
 class MigrationTests(unittest.TestCase):
+    def test_cli_keeps_configured_webhooks_when_legacy_files_are_gone(self):
+        for revision in (None, "modern-code"):
+            with self.subTest(revision=revision), tempfile.TemporaryDirectory() as temp:
+                target = Path(temp) / ".env"
+                target.write_text(
+                    "PLATO_PW=unchanged\n"
+                    + "\n".join(f"{key}=rotated-{key}" for key in migration.MAPPINGS)
+                    + "\n",
+                    encoding="utf-8",
+                )
+                before = target.read_bytes()
+                argv = ["configure_webhooks.py", "--root", temp]
+                if revision:
+                    argv += ["--from-ref", revision]
+                with (
+                    patch("sys.argv", argv),
+                    patch.object(
+                        migration.subprocess,
+                        "check_output",
+                        side_effect=AssertionError("Legacy Git read is unnecessary"),
+                    ) as read,
+                ):
+                    migration.main()
+                    read.assert_not_called()
+                self.assertEqual(target.read_bytes(), before)
+                self.assertEqual(list(Path(temp).glob(".env.backup.*")), [])
+
+    def test_cli_reads_only_the_source_needed_by_a_missing_setting(self):
+        with tempfile.TemporaryDirectory() as temp:
+            target = Path(temp) / ".env"
+            target.write_text(
+                "PLATO_PW=unchanged\n"
+                + "\n".join(
+                    f"{key}=rotated-{key}"
+                    for key in migration.MAPPINGS
+                    if key != "DISCORD_EMAIL_WEBHOOK_URL"
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            with (
+                patch(
+                    "sys.argv",
+                    ["configure_webhooks.py", "--root", temp, "--from-ref", "legacy"],
+                ),
+                patch.object(
+                    migration.subprocess,
+                    "check_output",
+                    return_value=self.sources()["selenium_service.py"].encode("utf-8"),
+                ) as read,
+            ):
+                migration.main()
+                read.assert_called_once_with(
+                    ["git", "show", "legacy:selenium_service.py"], cwd=Path(temp)
+                )
+            values = dotenv_values(target)
+            self.assertEqual(values["DISCORD_EMAIL_WEBHOOK_URL"], "old-email")
+            self.assertEqual(
+                values["DISCORD_MESSAGE_WEBHOOK_URL"],
+                "rotated-DISCORD_MESSAGE_WEBHOOK_URL",
+            )
+            self.assertEqual(values["PLATO_PW"], "unchanged")
+
     def sources(self):
         return {
             "run_main.py": "webhook_url='old-log'\nWEBHOOK_URL='old-night'\n",
