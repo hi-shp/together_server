@@ -263,7 +263,7 @@ class SupervisorSafety(unittest.TestCase):
                     ),
                 ):
                     self.assertEqual(
-                        run_main.run_cycle(root / "log.txt", max_seconds=0.5), 124
+                        run_main.run_cycle(root / "log.txt", max_seconds=2), 124
                     )
                 self.assertLessEqual((root / "log.txt").stat().st_size, 4200)
                 self.assertEqual(list((root / ".runtime").glob("run-*")), [])

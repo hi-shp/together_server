@@ -600,7 +600,7 @@ class HealthTests(unittest.TestCase):
             self.assertEqual(metrics["email_queue_oldest_seconds"], 8000)
             self.assertEqual(metrics["email_queue_idle_seconds"], 400)
             self.assertEqual(
-                delivery_metrics(root, now=10400)["unknown_delivery_recipients"], 68
+                delivery_metrics(root, now=11700)["unknown_delivery_recipients"], 68
             )
 
     def test_healthy_email_backlog_is_not_a_stall(self):

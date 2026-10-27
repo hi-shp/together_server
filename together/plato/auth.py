@@ -8,7 +8,13 @@ from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from .notifications import HOST, BASE, COURSE, NotificationError
+from .notifications import (
+    HOST,
+    BASE,
+    COURSE,
+    NotificationError,
+    NotificationAuthenticationError,
+)
 from .browser_runtime import (
     new_workspace,
     cleanup_workspace,
@@ -90,3 +96,60 @@ def login_session():
                 pass
         stop_children(children)
         cleanup_workspace(workspace)
+
+
+def http_login_session():
+    """실제 로그인 양식으로 접속하고 계정 세션을 반환한다."""
+    from bs4 import BeautifulSoup, SoupStrainer
+    from urllib.parse import urljoin
+
+    session = requests.Session()
+    session.headers["User-Agent"] = os.getenv("USER_AGENT") or "Mozilla/5.0"
+    root = "https://" + HOST + "/"
+    try:
+        with session.get(root, timeout=(5, 30)) as response:
+            response.raise_for_status()
+            soup = BeautifulSoup(
+                response.text, "html.parser", parse_only=SoupStrainer("form")
+            )
+            forms = [
+                form
+                for form in soup.find_all("form")
+                if form.select_one('input[name="username"]')
+                and form.select_one('input[name="password"]')
+            ]
+            if len(forms) != 1:
+                raise NotificationAuthenticationError("Login form unavailable")
+            form = forms[0]
+            action = urljoin(response.url, form.get("action", ""))
+            if (
+                action != root + "login/index.php"
+                or form.get("method", "").lower() != "post"
+            ):
+                raise NotificationAuthenticationError("Login form scope mismatch")
+            data = {
+                node["name"]: node.get("value", "")
+                for node in form.select('input[type="hidden"][name]')
+            }
+            submit = form.select_one('input[name="loginbutton"]')
+            if submit is not None:
+                data["loginbutton"] = submit.get("value", "")
+            data.update(
+                username=os.environ["PLATO_ID"], password=os.environ["PLATO_PW"]
+            )
+        with session.post(
+            action,
+            data=data,
+            headers={"Referer": root, "Origin": root.rstrip("/")},
+            timeout=(5, 30),
+        ) as response:
+            response.raise_for_status()
+            if (
+                urlsplit(response.url).netloc != HOST
+                or "logout.php" not in response.text
+            ):
+                raise NotificationAuthenticationError("Notification login failed")
+        return session
+    except BaseException:
+        session.close()
+        raise

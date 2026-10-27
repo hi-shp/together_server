@@ -25,6 +25,10 @@ class NotificationError(RuntimeError):
     pass
 
 
+class NotificationAuthenticationError(NotificationError):
+    pass
+
+
 class NotificationOutcomeUnknown(NotificationError):
     pass
 
@@ -53,8 +57,9 @@ def request_deadline(seconds):
 
 
 class _SendFormParser(HTMLParser):
-    def __init__(self, page_url):
+    def __init__(self, page_url, collect_targets=True):
         super().__init__(convert_charrefs=True)
+        self.collect_targets = collect_targets
         self.page_url = page_url
         self.forms = []
         self.current = None
@@ -81,7 +86,7 @@ class _SendFormParser(HTMLParser):
                 self.current[attrs["name"]] = attrs.get("value", "")
             if attrs.get("type") == "checkbox" and attrs.get("name") == "tousers[]":
                 self.inputs.append(attrs)
-        elif tag == "label":
+        elif tag == "label" and self.collect_targets:
             self.label = {"text": [], "title": attrs.get("title", "")}
             self.labels[attrs.get("for")] = self.label
 
@@ -94,6 +99,19 @@ class _SendFormParser(HTMLParser):
     def handle_data(self, data):
         if self.label is not None:
             self.label["text"].append(data.strip())
+
+
+def parse_send_form_hidden(html, kind, page_url):
+    parser = _SendFormParser(page_url, collect_targets=False)
+    parser.feed(html)
+    parser.close()
+    if len(parser.forms) != 1:
+        raise NotificationError("Notification form unavailable")
+    hidden = parser.forms[0]
+    expected = "message_send_group" if kind == "message" else "email_send"
+    if hidden.get("type") != expected or hidden.get("courseid") != COURSE:
+        raise NotificationError("Notification form scope mismatch")
+    return hidden
 
 
 def parse_send_form(html, kind, page_url):
@@ -375,8 +393,18 @@ class PlatoNotificationTransport:
                     or urlsplit(response.url).netloc != HOST
                     or "/login/" in response.url
                 ):
-                    raise NotificationError("Notification login failed")
-                hidden, targets = parse_send_form(response.text, kind, page)
+                    raise NotificationAuthenticationError("Notification login failed")
+                try:
+                    hidden, targets = parse_send_form(response.text, kind, page)
+                except NotificationError:
+                    if (
+                        "input-username" in response.text
+                        or 'name="username"' in response.text
+                    ):
+                        raise NotificationAuthenticationError(
+                            "Notification login required"
+                        ) from None
+                    raise
         self.last_form = (hidden, targets)
         ids, missing = resolve_recipients(targets, recipients, kind)
         if kind == "message":
@@ -386,9 +414,9 @@ class PlatoNotificationTransport:
                     self.student_ids[target["id"]] = match[1]
         return hidden, ids, missing
 
-    def email_history(self, *, fresh=False):
+    def email_history(self, *, fresh=False, recent_ok=False):
         if getattr(self, "history_reader", None):
-            return self.history_reader(fresh=fresh)
+            return self.history_reader(fresh=fresh, recent_ok=recent_ok)
         with (
             request_deadline(45),
             self._get(
@@ -414,7 +442,7 @@ class PlatoNotificationTransport:
             return False
         value = json.loads(path.read_text(encoding="utf-8"))
         try:
-            records = self.email_history(fresh=True)
+            records = self.email_history(fresh=True, recent_ok=True)
         except (NotificationError, requests.RequestException, TimeoutError):
             return False
         found = next(
@@ -557,12 +585,17 @@ class PlatoNotificationTransport:
             else:
                 payload.extend([("subject", subject), ("message[text]", body)])
             attempt = time.monotonic()
+            response_wait = (
+                max(600, min(3600, len(batch) * 30 + 120))
+                if kind == "email" and getattr(self, "background_dispatch", False)
+                else 600 if kind == "email" else 80
+            )
             try:
-                with request_deadline(620 if kind == "email" else 90):
+                with request_deadline(response_wait + 20):
                     response = self.session.post(
                         BASE + "action.php",
                         data=payload,
-                        timeout=(5, 600 if kind == "email" else 80),
+                        timeout=(5, response_wait),
                         allow_redirects=False,
                         headers={
                             "Referer": BASE

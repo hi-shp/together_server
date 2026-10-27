@@ -8,6 +8,7 @@ from together.operations.events import event, set_notice
 from together.plato.notifications import (
     PlatoNotificationTransport,
     NotificationOutcomeUnknown,
+    NotificationAuthenticationError,
 )
 
 
@@ -56,6 +57,8 @@ def process_job(outbox, job, transport):
         )
         return False
     except Exception as exc:
+        if isinstance(exc, NotificationAuthenticationError):
+            transport.authentication_failed = True
         outbox.defer(job, False, type(exc).__name__)
         event(
             "이메일",
@@ -70,7 +73,11 @@ def main():
     import os
     import signal
     import threading
-    from together.plato.email_dispatch import prepare_snapshot, transport_from_snapshot
+    from together.plato.email_dispatch import (
+        prepare_snapshot,
+        transport_from_snapshot,
+        new_session,
+    )
 
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--once", action="store_true")
@@ -102,8 +109,35 @@ def main():
         def send(job, current):
             transport = None
             try:
+                if job["state"] == "unknown":
+                    transport = PlatoNotificationTransport.from_session(
+                        new_session(current), BASE_DIR
+                    )
+                    transport.history_reader = current["history"]
+                    recovered = transport.recover_event(job["payload"]["event_key"])
+                    if recovered is False:
+                        outbox.defer(job, True, "awaiting_email_receipt")
+                        return
+                    if recovered is not None:
+                        outbox.complete(job, recovered)
+                        set_notice(
+                            job["payload"].get("url", job["payload"]["event_key"]),
+                            job["payload"]["department"],
+                            job["payload"]["title"],
+                        )
+                        event(
+                            "이메일",
+                            f"늦은 발송 이력 확인 {recovered}명",
+                            count=recovered,
+                            outcome="recovered",
+                        )
+                        return
+                    transport.close()
+                    transport = None
                 transport = transport_from_snapshot(current, BASE_DIR)
-                if not process_job(outbox, job, transport):
+                if not process_job(outbox, job, transport) and getattr(
+                    transport, "authentication_failed", False
+                ):
                     refresh.set()
             except Exception as exc:
                 outbox.defer(job, False, type(exc).__name__)
@@ -137,7 +171,7 @@ def main():
                 ):
                     try:
                         refresh.clear()
-                        snapshot = prepare_snapshot(BASE_DIR)
+                        snapshot = prepare_snapshot(BASE_DIR, snapshot)
                         refreshed_at = time.monotonic()
                     except Exception as exc:
                         event(

@@ -61,14 +61,29 @@ def filter_bmp_characters(text):
     return clean_text(text)
 
 
+def _get_board_response(url):
+    for attempt in range(2):
+        try:
+            response = requests.get(url, verify=False, timeout=HTTP_TIMEOUT)
+            response.raise_for_status()
+            return response
+        except (requests.Timeout, requests.ConnectionError):
+            if attempt:
+                raise
+            event(
+                "수집",
+                f"연결 지연, 잠시 후 다시 확인: {url}",
+                level="WARN",
+                source_url=url,
+            )
+            time.sleep(2)
+
+
 def get_anns_url(announcementPage, n):
     is_university = "CMS/Board/PopupBoard.do" in announcementPage.page_url
     try:
         # 기존 사이트와의 호환성을 위해 인증서 검증 설정을 유지한다.
-        response = requests.get(
-            announcementPage.page_url, verify=False, timeout=HTTP_TIMEOUT
-        )
-        response.raise_for_status()
+        response = _get_board_response(announcementPage.page_url)
     except requests.exceptions.RequestException as e:
         record_board_result(False)
         event(

@@ -90,6 +90,11 @@ class WriteNoticeService:
         for attempt in range(3):
             try:
                 self.driver.get(url)
+                if login_required and self.driver.find_elements(
+                    By.ID, "input-username"
+                ):
+                    self.login(self.plato_id, self.plato_pw)
+                    self.driver.get(url)
                 return
             except Exception:
                 if attempt == 2:
@@ -178,7 +183,7 @@ class WriteNoticeService:
         submit.click()
 
     def move_to_course(self, course_url: str):
-        self.safe_get(course_url)
+        self.safe_get(course_url, login_required=True)
 
     def move_to_notice_board(self, notice_board_name: str):
         notice_board_link = self.driver.find_element(

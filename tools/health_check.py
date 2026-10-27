@@ -174,8 +174,8 @@ def delivery_metrics(base_dir, now=None):
     if ledger.exists():
         with sqlite3.connect(ledger) as db:
             unknown = db.execute(
-                "SELECT COALESCE(SUM(recipients),0) FROM deliveries WHERE (state='unknown' AND updated<?) OR (state='sending' AND updated<?)",
-                (now - 300, now - 900),
+                "SELECT COALESCE(SUM(recipients),0) FROM deliveries WHERE (state='unknown' AND updated<?) OR (state='sending' AND updated + MAX(900,recipients*30+120) < ?)",
+                (now - 300, now),
             ).fetchone()[0]
     queue_pending = queue_blocked = 0
     queue_oldest = queue_idle = 0
