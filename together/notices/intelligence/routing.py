@@ -88,6 +88,33 @@ def category_hint(
             "method": "administrative_intent",
             "reason": "행정·결과 안내",
         }
+    if (
+        re.search(r"장학생.*(?:선정|선발)", title)
+        and re.search(r"장학생\s*명단|선발\s*결과|최종\s*선발", body)
+        and not re.search(r"신청\s*기간|접수\s*기간|지원\s*방법|신청\s*방법", body)
+    ):
+        return {
+            "category": "해당없음",
+            "method": "selection_result_body",
+            "reason": "본문의 선정 결과·후속 서류 안내 확인",
+        }
+    if (
+        CONTEST.search(title)
+        and re.search(
+            r"(?:시각화|숏폼|솟폼|숏츠|영상|카드뉴스).{0,15}(?:부문|부분|제출|제작|출품)",
+            body,
+        )
+        and not re.search(
+            r"소스\s*코드|코드\s*제출|프로그램\s*구현|SW\s*개발|소프트웨어\s*개발",
+            body,
+            re.I,
+        )
+    ):
+        return {
+            "category": "[공모전] 미술/디자인/건축",
+            "method": "visual_submission_body",
+            "reason": "본문의 시각물·영상 출품 형식 확인",
+        }
     if re.search(
         r"봉사단.{0,40}(?:참가자|참여자|파견팀|봉사자|단원).{0,15}모집", title
     ):
