@@ -15,7 +15,7 @@ from together.operations.state import record_board_result
 from together.operations.events import event
 from together.crawler.files import download_attachment, sanitize_filename
 from together.config import BASE_DIR
-from together.crawler.university_state import pinned_candidate
+from together.crawler.university_state import receipt_for
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -167,7 +167,7 @@ def get_anns_url(announcementPage, n):
         if number_text.isdigit():
             announcement_numbers.append(int(number_text))
 
-    if announcement_numbers or is_university:
+    if announcement_numbers:
         max_announcement_number = max(
             announcement_numbers, default=announcementPage.number
         )
@@ -218,37 +218,32 @@ def get_anns_url(announcementPage, n):
                                 announcement_number = int(
                                     number_tag.get_text(strip=True)
                                 )
-                                if (
-                                    announcement_number > announcementPage.number
-                                    or is_university
-                                ):
+                                if announcement_number > announcementPage.number:
                                     title_tag = row.find("td", class_="subject")
                                     if title_tag:
                                         element = title_tag.find("a")
                                         if element:
                                             url = urljoin(response.url, element["href"])
-                                            dates = re.findall(
-                                                r"20\d{2}[-.]\d{2}[-.]\d{2}",
-                                                row.get_text(" ", strip=True),
+                                            receipt = (
+                                                receipt_for(BASE_DIR, url)
+                                                if is_university
+                                                else None
                                             )
                                             candidate = (
-                                                pinned_candidate(
-                                                    BASE_DIR,
-                                                    url,
-                                                    element.get_text(strip=True),
-                                                    (
-                                                        dates[-1].replace(".", "-")
-                                                        if dates
-                                                        else None
-                                                    ),
+                                                (
+                                                    None
+                                                    if receipt.get(
+                                                        "notifications_registered"
+                                                    )
+                                                    else receipt["source_url"]
                                                 )
-                                                if is_university
+                                                if receipt
                                                 else url
                                             )
                                             if candidate:
                                                 urls.append(candidate)
 
-                            # 일반 글이 상단 고정으로 바뀌어도 제목 이력을 함께 확인한다.
+                            # 원본의 고정 공지 제목 기준과 한 번에 하나씩 확인하는 순서를 유지한다.
                             elif number_tag and number_tag.find("img"):
                                 title_tag = row.find("td", class_="subject")
                                 if title_tag:
@@ -257,38 +252,52 @@ def get_anns_url(announcementPage, n):
                                         title = element.get_text(strip=True)
                                         if title == last_yesterday_title:
                                             idx += 1
-                                        candidate = pinned_candidate(
-                                            BASE_DIR,
-                                            urljoin(response.url, element["href"]),
-                                            title,
-                                            (
-                                                re.findall(
-                                                    r"20\d{2}[-.]\d{2}[-.]\d{2}",
-                                                    row.get_text(" ", strip=True),
-                                                )
-                                                or [None]
-                                            )[-1],
-                                        )
-                                        if candidate:
-                                            urls.append(candidate)
-                                            event(
-                                                "고정 공지",
-                                                (
-                                                    "미처리 제목 확인"
-                                                    if idx == 0
-                                                    else "저장된 기준 아래의 미처리 제목 복구"
-                                                ),
-                                                title=title,
+                                        if idx == 0:
+                                            url = urljoin(response.url, element["href"])
+                                            receipt = receipt_for(BASE_DIR, url)
+                                            pending = receipt and not receipt.get(
+                                                "notifications_registered"
                                             )
-                                        if num_idx == 0:
-                                            while len(lines) < 2:
-                                                lines.append("\n")
-                                            lines[1] = title + "\n"
-                                            with open(
-                                                "yesterday.txt", "w", encoding="utf-8"
-                                            ) as file:
-                                                file.writelines(lines)
-                                            num_idx += 1
+                                            known = title in recent_title() or (
+                                                receipt
+                                                and receipt.get(
+                                                    "notifications_registered"
+                                                )
+                                            )
+                                            if known and not pending:
+                                                while len(lines) < 2:
+                                                    lines.append("\n")
+                                                lines[1] = title + "\n"
+                                                with open(
+                                                    "yesterday.txt",
+                                                    "w",
+                                                    encoding="utf-8",
+                                                ) as file:
+                                                    file.writelines(lines)
+                                                num_idx += 1
+                                                event(
+                                                    "고정 공지",
+                                                    "중복 공지이므로 패스",
+                                                    plain=True,
+                                                )
+                                            else:
+                                                urls.append(
+                                                    receipt["source_url"]
+                                                    if pending
+                                                    else url
+                                                )
+                                                idx += 1
+                                                if num_idx == 0:
+                                                    while len(lines) < 2:
+                                                        lines.append("\n")
+                                                    lines[1] = title + "\n"
+                                                    with open(
+                                                        "yesterday.txt",
+                                                        "w",
+                                                        encoding="utf-8",
+                                                    ) as file:
+                                                        file.writelines(lines)
+                                                    num_idx += 1
 
                             # td-num 형식 게시판
                             else:
@@ -351,6 +360,14 @@ def get_anns_url(announcementPage, n):
                         if element:
                             url = element["href"]
                             urls.append(urljoin(response.url, url))
+        if is_university:
+            # 번호 기준 밖에서는 이미 게시해 둔 미완료 건만 같은 주소로 이어 처리한다.
+            for row in rows:
+                link = row.select_one("td.subject a[href]")
+                if link:
+                    receipt = receipt_for(BASE_DIR, urljoin(response.url, link["href"]))
+                    if receipt and not receipt.get("notifications_registered"):
+                        urls.append(receipt["source_url"])
         # 상세 링크 추출에 실패하면 공지 번호를 넘기지 않는다.
         urls = list(dict.fromkeys(urls))
         if any(urlparse(url).scheme not in ("http", "https") for url in urls):

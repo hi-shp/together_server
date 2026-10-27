@@ -35,7 +35,7 @@ class UniversityRecovery(unittest.TestCase):
             encoding="utf-8",
         )
 
-    def test_pinned_items_before_and_after_the_title_marker_are_all_checked(self):
+    def test_pinned_items_keep_the_original_first_new_item_boundary(self):
         rows = "".join(
             f'<tr><td class="num"><img alt="공지"></td><td class="subject"><a href="?mode=view&board_seq={i}">{title}</a></td><td>2026-10-27</td></tr>'
             for i, title in enumerate(
@@ -70,9 +70,9 @@ class UniversityRecovery(unittest.TestCase):
                 ):
                     urls, number = crawl.get_anns_url(page, 1)
                 self.assertEqual(number, 9)
-                self.assertEqual(len(urls), 2)
+                self.assertEqual(len(urls), 1)
                 self.assertTrue(any("board_seq=1" in u for u in urls))
-                self.assertTrue(any("board_seq=4" in u for u in urls))
+                self.assertFalse(any("board_seq=4" in u for u in urls))
                 self.assertTrue(
                     known_title(root, "번호에서 고정으로 이동", "2026-10-27")
                 )
@@ -88,7 +88,7 @@ class UniversityRecovery(unittest.TestCase):
             self.assertTrue(known_title(root, "겨울 행사 모집", "2025-10-25"))
             self.assertFalse(known_title(root, "겨울 행사 모집", "2026-10-27"))
 
-    def test_new_title_is_recovered_when_display_number_is_not_greater(self):
+    def test_unknown_title_below_saved_number_is_not_recovered(self):
         body = '<table><tbody><tr><td class="num">9</td><td class="subject"><a href="?mode=view&board_seq=10">오늘 새 제목</a></td><td>2026-10-27</td></tr></tbody></table>'
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -104,8 +104,7 @@ class UniversityRecovery(unittest.TestCase):
                     patch.object(crawl, "http_get", return_value=Response(body)),
                 ):
                     urls, number = crawl.get_anns_url(page, 1)
-                self.assertEqual(len(urls), 1)
-                self.assertIn("board_seq=10", urls[0])
+                self.assertEqual(urls, [])
             finally:
                 os.chdir(old)
 

@@ -50,6 +50,14 @@ class LegacyBranchCompatibility(unittest.TestCase):
         )
         fixtures = [
             (
+                "https://www.pusan.ac.kr/kor/CMS/Board/PopupBoard.do?page=2",
+                '<tr><td class="num">9</td><td class="subject"><a href="?board_seq=1511715&mode=view">2026학년도 겨울계절수업 및 도약수업 운영 안내</a></td></tr>',
+            ),
+            (
+                "https://www.pusan.ac.kr/kor/CMS/Board/PopupBoard.do?page=1",
+                '<tr><td class="num"><img alt="공지"></td><td class="subject"><a href="?board_seq=1">첫 새 고정</a></td></tr><tr><td class="num"><img alt="공지"></td><td class="subject"><a href="?board_seq=2">이전 고정</a></td></tr><tr><td class="num"><img alt="공지"></td><td class="subject"><a href="?board_seq=3">기준 아래 옛 고정</a></td></tr><tr><td class="num">12</td><td class="subject"><a href="?board_seq=4">새 일반</a></td></tr>',
+            ),
+            (
                 "https://old.example/list",
                 '<tr><td class="_artclTdNum">12</td><td class="_artclTdTitle"><a class="artclLinkView" href="/view/12">새 글</a></td></tr>',
             ),
@@ -125,8 +133,9 @@ class LegacyBranchCompatibility(unittest.TestCase):
                         contextlib.redirect_stdout(io.StringIO()),
                     ):
                         current_urls, current_number = crawler.get_anns_url(page, 1)
-                    self.assertTrue(
-                        set(legacy_urls) <= set(current_urls),
+                    self.assertEqual(
+                        legacy_urls,
+                        current_urls,
                         (legacy_urls, current_urls),
                     )
                     self.assertGreaterEqual(current_number, legacy_number)
