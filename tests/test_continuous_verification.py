@@ -3,6 +3,7 @@ import io, json, tempfile, types, unittest, os
 from pathlib import Path
 from unittest.mock import patch
 from together import supervisor
+from together.operations.cycle_review import record_failed_cycle
 
 
 class StopFixture(Exception):
@@ -10,6 +11,38 @@ class StopFixture(Exception):
 
 
 class ContinuousVerification(unittest.TestCase):
+    def test_failure_monitor_records_retry_without_stopping_runner(self):
+        state = {"successful_cycles": [{"finished_at": 1}], "failed_cycles": []}
+        runner = {"status": "waiting", "last_exit": 1, "updated_at": 2}
+        self.assertTrue(record_failed_cycle(state, runner, 3))
+        self.assertEqual(state["status"], "monitoring")
+        self.assertEqual(state["successful_cycles"], [])
+        self.assertEqual(state["interrupted_successful_cycles"], [{"finished_at": 1}])
+        self.assertFalse(record_failed_cycle(state, runner, 4))
+        self.assertEqual(len(state["failed_cycles"]), 1)
+
+    def test_supervisor_restarts_after_repeated_failed_children(self):
+        class EndTest(BaseException):
+            pass
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            folder = root / ".runtime"
+            folder.mkdir()
+            (folder / "verification-mode.json").write_text('{"continuous":true}')
+            with (
+                patch.object(supervisor, "BASE_DIR", root),
+                patch.object(supervisor, "run_cycle", side_effect=[1, 1, 0]) as run,
+                patch.object(supervisor, "notify"),
+                patch.object(supervisor, "read_state", return_value={"consecutive_failures": 5}),
+                patch.object(supervisor.time, "sleep", side_effect=[None, None, EndTest()]),
+            ):
+                with self.assertRaises(EndTest):
+                    supervisor.run_main()
+            self.assertEqual(run.call_count, 3)
+            state = json.loads((folder / "health/runner.json").read_text())
+            self.assertEqual(state["last_exit"], 0)
+            self.assertEqual(state["consecutive_failures"], 0)
     def setUp(self):
         self.cwd = Path.cwd()
 

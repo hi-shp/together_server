@@ -184,7 +184,7 @@ class PlatoPostEditor:
         expected = validate_article_url(article_url)
         links = []
         for href in self.driver.execute_script(
-            "return Array.from(document.querySelectorAll('a[href]')).map(node=>node.href)"
+            "return Array.from(document.querySelectorAll('a[href], img[src]')).map(node=>node.href||node.src)"
         ):
             parsed = urlsplit(href)
             marker = f'/mod_ubboard/attachment/{expected["post_id"]}/'
@@ -194,7 +194,7 @@ class PlatoPostEditor:
                 and marker in parsed.path
             ):
                 item = {"url": href, "name": unquote(parsed.path.rsplit("/", 1)[-1])}
-                if item not in links:
+                if not any(urlsplit(existing["url"]).path == parsed.path for existing in links):
                     links.append(item)
         return links
 

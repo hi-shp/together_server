@@ -190,7 +190,24 @@ class WriteNoticeService:
             By.XPATH,
             f'//a[span[contains(@class, "instancename") and contains(text(), "{notice_board_name}")]]',
         )
-        notice_board_link.click()
+        self._notice_board_url = notice_board_link.get_attribute("href")
+        self.safe_get(self._notice_board_url, login_required=True)
+
+    def _write_button(self):
+        for attempt in range(2):
+            try:
+                return WebDriverWait(self.driver, 60).until(
+                    EC.presence_of_element_located(
+                        (By.XPATH, '//a[contains(@class, "btn btn-primary") and contains(text(), "쓰기")]')
+                    )
+                )
+            except TimeoutException:
+                board_url = getattr(self, "_notice_board_url", None)
+                if attempt or not board_url:
+                    raise
+                # 저장 전의 목록 화면만 다시 연다. 저장 요청은 재시도하지 않는다.
+                event("PLATO", "쓰기 화면 준비 지연: 게시판 다시 확인", level="WARN", source_url=board_url, console=False)
+                self.safe_get(board_url, login_required=True)
 
     def send_email_process(self):
         try:
@@ -713,14 +730,7 @@ class WriteNoticeService:
                 )
 
         # 공지가 많을 때 화면 밖으로 밀린 쓰기 버튼을 찾는다.
-        write_button = WebDriverWait(self.driver, 60).until(
-            EC.presence_of_element_located(
-                (
-                    By.XPATH,
-                    '//a[contains(@class, "btn btn-primary") and contains(text(), "쓰기")]',
-                )
-            )
-        )
+        write_button = self._write_button()
 
         self.driver.execute_script("arguments[0].scrollIntoView(true);", write_button)
         write_button.click()
