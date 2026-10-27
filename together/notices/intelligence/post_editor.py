@@ -25,6 +25,12 @@ class PostEditError(RuntimeError):
     pass
 
 
+class PostEditRestoredError(PostEditError):
+    def __init__(self, message, restored):
+        super().__init__(message)
+        self.restored = restored
+
+
 def file_names(driver):
     # AJAX가 목록을 교체하는 동안 오래된 요소 참조를 사용하지 않는다.
     return driver.execute_script(
@@ -417,8 +423,25 @@ class PlatoPostEditor:
             != expected_files
             or after["notice"] != before["notice"]
         ):
-            self.restore(result)
-            raise PostEditError("Saved post verification failed and was restored")
+            self._write_json(
+                Path(before["backup_dir"]) / "rejected.json",
+                {
+                    "requested_subject": subject,
+                    "requested_body_html": body_html,
+                    "actual_subject": after["subject"],
+                    "actual_body_html": after["body_html"],
+                    "expected_files": expected_files,
+                    "actual_files": {
+                        item["name"]: item["sha256"] for item in after["files"]
+                    },
+                    "notice_before": before["notice"],
+                    "notice_after": after["notice"],
+                },
+            )
+            restored = self.restore(result)
+            raise PostEditRestoredError(
+                "Saved post verification failed and was restored", restored
+            )
         self._write_json(
             Path(before["backup_dir"]) / "verified.json",
             {"after_signature": after["signature"], "added_files": names},

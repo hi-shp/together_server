@@ -15,6 +15,7 @@ from .events import Notice, compare_notices, quality_details
 from .post_editor import (
     PlatoPostEditor,
     PostEditError,
+    PostEditRestoredError,
     validate_article_url,
     MAX_OPERATION_BYTES,
 )
@@ -22,9 +23,34 @@ from .text import clean_display_title, normalize_title
 from .quality import (
     display_title,
     inspect_rendered_post,
-    PostVerificationError,
     sanitize_html,
 )
+from together.operations.events import event
+
+
+def _preserved_after_failed_enrichment(record, announcement, restored, base_dir):
+    if restored["signature"] != record["signature"]:
+        raise PostEditError("Restored enrichment signature mismatch")
+    PublishedNoticeStore(base_dir).put(
+        dict(
+            record,
+            ignored_sources=list(
+                dict.fromkeys(record.get("ignored_sources", []) + [announcement.url])
+            )[-10:],
+            last_enrichment_failure={
+                "source_url": announcement.url,
+                "reason": "verified_rollback",
+            },
+        )
+    )
+    event(
+        "보강",
+        "게시글 보강 보류: 기존 제목·본문·첨부 복구 확인",
+        level="WARN",
+        outcome="verified_rollback",
+        source_url=announcement.url,
+    )
+    return False
 
 
 def as_notice(announcement, department):
@@ -269,13 +295,18 @@ def apply_enrichment(service, record, announcement, department, base_dir):
         body = merged_body(current["body_html"], announcement, old_notice)
         if len(body.encode()) > 300000:
             raise PostEditError("Enriched body exceeds limit")
-        result = editor.update(
-            record["article_url"],
-            subject,
-            body,
-            uploads,
-            expected_signature=record["signature"],
-        )
+        try:
+            result = editor.update(
+                record["article_url"],
+                subject,
+                body,
+                uploads,
+                expected_signature=record["signature"],
+            )
+        except PostEditRestoredError as exc:
+            return _preserved_after_failed_enrichment(
+                record, announcement, exc.restored, base_dir
+            )
         if os.getenv("POST_VALIDATION_MODE", "off") == "enabled":
             service.safe_get(record["article_url"], login_required=True)
             expected_text = BeautifulSoup(body, "html.parser").get_text(" ", strip=True)
@@ -285,19 +316,9 @@ def apply_enrichment(service, record, announcement, department, base_dir):
             if any(
                 reason != "image_load_unconfirmed" for reason in rendered["reasons"]
             ):
-                editor.restore(result)
-                PublishedNoticeStore(base_dir).put(
-                    dict(
-                        record,
-                        ignored_sources=list(
-                            dict.fromkeys(
-                                record.get("ignored_sources", []) + [announcement.url]
-                            )
-                        )[-10:],
-                    )
-                )
-                raise PostVerificationError(
-                    "Enriched post failed display validation and was restored"
+                restored = editor.restore(result)
+                return _preserved_after_failed_enrichment(
+                    record, announcement, restored, base_dir
                 )
     record = dict(
         record,
