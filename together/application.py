@@ -25,6 +25,8 @@ import os
 import requests
 from datetime import datetime
 from together.crawler.university import NoticeUpdater
+from together.crawler.university_state import UniversityCheckpoint
+from together.notices.intelligence.publication import known_receipt, remember_receipt
 from together.notices.intelligence.routing import category_hint, configured_classifier
 from together.notices.intelligence.shadow import (
     observe_notice,
@@ -185,9 +187,15 @@ def run_cycle(writenoticeService):
     n = 1
     for announcement_page in page_url_manager.announcement_pages:
         clear_notice()
+        page_match = re.search(r"(?:[?&])page=(\d+)", announcement_page.page_url)
+        page_label = (
+            f" [목록 {page_match.group(1)}쪽]"
+            if page_match and "CMS/Board/PopupBoard.do" in announcement_page.page_url
+            else ""
+        )
         event(
             "게시판",
-            f"{n}/{len(page_url_manager.announcement_pages)} · {announcement_page.department}",
+            f"{n}/{len(page_url_manager.announcement_pages)} · {announcement_page.department}{page_label}",
             source_url=announcement_page.page_url,
             board_index=n,
             board_count=len(page_url_manager.announcement_pages),
@@ -336,7 +344,11 @@ def run_cycle(writenoticeService):
                     event("알림", "도서관 운영 안내 · 알림 제외", outcome="excluded")
                     continue
 
-                if partial_ann.title in recent_titles:
+                previous_receipt = known_receipt(BASE_DIR, partial_ann.url)
+                if partial_ann.title in recent_titles and (
+                    not previous_receipt
+                    or previous_receipt.get("notifications_registered")
+                ):
                     event(
                         "알림", "이미 처리한 제목 · 알림 생략", outcome="deduplicated"
                     )
@@ -352,6 +364,10 @@ def run_cycle(writenoticeService):
             writenoticeService.send_email(
                 partial_ann.title, partial_ann.url, partial_ann.content_html, department
             )
+            receipt = known_receipt(BASE_DIR, partial_ann.url)
+            if receipt:
+                receipt["notifications_registered"] = True
+                remember_receipt(BASE_DIR, receipt)
             event(
                 "공지",
                 f"처리 완료 ({time.monotonic()-notice_started:.1f}초)",
@@ -405,7 +421,8 @@ def main():
             raise SystemExit("A crawler cycle is already running")
         service = WriteNoticeService()
         try:
-            run_cycle(service)
+            with UniversityCheckpoint(BASE_DIR):
+                run_cycle(service)
         except Exception as exc:
             event(
                 "사이클",

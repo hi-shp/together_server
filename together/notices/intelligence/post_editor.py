@@ -269,7 +269,7 @@ class PlatoPostEditor:
             "body_html": self.driver.find_element(
                 By.ID, "id_contenteditable"
             ).get_attribute("innerHTML"),
-            "notice": self.driver.find_element(By.NAME, "notice").is_selected(),
+            "notice": self._notice_state(),
             "files": files,
         }
         snapshot["signature"] = snapshot_signature(snapshot)
@@ -277,6 +277,10 @@ class PlatoPostEditor:
             snapshot["backup_dir"] = str(folder)
             self._write_json(folder / "before.json", snapshot)
         return snapshot
+
+    def _notice_state(self):
+        fields = self.driver.find_elements(By.NAME, "notice")
+        return fields[0].is_selected() if fields else None
 
     def _write_json(self, path, data):
         path.write_text(

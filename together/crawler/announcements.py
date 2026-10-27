@@ -12,6 +12,8 @@ from together.notices.intelligence.quality import clean_text
 from together.operations.state import record_board_result
 from together.operations.events import event
 from together.crawler.files import download_attachment, sanitize_filename
+from together.config import BASE_DIR
+from together.crawler.university_state import pinned_candidate
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -60,6 +62,7 @@ def filter_bmp_characters(text):
 
 
 def get_anns_url(announcementPage, n):
+    is_university = "CMS/Board/PopupBoard.do" in announcementPage.page_url
     try:
         # 기존 사이트와의 호환성을 위해 인증서 검증 설정을 유지한다.
         response = requests.get(
@@ -74,6 +77,8 @@ def get_anns_url(announcementPage, n):
             level="WARN",
             error=type(e).__name__,
         )
+        if is_university:
+            raise
         return [], announcementPage.number
 
     soup = BeautifulSoup(response.text, "html.parser")
@@ -86,6 +91,8 @@ def get_anns_url(announcementPage, n):
         rows = table_element.find_all("tr")
     else:
         event("수집", "⚠️ tbody 태그를 찾을 수 없습니다.", level="WARN")
+        if is_university:
+            raise ValueError("University notice table unavailable")
         rows = []
 
     announcement_numbers = []
@@ -142,8 +149,10 @@ def get_anns_url(announcementPage, n):
         if number_text.isdigit():
             announcement_numbers.append(int(number_text))
 
-    if announcement_numbers:
-        max_announcement_number = max(announcement_numbers)
+    if announcement_numbers or is_university:
+        max_announcement_number = max(
+            announcement_numbers, default=announcementPage.number
+        )
         difference = max_announcement_number - announcementPage.number
         event(
             "수집",
@@ -186,52 +195,77 @@ def get_anns_url(announcementPage, n):
                                 announcement_number = int(
                                     number_tag.get_text(strip=True)
                                 )
-                                if announcement_number > announcementPage.number:
+                                if (
+                                    announcement_number > announcementPage.number
+                                    or is_university
+                                ):
                                     title_tag = row.find("td", class_="subject")
                                     if title_tag:
                                         element = title_tag.find("a")
                                         if element:
-                                            url = element["href"]
-                                            urls.append(urljoin(response.url, url))
+                                            url = urljoin(response.url, element["href"])
+                                            dates = re.findall(
+                                                r"20\d{2}[-.]\d{2}[-.]\d{2}",
+                                                row.get_text(" ", strip=True),
+                                            )
+                                            candidate = (
+                                                pinned_candidate(
+                                                    BASE_DIR,
+                                                    url,
+                                                    element.get_text(strip=True),
+                                                    (
+                                                        dates[-1].replace(".", "-")
+                                                        if dates
+                                                        else None
+                                                    ),
+                                                )
+                                                if is_university
+                                                else url
+                                            )
+                                            if candidate:
+                                                urls.append(candidate)
 
-                            # 번호 대신 이미지가 표시되는 대학 공지
+                            # 일반 글이 상단 고정으로 바뀌어도 제목 이력을 함께 확인한다.
                             elif number_tag and number_tag.find("img"):
                                 title_tag = row.find("td", class_="subject")
                                 if title_tag:
-                                    element = title_tag.find("a")
+                                    element = title_tag.find("a", href=True)
                                     if element:
                                         title = element.get_text(strip=True)
                                         if title == last_yesterday_title:
                                             idx += 1
-                                        if idx == 0:
-                                            recent_titles = recent_title()
-                                            if title in recent_titles:
-                                                lines[1] = title
-                                                with open(
-                                                    "yesterday.txt",
-                                                    "w",
-                                                    encoding="utf-8",
-                                                ) as file:
-                                                    file.writelines(lines)
-                                                num_idx += 1
-                                                event(
-                                                    "수집",
-                                                    "중복 공지이므로 패스",
-                                                    level="INFO",
+                                        candidate = pinned_candidate(
+                                            BASE_DIR,
+                                            urljoin(response.url, element["href"]),
+                                            title,
+                                            (
+                                                re.findall(
+                                                    r"20\d{2}[-.]\d{2}[-.]\d{2}",
+                                                    row.get_text(" ", strip=True),
                                                 )
-                                            else:
-                                                url = element["href"]
-                                                urls.append(urljoin(response.url, url))
-                                                idx += 1
-                                                if num_idx == 0:
-                                                    lines[1] = title
-                                                    with open(
-                                                        "yesterday.txt",
-                                                        "w",
-                                                        encoding="utf-8",
-                                                    ) as file:
-                                                        file.writelines(lines)
-                                                    num_idx += 1
+                                                or [None]
+                                            )[-1],
+                                        )
+                                        if candidate:
+                                            urls.append(candidate)
+                                            event(
+                                                "고정 공지",
+                                                (
+                                                    "미처리 제목 확인"
+                                                    if idx == 0
+                                                    else "저장된 기준 아래의 미처리 제목 복구"
+                                                ),
+                                                title=title,
+                                            )
+                                        if num_idx == 0:
+                                            while len(lines) < 2:
+                                                lines.append("\n")
+                                            lines[1] = title + "\n"
+                                            with open(
+                                                "yesterday.txt", "w", encoding="utf-8"
+                                            ) as file:
+                                                file.writelines(lines)
+                                            num_idx += 1
 
                             # td-num 형식 게시판
                             else:
@@ -298,7 +332,11 @@ def get_anns_url(announcementPage, n):
         urls = list(dict.fromkeys(urls))
         if any(urlparse(url).scheme not in ("http", "https") for url in urls):
             raise ValueError(f"Invalid notice link: {announcementPage.page_url}")
-        if max_announcement_number > announcementPage.number and not urls:
+        if (
+            max_announcement_number > announcementPage.number
+            and not urls
+            and not is_university
+        ):
             event(
                 "수집",
                 f"공지 링크 추출 실패; 번호 유지: {announcementPage.page_url}",
@@ -307,7 +345,7 @@ def get_anns_url(announcementPage, n):
             return [], announcementPage.number
         event(
             "게시판",
-            f"새 공지 {len(urls)}건",
+            f"처리 대상 {len(urls)}건 (미완료 이력 포함)",
             count=len(urls),
             source_url=announcementPage.page_url,
         )
