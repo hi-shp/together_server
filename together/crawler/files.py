@@ -54,13 +54,13 @@ def response_filename(response):
     return sanitize_filename(name)
 
 
-def download_attachment(url, suggested_name, *, referer, directory="downloads"):
+def download_attachment(url, suggested_name, *, referer, directory="downloads", allow_images=False, max_bytes=None):
     root = Path(directory)
     root.mkdir(parents=True, exist_ok=True)
     if root.is_symlink():
         raise ValueError("Invalid download directory")
     initial = sanitize_filename(suggested_name)
-    if Path(initial).suffix.lower() in IMAGES:
+    if not allow_images and Path(initial).suffix.lower() in IMAGES:
         return None
     pending = None
     try:
@@ -100,7 +100,7 @@ def download_attachment(url, suggested_name, *, referer, directory="downloads"):
                     + hashlib.sha256(url.encode()).hexdigest()[:12]
                     + extension
                 )
-            if Path(name).suffix.lower() in IMAGES:
+            if not allow_images and Path(name).suffix.lower() in IMAGES:
                 return None
             if "text/html" in response.headers.get("Content-Type", "").lower() and Path(
                 name
@@ -121,6 +121,8 @@ def download_attachment(url, suggested_name, *, referer, directory="downloads"):
                     handle.write(chunk)
                     digest.update(chunk)
                     size += len(chunk)
+                    if max_bytes is not None and size > max_bytes:
+                        raise ValueError("Attachment exceeds operation limit")
             sha = digest.hexdigest()
             candidate = root / name
             from together.storage.attachments import file_digest

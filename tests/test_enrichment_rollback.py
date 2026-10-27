@@ -58,6 +58,10 @@ class EnrichmentRollback(unittest.TestCase):
                     "together.notices.intelligence.enrichment.adds_information",
                     return_value=True,
                 ),
+                patch(
+                    "together.notices.intelligence.enrichment.body_gain",
+                    return_value=["table_added"],
+                ),
             ):
                 factory.return_value.read.return_value = current
                 factory.return_value.update.side_effect = error

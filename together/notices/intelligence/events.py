@@ -19,6 +19,7 @@ class Notice:
     attachment_urls: list = field(default_factory=list)
     metadata_complete: bool = False
     publication_time: str = ""
+    content_profile: dict = field(default_factory=dict)
 
 
 def phase(title):

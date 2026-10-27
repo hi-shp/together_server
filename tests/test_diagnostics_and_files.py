@@ -32,6 +32,18 @@ class Response:
 
 
 class AttachmentNameTests(unittest.TestCase):
+    def test_enrichment_can_keep_image_attachment_and_respects_byte_limit(self):
+        with tempfile.TemporaryDirectory() as temp, patch(
+            "together.crawler.files.public_http.get", return_value=Response(body=b"image-bytes")
+        ) as get:
+            self.assertIsNone(download_attachment("https://example.invalid/file", "안내.jpg", referer="https://example.invalid/notice", directory=temp))
+            get.assert_not_called()
+            result = download_attachment("https://example.invalid/file", "안내.jpg", referer="https://example.invalid/notice", directory=temp, allow_images=True, max_bytes=20)
+            self.assertEqual(Path(result["path"]).read_bytes(), b"image-bytes")
+            with self.assertRaises(ValueError):
+                download_attachment("https://example.invalid/file", "다른안내.jpg", referer="https://example.invalid/notice", directory=temp, allow_images=True, max_bytes=5)
+            self.assertEqual([p.name for p in Path(temp).iterdir()], ["안내.jpg"])
+
     def fetch(self, root, name, response=None):
         with patch(
             "together.crawler.files.public_http.get", return_value=response or Response()

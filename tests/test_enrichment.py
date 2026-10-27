@@ -150,7 +150,7 @@ class CandidateAndContentTests(unittest.TestCase):
             )
         )
 
-    def test_richer_candidate_adds_to_original_content(self):
+    def test_representative_body_replaces_previous_copy(self):
         old = self.notice(body_text="모집 안내")
         ann = types.SimpleNamespace(
             url="https://example.invalid/new",
@@ -158,7 +158,8 @@ class CandidateAndContentTests(unittest.TestCase):
             content_html="<p>신청방법: 온라인</p>",
         )
         body = merged_body("<p>기존 연락처 051-000-0000</p>", ann, old)
-        self.assertIn("기존 연락처 051-000-0000", body)
+        self.assertNotIn("기존 연락처 051-000-0000", body)
+        self.assertNotIn("추가 안내", body)
         self.assertIn("신청방법: 온라인", body)
         self.assertIn(ann.url, body)
 

@@ -10,8 +10,10 @@ from pathlib import Path
 import re
 import tempfile
 from bs4 import BeautifulSoup
+from requests import RequestException
 
-from .events import Notice, compare_notices, quality_details
+from .events import Notice, compare_notices
+from .enrichment_quality import profile, text_gain, compatible, body_gain
 from .post_editor import (
     PlatoPostEditor,
     PostEditError,
@@ -19,13 +21,14 @@ from .post_editor import (
     validate_article_url,
     MAX_OPERATION_BYTES,
 )
-from .text import clean_display_title, normalize_title
+from .text import clean_display_title
 from .quality import (
     display_title,
     inspect_rendered_post,
     sanitize_html,
 )
 from together.operations.events import event
+from together.crawler.files import download_attachment, IMAGES
 
 
 def _preserved_after_failed_enrichment(record, announcement, restored, base_dir):
@@ -60,32 +63,19 @@ def as_notice(announcement, department):
         observed_at=datetime.now().isoformat(timespec="seconds"),
         source_url=announcement.url,
         department=department,
-        body_text=(announcement.content_text or "")[:6000],
+        body_text=(BeautifulSoup(announcement.content_html, "html.parser").get_text(" ", strip=True) if getattr(announcement, "content_html", "") else announcement.content_text or "")[:6000],
         attachment_urls=[item["url"] for item in metadata.get("attachment_links", [])],
         metadata_complete=bool(metadata.get("attachment_scan_complete")),
         publication_time=metadata.get("publication_time") or "",
+        content_profile=profile(sanitize_html(getattr(announcement, "content_html", ""), announcement.url)),
     )
 
 
 def adds_information(old, new):
-    a, b = quality_details(old), quality_details(new)
-    old_fields = {key for key, value in a["information_fields"].items() if value}
-    new_fields = {key for key, value in b["information_fields"].items() if value}
-    # 오래된 정보를 지우지 않고 추가하더라도, 명백한 일정 충돌은 자동 처리하지 않는다.
-    dates = lambda text: set(
-        re.findall(r"(?<!\d)(?:20\d{2}[.\-/]\s*)?\d{1,2}[./월]\s*\d{1,2}(?:일)?", text)
-    )
-    old_dates, new_dates = dates(old.body_text), dates(new.body_text)
-    if old_dates and new_dates and not old_dates <= new_dates:
+    if not compatible(old.body_text, new.body_text):
         return False
-    return (
-        bool(new_fields - old_fields)
-        or bool(set(new.attachment_urls) - set(old.attachment_urls))
-        or (
-            b["body_characters"]
-            >= a["body_characters"] + max(200, int(a["body_characters"] * 0.2))
-        )
-    )
+    # 파일 주소는 후보 선별에만 쓰고, 저장 여부는 실제 파일 해시로 결정한다.
+    return bool(text_gain(old.body_text, new.body_text, old.content_profile, new.content_profile) or set(new.attachment_urls) - set(old.attachment_urls))
 
 
 def enriched_subject(current, title, board):
@@ -100,20 +90,10 @@ def enriched_subject(current, title, board):
 
 
 def merged_body(current_html, announcement, old_notice):
-    link = '<p>추가 원문: <a href="{0}">{0}</a></p>'.format(
+    link = '<p>본문 링크 : <a href="{0}">{0}</a></p>'.format(
         escape(announcement.url, quote=True)
     )
-    old_text = re.sub(r"\W+", "", normalize_title(old_notice.body_text))
-    new_text = re.sub(r"\W+", "", normalize_title(announcement.content_text))
-    if new_text and new_text == old_text:
-        return current_html + "<hr>" + link
-    # 기존 내용과 링크를 보존해 원문 선택 때문에 정보가 사라지지 않게 한다.
-    return (
-        current_html
-        + "<hr><p><strong>추가 안내</strong></p>"
-        + link
-        + sanitize_html(announcement.content_html, announcement.url)
-    )
+    return link + sanitize_html(announcement.content_html, announcement.url)
 
 
 class PublishedNoticeStore:
@@ -249,7 +229,7 @@ def apply_enrichment(service, record, announcement, department, base_dir):
                 )[-10:],
             )
         )
-        return None
+        return False
     # 내용 해시가 같은 파일은 다시 올리지 않는다. 같은 이름의 다른 파일은 이름을 분리한다.
     known_hashes = {item["sha256"] for item in current["files"]}
     known_names = {item["name"] for item in current["files"]}
@@ -260,8 +240,21 @@ def apply_enrichment(service, record, announcement, department, base_dir):
     ):
         raise PostEditError("Enrichment attachments exceed limit")
     with tempfile.TemporaryDirectory(prefix="upload-", dir=folder_root) as temporary:
+        candidates = list(announcement.files)
+        # 원문에 파일로 등록된 안내 이미지도 보강 자료에 포함한다.
+        for item in (getattr(announcement, "metadata", {}) or {}).get("attachment_links", []):
+            if Path(item.get("name", "")).suffix.lower() in IMAGES:
+                try:
+                    saved = download_attachment(item["url"], item["name"], referer=announcement.url, directory=Path(temporary) / "images", allow_images=True, max_bytes=MAX_OPERATION_BYTES)
+                except (RequestException, OSError, ValueError) as exc:
+                    event("보강", "안내 이미지 수집 보류", level="WARN", source_url=item["url"], error=type(exc).__name__, console=False)
+                    continue
+                if saved:
+                    candidates.append(saved["path"])
+        if sum(Path(value).stat().st_size for value in candidates) > MAX_OPERATION_BYTES:
+            raise PostEditError("Enrichment attachments exceed limit")
         uploads = []
-        for value in announcement.files:
+        for value in candidates:
             path = Path(value)
             digest = hashlib.sha256(path.read_bytes()).hexdigest()
             if digest in known_hashes:
@@ -277,22 +270,20 @@ def apply_enrichment(service, record, announcement, department, base_dir):
             uploads.append(destination)
             known_hashes.add(digest)
             known_names.add(name)
-        subject = enriched_subject(
-            current["subject"], announcement.title, record["board"]
-        )
-        if (
-            not uploads
-            and normalize_title(announcement.content_text)
-            == normalize_title(old_notice.body_text)
-            and subject == current["subject"]
-        ):
+        candidate_html = sanitize_html(announcement.content_html, announcement.url)
+        improvements = body_gain(current["body_html"], candidate_html)
+        if not uploads and not improvements:
             record = dict(
                 record,
                 sources=list(dict.fromkeys(record["sources"] + [announcement.url])),
             )
             PublishedNoticeStore(base_dir).put(record)
             return False
-        body = merged_body(current["body_html"], announcement, old_notice)
+        # 파일만 추가되는 경우에는 기존 제목과 본문을 그대로 둔다.
+        subject = current["subject"]
+        body = merged_body(current["body_html"], announcement, old_notice) if improvements else current["body_html"]
+        reasons = improvements + (["attachment_added"] if uploads else [])
+        event("보강", "보강 자료 확인", source_url=announcement.url, reason=",".join(reasons), attachment_count=len(uploads), console=False)
         if len(body.encode()) > 300000:
             raise PostEditError("Enriched body exceeds limit")
         try:
@@ -311,10 +302,10 @@ def apply_enrichment(service, record, announcement, department, base_dir):
             service.safe_get(record["article_url"], login_required=True)
             expected_text = BeautifulSoup(body, "html.parser").get_text(" ", strip=True)
             rendered = inspect_rendered_post(
-                service.driver, subject, expected_text, announcement.url
+                service.driver, subject, expected_text, announcement.url if improvements else old_notice.source_url
             )
             if any(
-                reason != "image_load_unconfirmed" for reason in rendered["reasons"]
+                reason != "image_load_unconfirmed" or "image_added" in improvements for reason in rendered["reasons"]
             ):
                 restored = editor.restore(result)
                 return _preserved_after_failed_enrichment(
@@ -323,10 +314,11 @@ def apply_enrichment(service, record, announcement, department, base_dir):
     record = dict(
         record,
         signature=result["after"]["signature"],
-        notice=asdict(new_notice),
+        notice=asdict(new_notice if improvements else old_notice),
         sources=list(dict.fromkeys(record["sources"] + [announcement.url])),
         departments=sorted(set(record["departments"] + [department])),
         updates=record["updates"] + 1,
+        last_enrichment_reasons=reasons,
         file_hashes={item["name"]: item["sha256"] for item in result["after"]["files"]},
     )
     PublishedNoticeStore(base_dir).put(record)
