@@ -9,6 +9,7 @@ import heapq
 from collections import defaultdict, deque
 from together.notices.intelligence.text import occurrence_conflict
 from together.notices.intelligence.events import Notice, compare_notices
+from together.operations.events import event
 
 _TITLE_TIMESTAMP = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}")
 
@@ -113,31 +114,55 @@ def is_recent_title_duplicate(new_title, filename="titles.txt", *, identity_titl
 
     query_title = new_title if mode == "legacy" else remove_brackets(new_title).strip()
     title_similarities = _top_title_similarities(query_title, cleaned_titles)
+    candidate_labels = [title for _, title in title_similarities[:3]]
+
+    def decision(result, method, similarity=None):
+        event(
+            "중복",
+            f"{result} · {method}"
+            + (
+                f" · 제목 문자열 유사도 {similarity:.3f}"
+                if similarity is not None
+                else ""
+            ),
+            result=result,
+            method=method,
+            similarity=similarity,
+            candidates=candidate_labels,
+        )
+        return result
 
     if len(title_similarities) == 0:
-        return "중복 아님"
+        return decision("중복 아님", "최근 비교 대상 없음")
 
     highest_similarity = title_similarities[0][0]
 
     if mode == "legacy" and highest_similarity >= 0.85:
-        print(f"유사도: {highest_similarity:.5f}", flush=True)
-        return "중복"
-    print(f"유사도: {highest_similarity:.5f}", flush=True)
+        return decision("중복", "기존 문자열 기준", highest_similarity)
 
     if mode == "legacy":
-        return check_title_similarity(
-            new_title, [title for _, title in title_similarities[:3]]
+        return decision(
+            check_title_similarity(
+                new_title, [title for _, title in title_similarities[:3]]
+            ),
+            "GPT 후보 검토",
+            highest_similarity,
         )
     originals = defaultdict(deque)
     for date, title in recent_entries:
         originals[remove_brackets(title).strip()].append((date, title))
     candidates = [originals[cleaned].popleft() for _, cleaned in title_similarities[:3]]
+    candidate_labels = [title for _, title in candidates]
     current = Notice(original_title, datetime.now().isoformat())
     for date, title in candidates:
         result = compare_notices(current, Notice(title, date.isoformat()))
         if result["relation"] == "same_event":
-            return "중복"
-    return check_title_similarity(original_title, [title for _, title in candidates])
+            return decision("중복", "행사·연도·회차 대조", highest_similarity)
+    return decision(
+        check_title_similarity(original_title, [title for _, title in candidates]),
+        "후보 문맥 검토",
+        highest_similarity,
+    )
 
 
 def save_title(title, category, filename="sorted_labeled_data.csv"):

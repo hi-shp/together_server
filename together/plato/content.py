@@ -3,15 +3,31 @@
 import base64
 from pathlib import Path
 from bs4 import BeautifulSoup
+from html import escape
+from urllib.parse import urlsplit
+
+
+def notice_link(url):
+    parts = urlsplit(url)
+    if parts.scheme not in ("http", "https") or not parts.netloc:
+        raise ValueError("Invalid notice link")
+    return f'<a href="{escape(url, quote=True)}">바로가기</a>'
+
+
+def message_content(title, url, department):
+    notice_link(url)
+    return f"✔ [{department}] 새로운 공지가 등록되었습니다.\n제목: {title}\n{url}"
 
 
 def email_content(title, url, content, department, base_dir):
     template = (Path(__file__).parent / "templates/notice_email.html").read_text(
         encoding="utf-8"
     )
-    message_text = template.format(department=department, title=title, url=url)
+    notice_link(url)
+    message_text = template.format(
+        department=escape(department), title=escape(title), url=escape(url, quote=True)
+    )
     soup = BeautifulSoup(message_text, "html.parser")
-    url_tag = soup.find("a", href=True)
     url_tag = soup.find("a", href=True)
     if url_tag:
         content_soup = BeautifulSoup(
@@ -42,7 +58,7 @@ def email_content(title, url, content, department, base_dir):
             href="https://dev-plato.pusan.ac.kr/course/view.php?id=157301",
             style="font-size: 12px; color: #007bff; display: block;",
         )
-        together_link.string = "https://dev-plato.pusan.ac.kr/course/view.php?id=157301"
+        together_link.string = "투게더 바로가기"
         footer.append(together_image)
         footer.append(together_text)
         footer.append(together_link)

@@ -41,7 +41,7 @@ class LegacyPresentationTests(unittest.TestCase):
         output = io.StringIO()
 
         def check_upload(content, **kwargs):
-            self.assertEqual(output.getvalue(), fixture["cycle_end_console"] + "\n")
+            self.assertIn("사이클 종료", output.getvalue())
             name = "log_2026-10-27_14-30-00.txt"
             self.assertEqual(
                 content,
@@ -138,7 +138,13 @@ class LegacyPresentationTests(unittest.TestCase):
         expected = (Path(__file__).parent / "fixtures/legacy-email.html").read_text(
             encoding="utf-8"
         )
-        self.assertEqual(actual, expected)
+        self.assertEqual(
+            actual,
+            expected.replace(
+                ">https://dev-plato.pusan.ac.kr/course/view.php?id=157301</a>",
+                ">투게더 바로가기</a>",
+            ),
+        )
 
     def test_console_discord_and_message_text_keep_the_original_wording(self):
         service = WriteNoticeService.__new__(WriteNoticeService)
@@ -153,9 +159,7 @@ class LegacyPresentationTests(unittest.TestCase):
             output = io.StringIO()
             with contextlib.redirect_stdout(output):
                 service.send_message("공지", "https://example.invalid", "시험학과")
-            self.assertEqual(
-                output.getvalue(), "시험학과/Plato 쪽지 전송 완료 (199명)\n"
-            )
+            self.assertIn("전송 확인 199명", output.getvalue())
             notify.assert_called_once_with(
                 "시험학과/Plato 쪽지 전송 완료 (199명) -공지",
                 channel="DISCORD_MESSAGE_WEBHOOK_URL",
@@ -175,7 +179,7 @@ class LegacyPresentationTests(unittest.TestCase):
                 service.send_email(
                     "공지", "https://example.invalid", "본문", "시험학과"
                 )
-            self.assertEqual(output.getvalue(), "시험학과/이메일 전송 완료 (199명)\n")
+            self.assertIn("발송 확인 199명", output.getvalue())
             notify.assert_called_once_with(
                 "시험학과/이메일 전송 완료 (199명) -공지",
                 channel="DISCORD_EMAIL_WEBHOOK_URL",

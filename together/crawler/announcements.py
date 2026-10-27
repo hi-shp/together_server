@@ -6,13 +6,12 @@ from together.config import HTTP_TIMEOUT
 import re
 import time
 import urllib3
-import tempfile
-import hashlib
-import shutil
 from together.notices.history import recent_title
 from together.notices.intelligence.metadata import extract_metadata
 from together.notices.intelligence.quality import clean_text
 from together.operations.state import record_board_result
+from together.operations.events import event
+from together.crawler.files import download_attachment, sanitize_filename
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -56,10 +55,6 @@ def clean_title(title):
     return " ".join(title.split())
 
 
-def sanitize_filename(filename):
-    return re.sub(r'[\/:*?"<>|]', "_", filename)
-
-
 def filter_bmp_characters(text):
     return clean_text(text)
 
@@ -73,7 +68,12 @@ def get_anns_url(announcementPage, n):
         response.raise_for_status()
     except requests.exceptions.RequestException as e:
         record_board_result(False)
-        print(e, flush=True)
+        event(
+            "수집",
+            f"요청 처리 실패: {type(e).__name__}",
+            level="WARN",
+            error=type(e).__name__,
+        )
         return [], announcementPage.number
 
     soup = BeautifulSoup(response.text, "html.parser")
@@ -85,7 +85,7 @@ def get_anns_url(announcementPage, n):
     if table_element:
         rows = table_element.find_all("tr")
     else:
-        print("⚠️ tbody 태그를 찾을 수 없습니다.", flush=True)
+        event("수집", "⚠️ tbody 태그를 찾을 수 없습니다.", level="WARN")
         rows = []
 
     announcement_numbers = []
@@ -105,9 +105,10 @@ def get_anns_url(announcementPage, n):
             if link is None and row.select_one("td.number"):
                 link = row.select_one("a[href]")
             if link is None or not link.get("href", "").strip():
-                print(
+                event(
+                    "수집",
                     f"공지 링크 누락; 번호 유지: {announcementPage.page_url}",
-                    flush=True,
+                    level="INFO",
                 )
                 return [], announcementPage.number
 
@@ -144,17 +145,20 @@ def get_anns_url(announcementPage, n):
     if announcement_numbers:
         max_announcement_number = max(announcement_numbers)
         difference = max_announcement_number - announcementPage.number
-        print(
-            f"{n}. {announcementPage.department} {max_announcement_number}", flush=True
+        event(
+            "수집",
+            f"{n}. {announcementPage.department} {max_announcement_number}",
+            level="INFO",
         )
 
         if difference > 0:
-            print(
-                f"💡{difference}개의 New Announcment!: {announcementPage.page_url}",
-                flush=True,
-            )
+            event("수집", f"목록 번호 변화 +{difference}", level="INFO")
         else:
-            print(f"새로 추가된 공지사항 없음: {announcementPage.page_url}", flush=True)
+            event(
+                "수집",
+                f"새로 추가된 공지사항 없음: {announcementPage.page_url}",
+                level="DEBUG",
+            )
 
         idx = 0
         num_idx = 0
@@ -210,8 +214,10 @@ def get_anns_url(announcementPage, n):
                                                 ) as file:
                                                     file.writelines(lines)
                                                 num_idx += 1
-                                                print(
-                                                    "중복 공지이므로 패스", flush=True
+                                                event(
+                                                    "수집",
+                                                    "중복 공지이므로 패스",
+                                                    level="INFO",
                                                 )
                                             else:
                                                 url = element["href"]
@@ -293,14 +299,25 @@ def get_anns_url(announcementPage, n):
         if any(urlparse(url).scheme not in ("http", "https") for url in urls):
             raise ValueError(f"Invalid notice link: {announcementPage.page_url}")
         if max_announcement_number > announcementPage.number and not urls:
-            print(
+            event(
+                "수집",
                 f"공지 링크 추출 실패; 번호 유지: {announcementPage.page_url}",
-                flush=True,
+                level="WARN",
             )
             return [], announcementPage.number
+        event(
+            "게시판",
+            f"새 공지 {len(urls)}건",
+            count=len(urls),
+            source_url=announcementPage.page_url,
+        )
         return urls[::-1], max_announcement_number
     else:
-        print(f"공지사항을 찾을 수 없습니다 : {announcementPage.page_url}", flush=True)
+        event(
+            "수집",
+            f"공지사항을 찾을 수 없습니다 : {announcementPage.page_url}",
+            level="WARN",
+        )
         return [], announcementPage.number
 
 
@@ -309,7 +326,12 @@ def crawl_ann_partial(url: str) -> Announcement:
         response = requests.get(url, verify=False, timeout=HTTP_TIMEOUT)
         response.raise_for_status()
     except requests.exceptions.RequestException as e:
-        print(e, flush=True)
+        event(
+            "수집",
+            f"요청 처리 실패: {type(e).__name__}",
+            level="WARN",
+            error=type(e).__name__,
+        )
         return None
 
     soup = BeautifulSoup(response.text, "html.parser")
@@ -366,7 +388,12 @@ def crawl_ann(url: str, category: str) -> Announcement:
         response = requests.get(url, verify=False, timeout=HTTP_TIMEOUT)
         response.raise_for_status()
     except requests.exceptions.RequestException as e:
-        print(e, flush=True)
+        event(
+            "수집",
+            f"요청 처리 실패: {type(e).__name__}",
+            level="WARN",
+            error=type(e).__name__,
+        )
         return None
 
     soup = BeautifulSoup(response.text, "html.parser")
@@ -418,49 +445,30 @@ def crawl_ann(url: str, category: str) -> Announcement:
         os.makedirs("downloads", exist_ok=True)
 
         def download_file(file_url, file_name):
-            if not any(
-                file_name.lower().endswith(ext) for ext in file_extensions_to_exclude
-            ):
-                pending = None
-                try:
-                    full_file_url = urljoin(base_url, file_url)
-                    file_path = os.path.join("downloads", file_name)
-                    digest = hashlib.sha256()
-                    with requests.get(
-                        full_file_url, verify=False, timeout=HTTP_TIMEOUT, stream=True
-                    ) as file_response:
-                        file_response.raise_for_status()
-                        with tempfile.NamedTemporaryFile(
-                            dir="downloads", prefix=".download-", delete=False
-                        ) as handle:
-                            pending = handle.name
-                            for chunk in file_response.iter_content(1024 * 1024):
-                                if (
-                                    shutil.disk_usage("downloads").free - len(chunk)
-                                    < 1024**3
-                                ):
-                                    raise OSError("Download free-space floor reached")
-                                handle.write(chunk)
-                                digest.update(chunk)
-                    if os.path.exists(file_path):
-                        from together.storage.attachments import file_digest
-
-                        if file_digest(file_path) != digest.hexdigest():
-                            file_path = os.path.join(
-                                "downloads", digest.hexdigest()[:12] + "-" + file_name
-                            )
-                    os.replace(pending, file_path)
-                    pending = None
-                    if file_path not in files:
-                        files.append(file_path)
-                    print(f"파일 다운로드 완료: {file_path}", flush=True)
-                except Exception as e:
-                    print(
-                        f"다운로드 실패: {file_name} ({type(e).__name__})", flush=True
-                    )
-                finally:
-                    if pending and os.path.isfile(pending):
-                        os.remove(pending)
+            full_file_url = urljoin(base_url, file_url)
+            try:
+                result = download_attachment(full_file_url, file_name, referer=base_url)
+                if result is None:
+                    return
+                if result["path"] not in files:
+                    files.append(result["path"])
+                event(
+                    "첨부",
+                    f"저장 완료: {result['filename']} ({result['bytes']:,}바이트)",
+                    source_url=full_file_url,
+                    filename=result["filename"],
+                    bytes=result["bytes"],
+                    sha256=result["sha256"],
+                )
+            except Exception as exc:
+                event(
+                    "첨부",
+                    f"다운로드 실패: {file_name or '(이름 없음)'} / {type(exc).__name__}",
+                    level="ERROR",
+                    source_url=full_file_url,
+                    filename=file_name,
+                    error=type(exc).__name__,
+                )
 
         # 일반 학과 첨부파일
         for insert in soup.find_all("dd", class_="artclInsert"):
@@ -478,9 +486,7 @@ def crawl_ann(url: str, category: str) -> Announcement:
             link_tag = li.find("a")
             if link_tag and "downloadRun.do" in link_tag["href"]:
                 file_url = link_tag["href"]
-                file_name = sanitize_filename(
-                    link_tag.get_text(strip=True).split("(")[0].strip()
-                )
+                file_name = sanitize_filename(link_tag.get_text(strip=True))
                 download_file(file_url, file_name)
 
         # 기계공학부 첨부파일

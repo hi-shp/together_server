@@ -91,7 +91,7 @@ class EmailOutboxTests(unittest.TestCase):
                 )
             self.assertEqual(result["state"], "pending")
             transport.send.assert_not_called()
-            self.assertEqual(output.getvalue(), "시험학과/이메일 전송 완료 (1명)\n")
+            self.assertIn("발송 요청 등록 1명", output.getvalue())
             notify.assert_called_once_with(
                 "시험학과/이메일 전송 완료 (1명) -공지",
                 channel="DISCORD_EMAIL_WEBHOOK_URL",
@@ -106,7 +106,7 @@ class EmailOutboxTests(unittest.TestCase):
             transport.send.return_value = {"sent": 68, "deduplicated": 0}
             with contextlib.redirect_stdout(io.StringIO()) as output:
                 self.assertTrue(process_job(outbox, job, transport))
-            self.assertEqual(output.getvalue(), "시험학과/이메일 전송 완료 (68명)\n")
+            self.assertIn("발송 이력 확인 68명", output.getvalue())
             with outbox.connection() as db:
                 row = db.execute("SELECT state,payload FROM jobs").fetchone()
                 self.assertEqual(tuple(row), ("sent", "{}"))

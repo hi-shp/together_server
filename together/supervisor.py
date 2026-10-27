@@ -16,6 +16,7 @@ from datetime import datetime
 from together.config import BASE_DIR, notify
 from together.plato.browser_runtime import scratch_root
 from together.operations.state import update_state, read_state
+from together.operations.events import event
 
 MAX_LOG_BYTES = 8 * 1024 * 1024
 MAX_TOTAL_LOG_BYTES = 128 * 1024 * 1024
@@ -159,7 +160,12 @@ def run_main():
                 fields["last_success"] = time.time()
             update_state(BASE_DIR, **fields)
             delay = 10
-            print("\n메인 함수 종료됨. 10초 후 다시 실행\n\n\n", flush=True)
+            event(
+                "반복 실행",
+                f"사이클 종료 · 종료 코드 {code} · 연속 실패 {failures}회 · 10초 뒤 재실행",
+                status=code,
+                count=failures,
+            )
             notify(
                 f"`{log_path.name}`",
                 channel="DISCORD_LOG_WEBHOOK_URL",

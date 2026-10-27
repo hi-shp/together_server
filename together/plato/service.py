@@ -42,6 +42,8 @@ from together.notices.intelligence.publication import (
     verify_publication,
 )
 from together.config import BASE_DIR
+from together.operations.events import event
+from together.plato.content import message_content
 from together.plato.notifications import PlatoNotificationTransport
 from together.plato.content import email_content
 from together.storage.email_outbox import EmailOutbox
@@ -78,7 +80,7 @@ class WriteNoticeService:
             suffix = (
                 f" ({time.monotonic()-started:.1f}초)" if started is not None else ""
             )
-            print(message + suffix, flush=True)
+            event("시작", message + suffix)
 
     def login_ready(self, timeout=30):
         self.driver.set_page_load_timeout(timeout)
@@ -92,7 +94,7 @@ class WriteNoticeService:
             except Exception:
                 if attempt == 2:
                     raise
-                print("⭐접속 에러 발생. 브라우저 재시작", flush=True)
+                event("PLATO", "⭐접속 에러 발생. 브라우저 재시작", level="INFO")
                 time.sleep(2)
                 self.restart_driver()
                 if login_required:
@@ -148,7 +150,7 @@ class WriteNoticeService:
             if self.driver is not None:
                 self.driver.quit()
         except Exception as exc:
-            print(f"Browser quit: {type(exc).__name__}", flush=True)
+            event("PLATO", f"Browser quit: {type(exc).__name__}", level="INFO")
         finally:
             self.driver = None
             service = getattr(self, "_service", None)
@@ -156,7 +158,7 @@ class WriteNoticeService:
                 try:
                     service.stop()
                 except Exception as exc:
-                    print(f"Driver stop: {type(exc).__name__}", flush=True)
+                    event("PLATO", f"Driver stop: {type(exc).__name__}", level="INFO")
             stop_children(children)
             cleanup_workspace(self._workspace)
             self._workspace = None
@@ -297,12 +299,19 @@ class WriteNoticeService:
         recipients = self._recipients("message", department)
         if not recipients:
             return
-        body = f"✔ [{department}] 새로운 공지가 등록되었습니다.\n제목: {title}\n{url}"
+        body = message_content(title, url, department)
         result = self._notification().send(
             "message", recipients, "", body, f"{department}|{url}|{title}"
         )
         count = result["sent"] + result["deduplicated"]
-        print(f"{department}/Plato 쪽지 전송 완료 ({count}명)", flush=True)
+        event(
+            "쪽지",
+            f"전송 확인 {count}명 (새 전송 {result['sent']}명, 이력 재사용 {result['deduplicated']}명)",
+            count=count,
+            sent=result["sent"],
+            deduplicated=result["deduplicated"],
+            missing=result.get("missing", 0),
+        )
         if result["sent"]:
             notify(
                 f"{department}/Plato 쪽지 전송 완료 ({count}명) -{title}",
@@ -334,7 +343,12 @@ class WriteNoticeService:
                 }
             )
             count = result["recipients"]
-            print(f"{department}/이메일 전송 완료 ({count}명)", flush=True)
+            event(
+                "이메일",
+                f"발송 요청 등록 {count}명 · 별도 작업자가 발송 내역 확인",
+                count=count,
+                status=result["state"],
+            )
             if result["new"]:
                 notify(
                     f"{department}/이메일 전송 완료 ({count}명) -{title}",
@@ -345,7 +359,13 @@ class WriteNoticeService:
             "email", recipients, subject, body, f"{department}|{url}|{title}"
         )
         count = result["sent"] + result["deduplicated"]
-        print(f"{department}/이메일 전송 완료 ({count}명)", flush=True)
+        event(
+            "이메일",
+            f"발송 확인 {count}명",
+            count=count,
+            sent=result["sent"],
+            deduplicated=result["deduplicated"],
+        )
         if result["sent"]:
             notify(
                 f"{department}/이메일 전송 완료 ({count}명) -{title}",
@@ -424,9 +444,7 @@ class WriteNoticeService:
                 )
             )
 
-            message_text = (
-                f"✔ [{department}] 새로운 공지가 등록되었습니다.\n제목: {title}\n{url}"
-            )
+            message_text = message_content(title, url, department)
 
             message_input.send_keys(message_text)
 
@@ -441,13 +459,13 @@ class WriteNoticeService:
                 alert = self.driver.switch_to.alert
                 alert.accept()
             except NoAlertPresentException:
-                print("Alert 없음", flush=True)
+                event("PLATO", "Alert 없음", level="DEBUG")
 
             message = f"{department}/Plato 쪽지 전송 완료 ({len(student_ids)}명)"
             discord_message = (
                 f"{department}/Plato 쪽지 전송 완료 ({len(student_ids)}명) -{title}"
             )
-            print(message, flush=True)
+            event("PLATO", message, level="INFO")
             notify(discord_message, channel="DISCORD_MESSAGE_WEBHOOK_URL")
 
         self.safe_get(
@@ -620,7 +638,7 @@ class WriteNoticeService:
             discord_message = (
                 f"{department}/이메일 전송 완료 ({len(email_addresses)}명) -{title}"
             )
-            print(message, flush=True)
+            event("PLATO", message, level="INFO")
             notify(discord_message, channel="DISCORD_EMAIL_WEBHOOK_URL")
 
         self.safe_get(
@@ -722,9 +740,10 @@ class WriteNoticeService:
                     )
                 )
             except:
-                print(
+                event(
+                    "PLATO",
                     "⚠️ 파일 입력 필드가 사라지지 않았지만 저장 버튼을 클릭합니다.",
-                    flush=True,
+                    level="INFO",
                 )
 
         receipt = {
@@ -791,7 +810,7 @@ class WriteNoticeService:
             board_url = board_link_element.get_attribute("href")
             board_link_element.click()
 
-            print(f"\n현재 작업 중인 게시판: {board_name}", flush=True)
+            event("PLATO", f"\n현재 작업 중인 게시판: {board_name}", level="INFO")
 
             page = 1
             while True:
@@ -862,7 +881,7 @@ class WriteNoticeService:
                                 )
 
                                 self.update_title(new_title)
-                                print(f"수정 완료: {new_title}", flush=True)
+                                event("PLATO", f"수정 완료: {new_title}", level="INFO")
 
                                 self.driver.get(current_url)
                                 WebDriverWait(self.driver, 10).until(
@@ -879,24 +898,27 @@ class WriteNoticeService:
                                 continue
 
                         except Exception as e:
-                            print(f"오류 발생: {e}", flush=True)
+                            event(
+                                "PLATO", f"오류 발생: {type(e).__name__}", level="WARN"
+                            )
 
                         last_checked_index -= 1
 
                     if found_older_post and not found_star:
                         if board_name == "취업 정보":
-                            print("모든 게시판 수정 완료", flush=True)
+                            event("PLATO", "모든 게시판 수정 완료", level="INFO")
                         else:
-                            print(
+                            event(
+                                "PLATO",
                                 f"{board_name} 게시판 수정 완료 → 다음 게시판으로 이동",
-                                flush=True,
+                                level="INFO",
                             )
                         break
 
                     page += 1
 
                 except Exception as e:
-                    print(f"오류 발생: {e}", flush=True)
+                    event("PLATO", f"오류 발생: {type(e).__name__}", level="WARN")
                     break
 
     def update_page_url(self, base_url: str, page: int) -> str:

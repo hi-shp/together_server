@@ -4,6 +4,7 @@ import argparse, fcntl, time
 from together.config import BASE_DIR
 from together.storage.email_outbox import EmailOutbox
 from together.plato.auth import login_session
+from together.operations.events import event, set_notice
 from together.plato.notifications import (
     PlatoNotificationTransport,
     NotificationOutcomeUnknown,
@@ -12,6 +13,11 @@ from together.plato.notifications import (
 
 def process_job(outbox, job, transport):
     payload = job["payload"]
+    set_notice(
+        payload.get("url", payload["event_key"]),
+        payload["department"],
+        payload["title"],
+    )
     try:
         if job["state"] == "unknown":
             recovered = transport.recover_event(payload["event_key"])
@@ -20,7 +26,12 @@ def process_job(outbox, job, transport):
                 return False
             if recovered is not None:
                 message = outbox.complete(job, recovered)
-                print(message, flush=True)
+                event(
+                    "이메일",
+                    f"늦은 발송 이력 확인 {recovered}명",
+                    count=recovered,
+                    outcome="recovered",
+                )
                 return True
         result = transport.send(
             "email",
@@ -33,13 +44,25 @@ def process_job(outbox, job, transport):
         )
         count = result["sent"] + result["deduplicated"]
         message = outbox.complete(job, count)
-        print(message, flush=True)
+        event("이메일", f"발송 이력 확인 {count}명", count=count, outcome="verified")
         return True
     except NotificationOutcomeUnknown:
         outbox.defer(job, True, "awaiting_email_receipt")
+        event(
+            "이메일",
+            "응답 불확실 · 발송 이력 대조 대기",
+            level="WARN",
+            outcome="unknown",
+        )
         return False
     except Exception as exc:
         outbox.defer(job, False, type(exc).__name__)
+        event(
+            "이메일",
+            f"발송 처리 보류: {type(exc).__name__}",
+            level="ERROR",
+            error=type(exc).__name__,
+        )
         return False
 
 

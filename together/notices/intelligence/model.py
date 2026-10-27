@@ -2,6 +2,7 @@
 
 from collections import Counter
 import gzip
+import hashlib
 import json
 import math
 from pathlib import Path
@@ -13,6 +14,7 @@ class TitleClassifier:
     def __init__(self, path):
         with gzip.open(Path(path), "rt", encoding="utf-8") as handle:
             self.data = json.load(handle)
+        self.model_sha256 = hashlib.sha256(Path(path).read_bytes()).hexdigest()
         if self.data.get("schema_version") != 1:
             raise ValueError("Unsupported classifier schema")
         if self.data.get("normalization") != NORMALIZATION_VERSION:
@@ -50,6 +52,7 @@ class TitleClassifier:
         accepted = score >= threshold and len(text) >= 8
         approved = bool(self.data.get("production_approved", False))
         return {
+            "model_sha256": self.model_sha256,
             "category": category,
             "score": score,
             "accepted": accepted,
