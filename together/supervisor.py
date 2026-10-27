@@ -1,6 +1,7 @@
 """크롤러 반복 실행과 로그 관리."""
 
 import fcntl
+import json
 import os
 from pathlib import Path
 import re
@@ -120,6 +121,16 @@ def run_cycle(log_path, max_seconds=0, idle_seconds=1200):
         shutil.rmtree(workspace)
 
 
+def verification_mode(base_dir):
+    try:
+        value = json.loads(
+            (Path(base_dir) / ".runtime/verification-mode.json").read_text()
+        )
+        return value.get("continuous") is True
+    except (OSError, ValueError, AttributeError):
+        return False
+
+
 def run_main():
     os.chdir(BASE_DIR)
     runtime = BASE_DIR / ".runtime"
@@ -136,7 +147,8 @@ def run_main():
         while True:
             cleanup_old_logs(log_dir)
             now = datetime.now()
-            if now.hour < 6:
+            continuous = verification_mode(BASE_DIR)
+            if now.hour < 6 and not continuous:
                 print(
                     "현재 시간이 밤 12시 ~ 오전 6시이므로 6시간 동안 대기합니다.",
                     flush=True,
@@ -158,7 +170,7 @@ def run_main():
                 next_wake=0,
                 boards={"checked": 0, "failed": 0},
             )
-            code = run_cycle(log_path)
+            code = run_cycle(log_path, idle_seconds=0 if continuous else 1200)
             cleanup_old_logs(log_dir)
             failures = min(failures + 1, 5) if code else 0
             fields = {
