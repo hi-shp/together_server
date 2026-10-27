@@ -91,7 +91,7 @@ class CrawlerSafety(unittest.TestCase):
         <tr><td class="_artclTdNum">12</td><td class="_artclTdTitle"><a class="artclLinkView" href="../12">New</a></td></tr>
         <tr><td class="_artclTdNum">11</td><td class="_artclTdTitle"><a class="artclLinkView" href="../11">Old</a></td></tr>
         </tbody></table>"""
-        with patch.object(crawl.requests, "get", return_value=self.response(html)):
+        with patch.object(crawl, "http_get", return_value=self.response(html)):
             urls, number = crawl.get_anns_url(self.board(), 1)
         self.assertEqual(urls, ["https://new.example/11", "https://new.example/12"])
         self.assertEqual(number, 12)
@@ -99,16 +99,16 @@ class CrawlerSafety(unittest.TestCase):
     def test_partial_layout_failure_preserves_watermark(self):
         html = """<tbody><tr><td class="td-num">12</td><td class="td-title">missing</td></tr>
         <tr><td class="td-num">11</td><td class="td-title"><a href="/11">Old</a></td></tr></tbody>"""
-        with patch.object(crawl.requests, "get", return_value=self.response(html)):
+        with patch.object(crawl, "http_get", return_value=self.response(html)):
             self.assertEqual(crawl.get_anns_url(self.board(), 1), ([], 10))
 
     def test_http_failure_preserves_watermark(self):
-        with patch.object(crawl.requests, "get", side_effect=crawl.requests.Timeout):
+        with patch.object(crawl, "http_get", side_effect=crawl.requests.Timeout):
             self.assertEqual(crawl.get_anns_url(self.board(), 1), ([], 10))
 
     def test_disabled_board_is_fetched_once(self):
         with patch.object(
-            crawl.requests, "get", return_value=self.response("<h1>disabled</h1>")
+            crawl, "http_get", return_value=self.response("<h1>disabled</h1>")
         ) as get:
             self.assertEqual(crawl.get_anns_url(self.board(), 1), ([], 10))
             self.assertEqual(get.call_count, 1)
@@ -118,7 +118,7 @@ class CrawlerSafety(unittest.TestCase):
             '<h2 class="artclViewTitle">Title</h2><div class="artclView"><img src="../image.png">Body</div>',
             "https://new.example/board/post/123",
         )
-        with patch.object(crawl.requests, "get", return_value=response):
+        with patch.object(crawl, "http_get", return_value=response):
             ann = crawl.crawl_ann("https://old.example/123", "해당없음")
         self.assertIn("https://new.example/board/image.png", ann.content_html)
 

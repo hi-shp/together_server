@@ -262,7 +262,7 @@ def run_cycle(writenoticeService):
             set_notice(url, department, partial_ann.title)
             event(
                 "공지",
-                "제목: " + partial_ann.title,
+                partial_ann.title,
                 source_url=url,
                 title=partial_ann.title,
                 plain=True,
@@ -289,6 +289,8 @@ def run_cycle(writenoticeService):
                 identity_title=getattr(
                     partial_ann, "original_title", partial_ann.title
                 ),
+                announcement=partial_ann,
+                department=department,
             )
 
             if enrichment_target or duplicate_check != "중복":

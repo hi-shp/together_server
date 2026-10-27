@@ -61,8 +61,8 @@ class UniversityRecovery(unittest.TestCase):
                 with (
                     patch.object(crawl, "BASE_DIR", root),
                     patch.object(
-                        crawl.requests,
-                        "get",
+                        crawl,
+                        "http_get",
                         return_value=Response(
                             "<table><tbody>" + rows + "</tbody></table>"
                         ),
@@ -101,7 +101,7 @@ class UniversityRecovery(unittest.TestCase):
             try:
                 with (
                     patch.object(crawl, "BASE_DIR", root),
-                    patch.object(crawl.requests, "get", return_value=Response(body)),
+                    patch.object(crawl, "http_get", return_value=Response(body)),
                 ):
                     urls, number = crawl.get_anns_url(page, 1)
                 self.assertEqual(len(urls), 1)

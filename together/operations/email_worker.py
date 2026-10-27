@@ -1,6 +1,6 @@
 """크롤러와 독립적으로 이메일 대기열을 처리한다."""
 
-import argparse, fcntl, time
+import argparse, fcntl, time, sqlite3
 from together.config import BASE_DIR
 from together.storage.email_outbox import EmailOutbox
 from together.plato.auth import login_session
@@ -59,7 +59,7 @@ def process_job(outbox, job, transport):
     except Exception as exc:
         if isinstance(exc, NotificationAuthenticationError):
             transport.authentication_failed = True
-        outbox.defer(job, False, type(exc).__name__)
+        outbox.defer(job, isinstance(exc, sqlite3.Error), type(exc).__name__)
         event(
             "이메일",
             f"발송 처리 보류: {type(exc).__name__}",
@@ -140,7 +140,7 @@ def main():
                 ):
                     refresh.set()
             except Exception as exc:
-                outbox.defer(job, False, type(exc).__name__)
+                outbox.defer(job, isinstance(exc, sqlite3.Error), type(exc).__name__)
                 refresh.set()
             finally:
                 if transport:

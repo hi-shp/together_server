@@ -9,6 +9,8 @@ import heapq
 from collections import defaultdict, deque
 from together.notices.intelligence.text import occurrence_conflict
 from together.notices.intelligence.events import Notice, compare_notices
+from together.config import BASE_DIR
+from together.notices.intelligence.context import duplicate_context
 from together.operations.events import event, duplicate_review, duplicate_review_reason
 
 _TITLE_TIMESTAMP = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}")
@@ -34,6 +36,16 @@ def remove_brackets(text):
         ).strip()
 
     return text
+
+
+def comparison_title(title, mode="hybrid"):
+    cleaned = remove_brackets(title).strip()
+    if not cleaned and mode != "legacy":
+        # 제목 전체를 감싼 대괄호에서는 안쪽의 행사명을 남긴다.
+        cleaned = remove_brackets(re.sub(r"[\[\]]", "", title)).strip()
+        if not cleaned:
+            cleaned = "".join(char for char in str(title) if char.isalnum())
+    return cleaned
 
 
 def truncate_text(text, max_tokens):
@@ -86,7 +98,14 @@ def recent_title():
     return recent_titles
 
 
-def is_recent_title_duplicate(new_title, filename="titles.txt", *, identity_title=None):
+def is_recent_title_duplicate(
+    new_title,
+    filename="titles.txt",
+    *,
+    identity_title=None,
+    announcement=None,
+    department="",
+):
     duplicate_review.set("")
     duplicate_review_reason.set("")
     recent_titles = []
@@ -112,10 +131,20 @@ def is_recent_title_duplicate(new_title, filename="titles.txt", *, identity_titl
         ]
     recent_titles = [title for _, title in recent_entries]
 
-    cleaned_titles = [remove_brackets(title).strip() for title in recent_titles]
+    cleaned_titles = [comparison_title(title, mode) for title in recent_titles]
 
-    query_title = new_title if mode == "legacy" else remove_brackets(new_title).strip()
-    title_similarities = _top_title_similarities(query_title, cleaned_titles)
+    if mode != "legacy":
+        valid = [
+            (entry, cleaned)
+            for entry, cleaned in zip(recent_entries, cleaned_titles)
+            if cleaned
+        ]
+        recent_entries = [entry for entry, _ in valid]
+        cleaned_titles = [cleaned for _, cleaned in valid]
+    query_title = new_title if mode == "legacy" else comparison_title(new_title, mode)
+    title_similarities = (
+        _top_title_similarities(query_title, cleaned_titles) if query_title else []
+    )
     candidate_labels = [title for _, title in title_similarities[:3]]
 
     def decision(result, method, similarity=None):
@@ -123,7 +152,7 @@ def is_recent_title_duplicate(new_title, filename="titles.txt", *, identity_titl
         event(
             "중복",
             f"중복 체크 결과: {result} ({method}"
-            + (f", 유사도 {similarity:.5f}" if similarity is not None else "")
+            + (f", 제목 유사도 {similarity:.5f}" if similarity is not None else "")
             + ")",
             plain=True,
             result=result,
@@ -152,7 +181,7 @@ def is_recent_title_duplicate(new_title, filename="titles.txt", *, identity_titl
         )
     originals = defaultdict(deque)
     for date, title in recent_entries:
-        originals[remove_brackets(title).strip()].append((date, title))
+        originals[comparison_title(title, mode)].append((date, title))
     candidates = [originals[cleaned].popleft() for _, cleaned in title_similarities[:3]]
     candidate_labels = [title for _, title in candidates]
     current = Notice(original_title, datetime.now().isoformat())
@@ -160,8 +189,17 @@ def is_recent_title_duplicate(new_title, filename="titles.txt", *, identity_titl
         result = compare_notices(current, Notice(title, date.isoformat()))
         if result["relation"] == "same_event":
             return decision("중복", "행사·연도·회차 대조", highest_similarity)
+    context = None
+    if announcement is not None:
+        dates = {title: date for date, title in reversed(candidates)}
+        context = lambda titles: duplicate_context(
+            announcement, department, titles, dates, BASE_DIR
+        )
+    options = {"context_provider": context} if context else {}
     return decision(
-        check_title_similarity(original_title, [title for _, title in candidates]),
+        check_title_similarity(
+            original_title, [title for _, title in candidates], **options
+        ),
         "후보 문맥 검토",
         highest_similarity,
     )

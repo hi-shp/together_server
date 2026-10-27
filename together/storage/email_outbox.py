@@ -91,7 +91,17 @@ class EmailOutbox:
 
     def defer(self, job, unknown, error):
         attempts = job["attempts"] + 1
-        state = "unknown" if unknown else "pending" if attempts < 3 else "blocked"
+        transient = error in (
+            "ReadTimeout",
+            "ConnectTimeout",
+            "ConnectionError",
+            "TimeoutError",
+        )
+        state = (
+            "unknown"
+            if unknown
+            else "pending" if transient or attempts < 3 else "blocked"
+        )
         with self.connection() as db:
             db.execute(
                 "UPDATE jobs SET state=?,updated=?,ready=?,error=? WHERE id=?",

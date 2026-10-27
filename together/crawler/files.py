@@ -11,7 +11,7 @@ import shutil
 import tempfile
 import unicodedata
 from urllib.parse import unquote, urlsplit
-import requests
+from together.crawler import http as public_http
 
 from together.config import HTTP_TIMEOUT
 
@@ -64,7 +64,7 @@ def download_attachment(url, suggested_name, *, referer, directory="downloads"):
         return None
     pending = None
     try:
-        with requests.get(
+        with public_http.get(
             url,
             verify=False,
             timeout=HTTP_TIMEOUT,

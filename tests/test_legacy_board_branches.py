@@ -121,7 +121,7 @@ class LegacyBranchCompatibility(unittest.TestCase):
                     )
                     with (
                         patch.object(crawler, "BASE_DIR", root),
-                        patch.object(crawler.requests, "get", return_value=response),
+                        patch.object(crawler, "http_get", return_value=response),
                         contextlib.redirect_stdout(io.StringIO()),
                     ):
                         current_urls, current_number = crawler.get_anns_url(page, 1)

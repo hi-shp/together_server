@@ -69,8 +69,11 @@ class CacheTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             try:
                 os.chdir(temp)
-                with patch.object(
-                    crawler.requests, "get", side_effect=[source, first, second]
+                with (
+                    patch.object(crawler, "http_get", return_value=source),
+                    patch.object(
+                        crawler.public_http, "get", side_effect=[first, second]
+                    ),
                 ):
                     announcement = crawler.crawl_ann(source.url, "교육/특강/프로그램")
                 self.assertEqual(len(announcement.files), 2)

@@ -156,3 +156,49 @@ class EmailOutboxTests(unittest.TestCase):
                 self.assertEqual(
                     db.execute("SELECT state FROM jobs").fetchone()[0], "unknown"
                 )
+
+
+class TransientRetryTests(unittest.TestCase):
+    def test_preflight_network_failure_stays_retryable_after_three_attempts(self):
+        with tempfile.TemporaryDirectory() as temp:
+            outbox = EmailOutbox(temp)
+            payload = {"event_key": "retry", "recipients": [], "accepted_recipients": 0}
+            outbox.enqueue(payload)
+            job = outbox.claim()
+            job["attempts"] = 4
+            outbox.defer(job, False, "ReadTimeout")
+            with outbox.connection() as db:
+                self.assertEqual(
+                    db.execute("SELECT state FROM jobs").fetchone()[0], "pending"
+                )
+
+
+class SqliteRecoveryTests(unittest.TestCase):
+    def test_database_error_keeps_the_job_for_receipt_verification(self):
+        import sqlite3
+        from unittest.mock import MagicMock
+        from together.operations.email_worker import process_job
+        from together.operations.events import clear_notice
+
+        with tempfile.TemporaryDirectory() as temp:
+            outbox = EmailOutbox(temp)
+            payload = {
+                "event_key": "db-retry",
+                "recipients": [],
+                "accepted_recipients": 0,
+                "title": "시험",
+                "department": "시험",
+                "url": "https://example.invalid",
+                "subject": "시험",
+                "body": "본문",
+            }
+            outbox.enqueue(payload)
+            job = outbox.claim()
+            transport = MagicMock()
+            transport.send.side_effect = sqlite3.OperationalError("database is locked")
+            self.assertFalse(process_job(outbox, job, transport))
+            with outbox.connection() as db:
+                self.assertEqual(
+                    db.execute("SELECT state FROM jobs").fetchone()[0], "unknown"
+                )
+        clear_notice()

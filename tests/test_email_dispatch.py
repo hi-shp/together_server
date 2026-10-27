@@ -181,8 +181,8 @@ class RecoveryTests(unittest.TestCase):
         response = MagicMock()
         with (
             patch.object(
-                crawler.requests,
-                "get",
+                crawler,
+                "http_get",
                 side_effect=[crawler.requests.ConnectTimeout, response],
             ) as get,
             patch.object(crawler.time, "sleep"),

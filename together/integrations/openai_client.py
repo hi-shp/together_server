@@ -60,7 +60,7 @@ def answer_gpt(user_content):
     return category
 
 
-def check_title_similarity(new_title, recent_titles):
+def check_title_similarity(new_title, recent_titles, *, context_provider=None):
     # 학과별 모집은 모델이 동일 제목을 중복으로 판단하더라도 근거 없이 누락하지 않는다.
     if requires_department_evidence(new_title):
         duplicate_review.set("학과별 모집·대상 확인 필요")
@@ -76,15 +76,26 @@ def check_title_similarity(new_title, recent_titles):
         return "중복 아님"
     request = duplicate_request(new_title, candidates)
     result = _decision(DUPLICATE_MODEL, request)
+    used_context = False
+    if result.get("relation") == "needs_context" and context_provider is not None:
+        context = context_provider(candidates)
+        if context:
+            ApiAccounting(BASE_DIR).store(DUPLICATE_MODEL, request, result)
+            request = duplicate_request(new_title, candidates, context)
+            result = _decision(DUPLICATE_MODEL, request)
+            used_context = True
     relation = result.get("relation")
     duplicate_review_reason.set(str(result.get("reason", "")))
     labels = {
         "same_event": "동일 행사",
         "different_event": "별도 행사",
         "related_update": "변경·추가 안내",
-        "needs_context": "본문 근거 부족",
+        "needs_context": "동일성 확인 보류",
     }
-    duplicate_review.set("GPT 후보 검토·" + labels.get(relation, "판정값 확인 필요"))
+    duplicate_review.set(
+        ("GPT 본문 검토·" if used_context else "GPT 후보 검토·")
+        + labels.get(relation, "판정값 확인 필요")
+    )
     if relation == "same_event":
         index = result.get("matched_index")
         if type(index) is not int or not 0 <= index < len(candidates):

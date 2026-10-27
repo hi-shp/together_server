@@ -106,7 +106,7 @@ def event_request(left, right):
     }
 
 
-def duplicate_request(new_title, recent_titles):
+def duplicate_request(new_title, recent_titles, context=None):
     schema = {
         "type": "object",
         "properties": {
@@ -128,6 +128,9 @@ def duplicate_request(new_title, recent_titles):
         "required": ["relation", "matched_index", "reason"],
         "additionalProperties": False,
     }
+    payload = {"new_notice": new_title, "candidate_titles": recent_titles}
+    if context:
+        payload.update(context)
     return {
         "messages": [
             {
@@ -138,7 +141,7 @@ def duplicate_request(new_title, recent_titles):
             {
                 "role": "user",
                 "content": json.dumps(
-                    {"new_notice": new_title, "candidate_titles": recent_titles},
+                    payload,
                     ensure_ascii=False,
                 ),
             },

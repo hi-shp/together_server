@@ -34,7 +34,7 @@ class Response:
 class AttachmentNameTests(unittest.TestCase):
     def fetch(self, root, name, response=None):
         with patch(
-            "together.crawler.files.requests.get", return_value=response or Response()
+            "together.crawler.files.public_http.get", return_value=response or Response()
         ):
             return download_attachment(
                 "https://example.invalid/downloadRun.do?qcode=123",

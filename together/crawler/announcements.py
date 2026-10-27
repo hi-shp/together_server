@@ -1,4 +1,6 @@
 import requests
+from together.crawler import http as public_http
+from together.crawler.http import get as http_get
 from bs4 import BeautifulSoup
 import os
 from urllib.parse import urljoin, urlparse
@@ -64,7 +66,7 @@ def filter_bmp_characters(text):
 def _get_board_response(url):
     for attempt in range(2):
         try:
-            response = requests.get(url, verify=False, timeout=HTTP_TIMEOUT)
+            response = http_get(url, verify=False, timeout=HTTP_TIMEOUT)
             response.raise_for_status()
             return response
         except (requests.Timeout, requests.ConnectionError):
@@ -383,7 +385,7 @@ def get_anns_url(announcementPage, n):
 
 def crawl_ann_partial(url: str) -> Announcement:
     try:
-        response = requests.get(url, verify=False, timeout=HTTP_TIMEOUT)
+        response = http_get(url, verify=False, timeout=HTTP_TIMEOUT)
         response.raise_for_status()
     except requests.exceptions.RequestException as e:
         event(
@@ -445,7 +447,7 @@ def crawl_ann_partial(url: str) -> Announcement:
 
 def crawl_ann(url: str, category: str) -> Announcement:
     try:
-        response = requests.get(url, verify=False, timeout=HTTP_TIMEOUT)
+        response = http_get(url, verify=False, timeout=HTTP_TIMEOUT)
         response.raise_for_status()
     except requests.exceptions.RequestException as e:
         event(
