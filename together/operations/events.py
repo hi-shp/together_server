@@ -23,7 +23,7 @@ MAX_FILE = 8 * 1024**2
 BACKUPS = 31
 RETENTION = 90 * 86400
 FIELDS = set(
-    "source_url title department result method category similarity candidates reason elapsed_seconds count sent deduplicated missing expected latest_number saved_number filename bytes sha256 error status model score notice_id cycle_id board_index board_count outcome attachment_count".split()
+    "source_url title department result method category similarity candidates reason elapsed_seconds count sent deduplicated missing expected latest_number saved_number filename bytes sha256 error status model score notice_id cycle_id board_index board_count outcome attachment_count channel message_id".split()
 )
 
 

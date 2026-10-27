@@ -64,7 +64,7 @@ def stop_process_group(process):
     process.wait(timeout=10)
 
 
-def run_cycle(log_path, max_seconds=7200):
+def run_cycle(log_path, max_seconds=0, idle_seconds=1200):
     runtime = scratch_root()
     workspace = Path(tempfile.mkdtemp(prefix="run-", dir=runtime))
     env = os.environ.copy()
@@ -82,6 +82,7 @@ def run_cycle(log_path, max_seconds=7200):
             start_new_session=True,
         )
         started = time.monotonic()
+        last_output = started
         written = 0
         with (
             open(log_path, "wb", buffering=0) as logfile,
@@ -89,14 +90,19 @@ def run_cycle(log_path, max_seconds=7200):
         ):
             selector.register(process.stdout, selectors.EVENT_READ)
             while selector.get_map():
-                if time.monotonic() - started > max_seconds:
+                now = time.monotonic()
+                if max_seconds and now - started > max_seconds:
                     logfile.write(b"\n[supervisor] cycle timeout\n")
+                    return 124
+                if idle_seconds and now - last_output > idle_seconds:
+                    logfile.write(b"\n[supervisor] no progress for 20 minutes\n")
                     return 124
                 for key, _ in selector.select(timeout=1):
                     chunk = os.read(key.fileobj.fileno(), 65536)
                     if not chunk:
                         selector.unregister(key.fileobj)
                         continue
+                    last_output = time.monotonic()
                     try:
                         sys.stdout.buffer.write(chunk)
                         sys.stdout.buffer.flush()
@@ -146,7 +152,11 @@ def run_main():
                 continue
             log_path = log_dir / f"log_{now:%Y-%m-%d_%H-%M-%S}.txt"
             update_state(
-                BASE_DIR, status="running", cycle_started=time.time(), next_wake=0
+                BASE_DIR,
+                status="running",
+                cycle_started=time.time(),
+                next_wake=0,
+                boards={"checked": 0, "failed": 0},
             )
             code = run_cycle(log_path)
             cleanup_old_logs(log_dir)

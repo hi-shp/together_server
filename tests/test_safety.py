@@ -28,6 +28,24 @@ from together.plato import service as selenium_service
 
 
 class NetworkSafety(unittest.TestCase):
+    def test_discord_confirmation_preserves_content_and_records_message_id(self):
+        response = MagicMock(status_code=200)
+        response.json.return_value = {"id": "123456789"}
+        with (
+            patch.dict(os.environ, {"TEST_WEBHOOK": "https://example.invalid"}),
+            patch.object(
+                runtime_config.requests, "post", return_value=response
+            ) as post,
+            patch.object(runtime_config, "_discord_result") as record,
+        ):
+            self.assertTrue(
+                runtime_config.notify("기존 완료 문구", channel="TEST_WEBHOOK")
+            )
+        self.assertEqual(post.call_args.kwargs["json"], {"content": "기존 완료 문구"})
+        self.assertEqual(post.call_args.kwargs["params"], {"wait": "true"})
+        record.assert_called_once_with("TEST_WEBHOOK", "sent", 200, "123456789")
+        response.close.assert_called_once()
+
     def test_missing_discord_does_not_send(self):
         with (
             patch.dict(os.environ, {"TEST_WEBHOOK": ""}),
@@ -222,6 +240,40 @@ class BrowserSafety(unittest.TestCase):
 
 
 class SupervisorSafety(unittest.TestCase):
+    def run_fixture(self, script, **options):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "main.py").write_text(script, encoding="utf-8")
+            (root / ".runtime").mkdir()
+            with (
+                patch.object(run_main, "BASE_DIR", root),
+                patch.object(run_main, "scratch_root", return_value=root / ".runtime"),
+                patch.object(
+                    run_main.sys, "stdout", types.SimpleNamespace(buffer=io.BytesIO())
+                ),
+            ):
+                result = run_main.run_cycle(root / "log.txt", **options)
+            self.assertEqual(list((root / ".runtime").glob("run-*")), [])
+            return result
+
+    def test_progress_keeps_a_long_cycle_running(self):
+        self.assertEqual(
+            self.run_fixture(
+                "import time\nfor i in range(6):\n print(i,flush=True)\n time.sleep(.2)\n",
+                idle_seconds=0.8,
+            ),
+            0,
+        )
+
+    def test_no_progress_still_stops_a_stuck_cycle(self):
+        self.assertEqual(
+            self.run_fixture(
+                "import time\nprint('started',flush=True)\ntime.sleep(60)\n",
+                idle_seconds=0.2,
+            ),
+            124,
+        )
+
     def test_retention_does_not_touch_unrelated_files(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

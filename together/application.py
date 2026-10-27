@@ -229,6 +229,7 @@ def run_cycle(writenoticeService):
             console=False,
         )
         ann_urls, latest_announcement_number = get_anns_url(announcement_page, n)
+        update_state(BASE_DIR, boards=board_summary())
         department = announcement_page.department
         n += 1
         for url in ann_urls:
@@ -386,7 +387,7 @@ def run_cycle(writenoticeService):
                         outcome="reused" if reused else "verified",
                         attachment_count=len(full_ann.files),
                     )
-                    if not reused:
+                    if not reused or saved_category(partial_ann.title) is None:
                         save_title(partial_ann.title, category)
 
             recent_titles = recent_title()
