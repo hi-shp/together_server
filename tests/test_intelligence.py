@@ -436,3 +436,37 @@ class GPTContractTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class LiveDecisionRegressionTests(unittest.TestCase):
+    def test_domestic_exchange_requires_destination_and_department_evidence(self):
+        from together.notices.intelligence.text import requires_department_evidence
+        from together.notices.intelligence.events import compare_notices, Notice
+
+        left = "[학사과] 2026학년도 겨울계절수업 교류 수학 안내(부산외국어대학교)"
+        right = "[학사과] 2026학년도 겨울계절수업 교류 수학 안내(동의대학교 수정)"
+        self.assertTrue(requires_department_evidence(left))
+        self.assertNotEqual(
+            compare_notices(Notice(left, "2026-10-27"), Notice(right, "2026-10-27"))[
+                "relation"
+            ],
+            "same_event",
+        )
+
+    def test_education_survey_and_ssafy_keep_their_activity_type(self):
+        from together.notices.intelligence.routing import category_hint
+
+        self.assertEqual(
+            category_hint(
+                "[설문] SW융합과정을 이수 중이거나 포기한 학생들 대상으로 설문조사를 실시합니다.",
+                {},
+            )["category"],
+            "해당없음",
+        )
+        self.assertEqual(
+            category_hint("[취업] 삼성청년 SW·AI 아카데미(SSAFY) 설명회", {})[
+                "category"
+            ],
+            "교육/특강/프로그램",
+        )
+        self.assertIsNone(category_hint("SSAFY 강사 채용", {})["category"])

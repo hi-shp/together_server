@@ -8,6 +8,8 @@ import re
 import sqlite3
 import time
 import signal
+import threading
+from html.parser import HTMLParser
 from contextlib import contextmanager
 from urllib.parse import urljoin, urlsplit, parse_qs
 
@@ -33,6 +35,11 @@ def normalize(value):
 
 @contextmanager
 def request_deadline(seconds):
+    if threading.current_thread() is not threading.main_thread():
+        # 각 요청의 연결·응답 제한 시간은 스레드에서도 적용된다.
+        yield
+        return
+
     def expired(signum, frame):
         raise TimeoutError("Notification deadline exceeded")
 
@@ -45,37 +52,72 @@ def request_deadline(seconds):
         signal.signal(signal.SIGALRM, previous)
 
 
+class _SendFormParser(HTMLParser):
+    def __init__(self, page_url):
+        super().__init__(convert_charrefs=True)
+        self.page_url = page_url
+        self.forms = []
+        self.current = None
+        self.inputs = []
+        self.labels = {}
+        self.label = None
+
+    def handle_starttag(self, tag, attrs):
+        attrs = dict(attrs)
+        if tag == "form":
+            self.current = None
+            if (
+                urljoin(self.page_url, attrs.get("action", "")) == BASE + "action.php"
+                and attrs.get("method", "").lower() == "post"
+            ):
+                self.current = {}
+                self.forms.append(self.current)
+        elif tag == "input":
+            if (
+                self.current is not None
+                and attrs.get("type") == "hidden"
+                and attrs.get("name")
+            ):
+                self.current[attrs["name"]] = attrs.get("value", "")
+            if attrs.get("type") == "checkbox" and attrs.get("name") == "tousers[]":
+                self.inputs.append(attrs)
+        elif tag == "label":
+            self.label = {"text": [], "title": attrs.get("title", "")}
+            self.labels[attrs.get("for")] = self.label
+
+    def handle_endtag(self, tag):
+        if tag == "form":
+            self.current = None
+        elif tag == "label":
+            self.label = None
+
+    def handle_data(self, data):
+        if self.label is not None:
+            self.label["text"].append(data.strip())
+
+
 def parse_send_form(html, kind, page_url):
-    soup = BeautifulSoup(html, "html.parser")
-    forms = [
-        form
-        for form in soup.select("form")
-        if urljoin(page_url, form.get("action", "")) == BASE + "action.php"
-        and form.get("method", "").lower() == "post"
-    ]
-    if len(forms) != 1:
+    parser = _SendFormParser(page_url)
+    parser.feed(html)
+    parser.close()
+    if len(parser.forms) != 1:
         raise NotificationError("Notification form unavailable")
-    form = forms[0]
-    hidden = {
-        node["name"]: node.get("value", "")
-        for node in form.select('input[type="hidden"][name]')
-    }
+    hidden = parser.forms[0]
     expected = "message_send_group" if kind == "message" else "email_send"
     if hidden.get("type") != expected or hidden.get("courseid") != COURSE:
         raise NotificationError("Notification form scope mismatch")
     targets = []
-    labels = {node.get("for"): node for node in soup.select("label[for]")}
-    for node in form.select('input[type="checkbox"][name="tousers[]"]'):
+    for node in parser.inputs:
         value = node.get("value", "")
         if not value.isdigit():
             raise NotificationError("Invalid recipient ID")
-        label = labels.get(node.get("id"))
+        label = parser.labels.get(node.get("id"))
         if label:
             targets.append(
                 {
                     "id": value,
-                    "text": normalize(label.get_text(" ", strip=True)),
-                    "title": normalize(label.get("title", "")),
+                    "text": normalize(" ".join(label["text"])),
+                    "title": normalize(label["title"]),
                 }
             )
     return hidden, targets
@@ -323,14 +365,19 @@ class PlatoNotificationTransport:
             + COURSE
             + "&lang=ko"
         )
-        with request_deadline(45), self._get(page, timeout=(5, 30)) as response:
-            if (
-                response.status_code != 200
-                or urlsplit(response.url).netloc != HOST
-                or "/login/" in response.url
-            ):
-                raise NotificationError("Notification login failed")
-            hidden, targets = parse_send_form(response.text, kind, page)
+        snapshot = getattr(self, "form_snapshot", {}).get(kind)
+        if snapshot is not None:
+            hidden, targets = snapshot
+        else:
+            with request_deadline(45), self._get(page, timeout=(5, 30)) as response:
+                if (
+                    response.status_code != 200
+                    or urlsplit(response.url).netloc != HOST
+                    or "/login/" in response.url
+                ):
+                    raise NotificationError("Notification login failed")
+                hidden, targets = parse_send_form(response.text, kind, page)
+        self.last_form = (hidden, targets)
         ids, missing = resolve_recipients(targets, recipients, kind)
         if kind == "message":
             for target in targets:
@@ -339,7 +386,9 @@ class PlatoNotificationTransport:
                     self.student_ids[target["id"]] = match[1]
         return hidden, ids, missing
 
-    def email_history(self):
+    def email_history(self, *, fresh=False):
+        if getattr(self, "history_reader", None):
+            return self.history_reader(fresh=fresh)
         with (
             request_deadline(45),
             self._get(
@@ -365,7 +414,7 @@ class PlatoNotificationTransport:
             return False
         value = json.loads(path.read_text(encoding="utf-8"))
         try:
-            records = self.email_history()
+            records = self.email_history(fresh=True)
         except (NotificationError, requests.RequestException, TimeoutError):
             return False
         found = next(
@@ -408,7 +457,13 @@ class PlatoNotificationTransport:
     def validated_recipients(self, kind, recipients):
         hidden, ids, missing = self.prepare(kind, recipients)
         path = self.base_dir / ".runtime" / f"notification-missing-{kind}.json"
-        pending = path.with_suffix(".pending")
+        import tempfile
+
+        descriptor, temporary = tempfile.mkstemp(
+            prefix=path.name + ".", suffix=".pending", dir=path.parent
+        )
+        os.close(descriptor)
+        pending = Path(temporary)
         pending.write_text(
             json.dumps(
                 {
@@ -535,7 +590,7 @@ class PlatoNotificationTransport:
                 detail = "unrecognized_response"
                 if kind == "email" and response.status_code in (200, 302, 303):
                     try:
-                        records = self.email_history()
+                        records = self.email_history(fresh=True)
                         confirmed = any(
                             record["eid"] not in previous_email_ids
                             and record["subject"] == normalize(subject)

@@ -1,6 +1,6 @@
 import json
 import os
-from together.operations.events import duplicate_review
+from together.operations.events import duplicate_review, duplicate_review_reason
 
 from openai import OpenAI
 
@@ -76,10 +76,15 @@ def check_title_similarity(new_title, recent_titles):
         return "중복 아님"
     request = duplicate_request(new_title, candidates)
     result = _decision(DUPLICATE_MODEL, request)
-    duplicate_review.set(
-        "GPT 후보 검토: " + " ".join(str(result.get("reason", "")).split())[:120]
-    )
     relation = result.get("relation")
+    duplicate_review_reason.set(str(result.get("reason", "")))
+    labels = {
+        "same_event": "동일 행사",
+        "different_event": "별도 행사",
+        "related_update": "변경·추가 안내",
+        "needs_context": "본문 근거 부족",
+    }
+    duplicate_review.set("GPT 후보 검토·" + labels.get(relation, "판정값 확인 필요"))
     if relation == "same_event":
         index = result.get("matched_index")
         if type(index) is not int or not 0 <= index < len(candidates):

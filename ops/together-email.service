@@ -10,7 +10,8 @@ WorkingDirectory=/home/ubuntu/together/Source
 ExecStart=/usr/bin/python3 -u -m together.operations.email_worker
 Restart=on-failure
 RestartSec=10
-TimeoutStopSec=10
+KillMode=mixed
+TimeoutStopSec=660
 UMask=0077
 
 [Install]

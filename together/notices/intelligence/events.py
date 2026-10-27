@@ -109,7 +109,7 @@ def compare_notices(left, right):
             "similarity": similarity,
         }
     if re.search(
-        r"수강신청|수강정정|졸업논문|학위청구|지도교수|학점인정|졸업사정",
+        r"계절(?:학기|수업).*교류\s*수학|수강신청|수강정정|졸업논문|학위청구|지도교수|학점인정|졸업사정",
         left.title + right.title,
     ):
         if left.department and right.department and left.department != right.department:
@@ -175,7 +175,7 @@ def compare_notices(left, right):
             "similarity": similarity,
         }
     if re.search(
-        r"장학|조교|수강신청|수강정정|졸업논문|학위청구|지도교수|학점인정|졸업사정",
+        r"계절(?:학기|수업).*교류\s*수학|장학|조교|수강신청|수강정정|졸업논문|학위청구|지도교수|학점인정|졸업사정",
         left.title + right.title,
     ):
         if (

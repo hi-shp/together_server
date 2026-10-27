@@ -18,7 +18,7 @@ SUPPORTER = re.compile(
     r"서포터즈|홍보대사|기자단|앰배서더|프렌즈|정책\s*네트워크|모니터링|심사단|체험단"
 )
 ADMIN = re.compile(
-    r"지급일\s*안내|장학사정\s*결과|선발\s*결과|선정\s*결과|합격자\s*(?:발표|공고)|결과\s*공고|수상자\s*(?:발표|안내)|교과목.*(?:증원|이수\s*알림)|수강인원\s*증원|계절(?:학기|수업).*교류\s*수학|이수인증신청|학위청구|졸업사정|내규|수강정정|사후평가회|지도교수\s*배정|설문조사\s*참여|현장실습\s*신청|현장실습학기제\s*참여\s*및\s*수강신청"
+    r"\[설문\]|설문조사.{0,20}(?:실시|참여|안내|협조)|지급일\s*안내|장학사정\s*결과|선발\s*결과|선정\s*결과|합격자\s*(?:발표|공고)|결과\s*공고|수상자\s*(?:발표|안내)|교과목.*(?:증원|이수\s*알림)|수강인원\s*증원|계절(?:학기|수업).*교류\s*수학|이수인증신청|학위청구|졸업사정|내규|수강정정|사후평가회|지도교수\s*배정|설문조사\s*참여|현장실습\s*신청|현장실습학기제\s*참여\s*및\s*수강신청"
 )
 
 
@@ -66,6 +66,14 @@ def _intent_matches(title, category):
 
 def category_hint(title, keyword_categories, classifier=None, allow_provisional=False):
     title = str(title)
+    if re.search(r"SSAFY|삼성청년.*아카데미", title, re.I) and not re.search(
+        r"강사|직원|조교|교수", title
+    ):
+        return {
+            "category": "교육/특강/프로그램",
+            "method": "education_intent",
+            "reason": "SSAFY 교육과정 안내",
+        }
     if ADMIN.search(title) and not re.search(r"특강|강연|워크숍|워크샵", title):
         return {
             "category": "해당없음",

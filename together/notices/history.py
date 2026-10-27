@@ -9,7 +9,7 @@ import heapq
 from collections import defaultdict, deque
 from together.notices.intelligence.text import occurrence_conflict
 from together.notices.intelligence.events import Notice, compare_notices
-from together.operations.events import event, duplicate_review
+from together.operations.events import event, duplicate_review, duplicate_review_reason
 
 _TITLE_TIMESTAMP = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}")
 
@@ -88,6 +88,7 @@ def recent_title():
 
 def is_recent_title_duplicate(new_title, filename="titles.txt", *, identity_title=None):
     duplicate_review.set("")
+    duplicate_review_reason.set("")
     recent_titles = []
     if os.path.exists(filename):
         with open(filename, "r", encoding="utf-8") as file:
@@ -123,12 +124,13 @@ def is_recent_title_duplicate(new_title, filename="titles.txt", *, identity_titl
             "중복",
             f"중복 체크 결과: {result} ({method}"
             + (f", 유사도 {similarity:.5f}" if similarity is not None else "")
-            + f") - {new_title}",
+            + ")",
             plain=True,
             result=result,
             method=method,
             similarity=similarity,
             candidates=candidate_labels,
+            reason=duplicate_review_reason.get(),
         )
         return result
 

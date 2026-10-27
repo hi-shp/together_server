@@ -116,10 +116,6 @@ def categorize_announcement(title, content_text):
         if method == "gpt_context_review"
         else hint.get("reason") or "제목 규칙·로컬 모델 대조"
     )
-    if method == "gpt_context_review":
-        reason = review_for(truncated_content).get("reason")
-        if reason:
-            explanation += ": " + " ".join(reason.split())[:120]
     event(
         "분류",
         f"카테고리 분류 결과: {category} ({explanation})",
@@ -132,7 +128,11 @@ def categorize_announcement(title, content_text):
             if method == "gpt_context_review"
             else prediction.get("model_sha256", "local-rules")
         ),
-        reason=hint.get("reason"),
+        reason=(
+            review_for(truncated_content).get("reason")
+            if method == "gpt_context_review"
+            else hint.get("reason")
+        ),
         elapsed_seconds=round(time.monotonic() - started, 3),
     )
     return category
@@ -213,6 +213,7 @@ def run_cycle(writenoticeService):
     n = 1
     for announcement_page in page_url_manager.announcement_pages:
         clear_notice()
+        notice_category.set(None)
         page_match = re.search(r"(?:[?&])page=(\d+)", announcement_page.page_url)
         page_label = (
             f" [목록 {page_match.group(1)}쪽]"
@@ -261,10 +262,10 @@ def run_cycle(writenoticeService):
             set_notice(url, department, partial_ann.title)
             event(
                 "공지",
-                partial_ann.title,
+                "제목: " + partial_ann.title,
                 source_url=url,
                 title=partial_ann.title,
-                console=False,
+                plain=True,
             )
 
             validation = os.getenv("POST_VALIDATION_MODE", "off") == "enabled"

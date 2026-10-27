@@ -73,7 +73,8 @@ def get_anns_url(announcementPage, n):
         record_board_result(False)
         event(
             "수집",
-            f"요청 처리 실패: {type(e).__name__}",
+            f"요청 처리 실패: {type(e).__name__} - {announcementPage.page_url}",
+            source_url=announcementPage.page_url,
             level="WARN",
             error=type(e).__name__,
         )
@@ -498,7 +499,8 @@ def crawl_ann(url: str, category: str) -> Announcement:
                     files.append(result["path"])
                 event(
                     "첨부",
-                    f"저장 완료: {result['filename']} ({result['bytes']:,}바이트)",
+                    f"파일 다운로드 완료: {result['filename']}",
+                    plain=True,
                     source_url=full_file_url,
                     filename=result["filename"],
                     bytes=result["bytes"],

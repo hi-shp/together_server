@@ -180,3 +180,5 @@ def event(stage, message, *, level="INFO", console=True, plain=False, **fields):
 
 
 duplicate_review = ContextVar("duplicate_review", default="")
+
+duplicate_review_reason = ContextVar("duplicate_review_reason", default="")

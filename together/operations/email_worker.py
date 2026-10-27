@@ -67,11 +67,27 @@ def process_job(outbox, job, transport):
 
 
 def main():
+    import os
+    import signal
+    import threading
+    from together.plato.email_dispatch import prepare_snapshot, transport_from_snapshot
+
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--once", action="store_true")
+    parser.add_argument(
+        "--concurrency",
+        type=int,
+        default=int(os.getenv("PLATO_EMAIL_CONCURRENCY", "0")),
+    )
     args = parser.parse_args()
+    if args.concurrency < 0:
+        parser.error("concurrency must be zero or positive")
     root = BASE_DIR / ".runtime"
     root.mkdir(mode=0o700, exist_ok=True)
+    stop = threading.Event()
+    refresh = threading.Event()
+    signal.signal(signal.SIGTERM, lambda *_: stop.set())
+    signal.signal(signal.SIGINT, lambda *_: stop.set())
     with (root / "email-worker.lock").open("a") as lock:
         try:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -79,39 +95,83 @@ def main():
             return
         outbox = EmailOutbox(BASE_DIR)
         outbox.recover_interrupted()
-        transport = None
+        snapshot = None
+        refreshed_at = 0
+        active = {}
+
+        def send(job, current):
+            transport = None
+            try:
+                transport = transport_from_snapshot(current, BASE_DIR)
+                if not process_job(outbox, job, transport):
+                    refresh.set()
+            except Exception as exc:
+                outbox.defer(job, False, type(exc).__name__)
+                refresh.set()
+            finally:
+                if transport:
+                    transport.close()
+
         try:
-            if not args.once:
-                try:
-                    transport = PlatoNotificationTransport.from_session(
-                        login_session(), BASE_DIR
-                    )
-                except Exception:
-                    transport = None
-            while True:
+            while not stop.is_set():
+                active = {
+                    key: thread for key, thread in active.items() if thread.is_alive()
+                }
+                if args.concurrency and len(active) >= args.concurrency:
+                    stop.wait(0.2)
+                    continue
+                with outbox.connection() as db:
+                    ready = db.execute(
+                        "SELECT 1 FROM jobs WHERE state IN ('pending','unknown') AND ready<=? LIMIT 1",
+                        (time.time(),),
+                    ).fetchone()
+                if not ready:
+                    if args.once:
+                        return
+                    stop.wait(2)
+                    continue
+                if (
+                    snapshot is None
+                    or (refresh.is_set() and time.monotonic() - refreshed_at > 60)
+                    or time.monotonic() - refreshed_at > 300
+                ):
+                    try:
+                        refresh.clear()
+                        snapshot = prepare_snapshot(BASE_DIR)
+                        refreshed_at = time.monotonic()
+                    except Exception as exc:
+                        event(
+                            "이메일",
+                            "발송 로그인 확인 실패",
+                            level="ERROR",
+                            error=type(exc).__name__,
+                        )
+                        if args.once:
+                            raise
+                        stop.wait(10)
+                        continue
                 job = outbox.claim()
                 if job is None:
                     if args.once:
                         return
-                    time.sleep(2)
+                    stop.wait(2)
                     continue
+                if args.once:
+                    send(job, snapshot)
+                    return
+                thread = threading.Thread(
+                    target=send, args=(job, snapshot), name="email-" + job["id"][:8]
+                )
                 try:
-                    if transport is None:
-                        transport = PlatoNotificationTransport.from_session(
-                            login_session(), BASE_DIR
-                        )
-                    succeeded = process_job(outbox, job, transport)
-                    if not succeeded:
-                        transport.close()
-                        transport = None
-                except Exception as exc:
-                    outbox.defer(job, False, type(exc).__name__)
-                    if transport:
-                        transport.close()
-                        transport = None
+                    thread.start()
+                    active[job["id"]] = thread
+                except RuntimeError:
+                    outbox.defer(job, False, "thread_start_failed")
+                    stop.wait(1)
         finally:
-            if transport:
-                transport.close()
+            # 발송 중인 요청의 응답과 기록을 마친 뒤 종료한다.
+            for thread in active.values():
+                thread.join()
 
 
 if __name__ == "__main__":
