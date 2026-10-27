@@ -60,8 +60,10 @@ sudo systemctl start systemd-tmpfiles-clean.timer
 sudo install -m 644 ops/together-crawler.service /etc/systemd/system/together-crawler.service
 sudo install -m 644 ops/together-health.service /etc/systemd/system/together-health.service
 sudo install -m 644 ops/together-health.timer /etc/systemd/system/together-health.timer
+sudo install -m 644 ops/together-email.service /etc/systemd/system/together-email.service
 sudo systemctl daemon-reload
 sudo systemctl enable --now together-health.timer
+sudo systemctl enable --now together-email.service
 if "$start_service"; then
     sudo systemctl enable --now together-crawler.service
     systemctl is-active together-crawler.service

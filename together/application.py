@@ -9,7 +9,12 @@ import signal
 from together.integrations.openai_client import answer_gpt
 from together.crawler.announcements import get_anns_url, crawl_ann_partial, crawl_ann
 from together.plato.service import WriteNoticeService
-from together.notices.history import is_recent_title_duplicate, save_title, truncate_text, save_only_title
+from together.notices.history import (
+    is_recent_title_duplicate,
+    save_title,
+    truncate_text,
+    save_only_title,
+)
 from together.crawler.pages import PageUrlManager
 from together.notices.history import recent_title
 import json
@@ -20,18 +25,32 @@ import os
 import requests
 from datetime import datetime
 from together.crawler.university import NoticeUpdater
-from notice_intelligence.routing import category_hint, configured_classifier
-from notice_intelligence.shadow import observe_notice, observe_category, finish_cycle
-from notice_intelligence.enrichment import find_target, register_post, apply_enrichment
-from notice_intelligence.quality import assess,quarantine,review_for,display_title
+from together.notices.intelligence.routing import category_hint, configured_classifier
+from together.notices.intelligence.shadow import (
+    observe_notice,
+    observe_category,
+    finish_cycle,
+)
+from together.notices.intelligence.enrichment import (
+    find_target,
+    register_post,
+    apply_enrichment,
+)
+from together.notices.intelligence.quality import (
+    assess,
+    quarantine,
+    review_for,
+    display_title,
+)
 from together.storage.attachments import archive_files
-from together.operations.state import update_state,board_summary
+from together.operations.state import update_state, board_summary
 
-with open('env.json', 'r', encoding='utf-8') as f:
-    config = json.load(f)
-KEYWORD_CATEGORIES = config['KEYWORD_CATEGORIES']
-EXCLUDE_KEYWORDS = config['EXCLUDE_KEYWORDS']
-CATEGORIES = config['CATEGORIES']
+from together.notices.intelligence.policy import (
+    KEYWORD_CATEGORIES,
+    EXCLUDE_KEYWORDS,
+    CATEGORIES,
+)
+
 
 def categorize_by_keywords(title, content_text):
     for keyword, category in KEYWORD_CATEGORIES.items():
@@ -43,32 +62,39 @@ def categorize_by_keywords(title, content_text):
             return "해당없음"
     return None
 
+
 def categorize_announcement(title, content_text):
-    hint = {'category': None, 'method': 'needs_context'}
+    hint = {"category": None, "method": "needs_context"}
     try:
-        if os.getenv('NOTICE_CLASSIFIER_MODE', 'hybrid') == 'legacy':
-            hint = {'category': categorize_by_keywords(title, content_text), 'method': 'legacy_keyword'}
+        if os.getenv("NOTICE_CLASSIFIER_MODE", "hybrid") == "legacy":
+            hint = {
+                "category": categorize_by_keywords(title, content_text),
+                "method": "legacy_keyword",
+            }
         else:
-            hint = category_hint(title, KEYWORD_CATEGORIES, configured_classifier(BASE_DIR))
+            hint = category_hint(
+                title, KEYWORD_CATEGORIES, configured_classifier(BASE_DIR)
+            )
     except Exception as exc:
-        print(f'로컬 분류 생략: {type(exc).__name__}', flush=True)
-    category = hint['category']
-    method = hint['method']
+        print(f"로컬 분류 생략: {type(exc).__name__}", flush=True)
+    category = hint["category"]
+    method = hint["method"]
     if not category:
         combined_text = f"{title}\n{content_text}"
         truncated_content = truncate_text(combined_text, 1000)
         category = answer_gpt(truncated_content)
-        method = 'gpt_context_review'
+        method = "gpt_context_review"
     observe_category(title, category, method)
     return category
 
+
 def update_csv_with_announcement_numbers(updates, filename: str):
-    df = pd.read_csv(f'{filename}')
+    df = pd.read_csv(f"{filename}")
 
     for page_url, announcement_number in updates.items():
-        df.loc[df['page_url'] == page_url, 'number'] = announcement_number
+        df.loc[df["page_url"] == page_url, "number"] = announcement_number
 
-    df['number'] = df['number'].fillna(0).astype(int)
+    df["number"] = df["number"].fillna(0).astype(int)
     df.to_csv(filename, index=False)
 
 
@@ -76,11 +102,15 @@ def fetch_complete_notice(url, category):
     for _ in range(10):
         announcement = crawl_ann(url, category)
         if announcement is not None:
-            announcement.title = re.sub(r'【.*?】\s*', '', announcement.title)
-            if announcement.title != '제목 없음' and announcement.content_text != '내용 없음':
+            announcement.title = re.sub(r"【.*?】\s*", "", announcement.title)
+            if (
+                announcement.title != "제목 없음"
+                and announcement.content_text != "내용 없음"
+            ):
                 return announcement
         time.sleep(1)
-    raise RuntimeError(f'공지 본문 추출 실패; 공지 번호 유지: {url}')
+    raise RuntimeError(f"공지 본문 추출 실패; 공지 번호 유지: {url}")
+
 
 def run_cycle(writenoticeService):
     gc.collect()
@@ -100,23 +130,26 @@ def run_cycle(writenoticeService):
     updates = {}
     course_url = "https://dev-plato.pusan.ac.kr/course/view.php?id=157301"
 
-    started=time.monotonic()
+    started = time.monotonic()
     highest_num = writenoticeService.update_participants()
-    print(f'참여 인원 확인 완료 ({time.monotonic()-started:.1f}초)',flush=True)
+    print(f"참여 인원 확인 완료 ({time.monotonic()-started:.1f}초)", flush=True)
 
-    started=time.monotonic()
+    started = time.monotonic()
     response_count = writenoticeService.download_survey()
-    print(f'알림 신청자 불러오기 완료 ({time.monotonic()-started:.1f}초)',flush=True)
+    print(f"알림 신청자 불러오기 완료 ({time.monotonic()-started:.1f}초)", flush=True)
 
     current_datetime = datetime.now().strftime("%Y-%m-%d / %H:%M:%S")
     message = f"{current_datetime} (참여: {highest_num}명/설문: {response_count}개)"
     notify(message)
 
-    started=time.monotonic()
+    started = time.monotonic()
     updater.update_university_notices()
-    print(f'대학 공지 기준 확인 완료 ({time.monotonic()-started:.1f}초)',flush=True)
+    print(f"대학 공지 기준 확인 완료 ({time.monotonic()-started:.1f}초)", flush=True)
     page_url_manager = PageUrlManager()
-    print(f'게시판 목록 불러오기 완료 ({len(page_url_manager.announcement_pages)}개)',flush=True)
+    print(
+        f"게시판 목록 불러오기 완료 ({len(page_url_manager.announcement_pages)}개)",
+        flush=True,
+    )
     n = 1
     for announcement_page in page_url_manager.announcement_pages:
         ann_urls, latest_announcement_number = get_anns_url(announcement_page, n)
@@ -131,46 +164,69 @@ def run_cycle(writenoticeService):
                 if partial_ann is None:
                     time.sleep(1)
                     continue
-                partial_ann.title = re.sub(r'【.*?】\s*', '', partial_ann.title)
-                if partial_ann.title != "제목 없음" and partial_ann.content_text != "내용 없음":
+                partial_ann.title = re.sub(r"【.*?】\s*", "", partial_ann.title)
+                if (
+                    partial_ann.title != "제목 없음"
+                    and partial_ann.content_text != "내용 없음"
+                ):
                     break
                 time.sleep(1)
 
-            if partial_ann is None or partial_ann.title == "제목 없음" or partial_ann.content_text == "내용 없음":
-                raise RuntimeError(f'공지 추출 실패; 공지 번호 유지: {url}')
+            if (
+                partial_ann is None
+                or partial_ann.title == "제목 없음"
+                or partial_ann.content_text == "내용 없음"
+            ):
+                raise RuntimeError(f"공지 추출 실패; 공지 번호 유지: {url}")
 
-            validation = os.getenv('POST_VALIDATION_MODE','off') == 'enabled'
+            validation = os.getenv("POST_VALIDATION_MODE", "off") == "enabled"
             if validation:
-                result=assess(partial_ann)
-                partial_ann.title=result['title']
-                if not result['ok']:
-                    quarantine(partial_ann,result,BASE_DIR)
-                    print('확인이 필요한 공지를 별도 보관했습니다.',flush=True)
+                result = assess(partial_ann)
+                partial_ann.title = result["title"]
+                if not result["ok"]:
+                    quarantine(partial_ann, result, BASE_DIR)
+                    print("확인이 필요한 공지를 별도 보관했습니다.", flush=True)
                     continue
 
             observe_notice(partial_ann, department)
             enrichment_target = find_target(partial_ann, department, BASE_DIR)
-            duplicate_check = is_recent_title_duplicate(partial_ann.title, identity_title=getattr(partial_ann, 'original_title', partial_ann.title))
-            print(f"중복 체크 결과: {duplicate_check} - {partial_ann.title}", flush=True)
+            duplicate_check = is_recent_title_duplicate(
+                partial_ann.title,
+                identity_title=getattr(
+                    partial_ann, "original_title", partial_ann.title
+                ),
+            )
+            print(
+                f"중복 체크 결과: {duplicate_check} - {partial_ann.title}", flush=True
+            )
 
             if enrichment_target or duplicate_check != "중복":
                 if enrichment_target:
-                    category = enrichment_target['board'] if enrichment_target['board'] in CATEGORIES else '해당없음'
+                    category = (
+                        enrichment_target["board"]
+                        if enrichment_target["board"] in CATEGORIES
+                        else "해당없음"
+                    )
                 else:
-                    category = categorize_announcement(partial_ann.title, partial_ann.content_text)
+                    category = categorize_announcement(
+                        partial_ann.title, partial_ann.content_text
+                    )
                 if validation:
-                    combined=truncate_text(f'{partial_ann.title}\n{partial_ann.content_text}',1000)
-                    result=assess(partial_ann,review_for(combined))
-                    if not result['ok']:
-                        quarantine(partial_ann,result,BASE_DIR)
+                    combined = truncate_text(
+                        f"{partial_ann.title}\n{partial_ann.content_text}", 1000
+                    )
+                    result = assess(partial_ann, review_for(combined))
+                    if not result["ok"]:
+                        quarantine(partial_ann, result, BASE_DIR)
                         continue
                 print(f"카테고리 분류 결과: {category}", flush=True)
                 message = f"{partial_ann.title}\n＞ {category}"
                 if not enrichment_target:
                     notify(message)
                 full_ann = fetch_complete_notice(url, category)
-                if validation:full_ann.title=display_title(full_ann.title)
-                archive_files(full_ann,BASE_DIR)
+                if validation:
+                    full_ann.title = display_title(full_ann.title)
+                archive_files(full_ann, BASE_DIR)
 
                 if category == "해당없음" or category not in CATEGORIES:
                     full_ann.notice_board_name = "기타 공지사항"
@@ -179,22 +235,49 @@ def run_cycle(writenoticeService):
 
                 should_publish = not enrichment_target
                 if enrichment_target:
-                    outcome = apply_enrichment(writenoticeService, enrichment_target, full_ann, department, BASE_DIR)
-                    if outcome is None and duplicate_check != '중복':
-                        category = categorize_announcement(partial_ann.title, partial_ann.content_text)
+                    outcome = apply_enrichment(
+                        writenoticeService,
+                        enrichment_target,
+                        full_ann,
+                        department,
+                        BASE_DIR,
+                    )
+                    if outcome is None and duplicate_check != "중복":
+                        category = categorize_announcement(
+                            partial_ann.title, partial_ann.content_text
+                        )
                         full_ann = fetch_complete_notice(url, category)
-                        if validation:full_ann.title=display_title(full_ann.title)
-                        archive_files(full_ann,BASE_DIR)
-                        full_ann.notice_board_name = category if category in CATEGORIES and category != '해당없음' else '기타 공지사항'
-                        notify(f'{partial_ann.title}\n＞ {category}')
+                        if validation:
+                            full_ann.title = display_title(full_ann.title)
+                        archive_files(full_ann, BASE_DIR)
+                        full_ann.notice_board_name = (
+                            category
+                            if category in CATEGORIES and category != "해당없음"
+                            else "기타 공지사항"
+                        )
+                        notify(f"{partial_ann.title}\n＞ {category}")
                         should_publish = True
                 if should_publish:
-                    receipts = writenoticeService.write_notices(course_url, [full_ann], department)
+                    receipts = writenoticeService.write_notices(
+                        course_url, [full_ann], department
+                    )
                     if isinstance(receipts, list) and receipts:
-                        register_post(writenoticeService, full_ann, department, receipts[0], BASE_DIR)
-                    reused = isinstance(receipts,list) and receipts and isinstance(receipts[0],dict) and receipts[0].get('reused')
-                    print('게시글 작성 완료',flush=True)
-                    if not reused:save_title(partial_ann.title, category)
+                        register_post(
+                            writenoticeService,
+                            full_ann,
+                            department,
+                            receipts[0],
+                            BASE_DIR,
+                        )
+                    reused = (
+                        isinstance(receipts, list)
+                        and receipts
+                        and isinstance(receipts[0], dict)
+                        and receipts[0].get("reused")
+                    )
+                    print("게시글 작성 완료", flush=True)
+                    if not reused:
+                        save_title(partial_ann.title, category)
 
             recent_titles = recent_title()
             if "CMS/Board/PopupBoard" in url:
@@ -210,14 +293,18 @@ def run_cycle(writenoticeService):
                 save_only_title(partial_ann.title)
 
             writenoticeService.move_to_course(course_url)
-            writenoticeService.send_message(partial_ann.title, partial_ann.url, department)
-            writenoticeService.send_email(partial_ann.title, partial_ann.url, partial_ann.content_html, department)
+            writenoticeService.send_message(
+                partial_ann.title, partial_ann.url, department
+            )
+            writenoticeService.send_email(
+                partial_ann.title, partial_ann.url, partial_ann.content_html, department
+            )
             print("", flush=True)
 
         # 해당 게시판 처리가 끝난 뒤 마지막 공지 번호를 저장한다.
         if latest_announcement_number > announcement_page.number:
             updates[announcement_page.source_url] = latest_announcement_number
-            update_csv_with_announcement_numbers(updates, os.getenv('PAGE_NAME'))
+            update_csv_with_announcement_numbers(updates, os.getenv("PAGE_NAME"))
             gc.collect()
             updates = {}
 
@@ -231,7 +318,7 @@ def run_cycle(writenoticeService):
     files_to_delete = [
         os.path.join(DOWNLOADS_DIR, "email.csv"),
         os.path.join(DOWNLOADS_DIR, "message.csv"),
-        os.path.join(DOWNLOADS_DIR, "알림 신청하기.csv")
+        os.path.join(DOWNLOADS_DIR, "알림 신청하기.csv"),
     ]
 
     for file in files_to_delete:
@@ -248,26 +335,30 @@ def run_cycle(writenoticeService):
 
 def main():
     os.chdir(BASE_DIR)
-    print(f'모듈 불러오기 완료 ({time.monotonic()-_MODULE_LOAD_STARTED:.1f}초)',flush=True)
-    os.environ['API_USAGE_CONTEXT']='crawler'
-    os.environ['TOGETHER_STARTUP_PROGRESS']='1'
-    (BASE_DIR / '.runtime').mkdir(mode=0o700, exist_ok=True)
-    with open(BASE_DIR / '.runtime' / 'cycle.lock', 'a') as lock:
+    print(
+        f"모듈 불러오기 완료 ({time.monotonic()-_MODULE_LOAD_STARTED:.1f}초)",
+        flush=True,
+    )
+    os.environ["API_USAGE_CONTEXT"] = "crawler"
+    os.environ["TOGETHER_STARTUP_PROGRESS"] = "1"
+    (BASE_DIR / ".runtime").mkdir(mode=0o700, exist_ok=True)
+    with open(BASE_DIR / ".runtime" / "cycle.lock", "a") as lock:
         try:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
-            raise SystemExit('A crawler cycle is already running')
+            raise SystemExit("A crawler cycle is already running")
         service = WriteNoticeService()
         try:
             run_cycle(service)
         finally:
             service.close()
             finish_cycle()
-            update_state(BASE_DIR,boards=board_summary())
+            update_state(BASE_DIR, boards=board_summary())
 
 
 def _terminate(signum, frame):
     raise SystemExit(128 + signum)
+
 
 def cli():
     signal.signal(signal.SIGTERM, _terminate)

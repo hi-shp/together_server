@@ -1,4 +1,5 @@
 """크롤러 반복 실행과 로그 관리."""
+
 import fcntl
 import os
 from pathlib import Path
@@ -14,18 +15,24 @@ from datetime import datetime
 
 from together.config import BASE_DIR, notify
 from together.plato.browser_runtime import scratch_root
-from together.operations.state import update_state,read_state
+from together.operations.state import update_state, read_state
 
 MAX_LOG_BYTES = 8 * 1024 * 1024
 MAX_TOTAL_LOG_BYTES = 128 * 1024 * 1024
-LOG_NAME = re.compile(r'log_\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}\.txt')
+LOG_NAME = re.compile(r"log_\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}\.txt")
 
 
 def cleanup_old_logs(log_dir):
     cutoff = time.time() - 7 * 86400
-    files = sorted((p for p in Path(log_dir).iterdir()
-                    if LOG_NAME.fullmatch(p.name) and p.is_file() and not p.is_symlink()),
-                   key=lambda p: p.stat().st_mtime, reverse=True)
+    files = sorted(
+        (
+            p
+            for p in Path(log_dir).iterdir()
+            if LOG_NAME.fullmatch(p.name) and p.is_file() and not p.is_symlink()
+        ),
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    )
     total = 0
     for path in files:
         info = path.stat()
@@ -58,21 +65,31 @@ def stop_process_group(process):
 
 def run_cycle(log_path, max_seconds=7200):
     runtime = scratch_root()
-    workspace = Path(tempfile.mkdtemp(prefix='run-', dir=runtime))
+    workspace = Path(tempfile.mkdtemp(prefix="run-", dir=runtime))
     env = os.environ.copy()
-    env.update({key: str(workspace) for key in ('TMPDIR', 'TMP', 'TEMP', 'TOGETHER_RUN_DIR')})
+    env.update(
+        {key: str(workspace) for key in ("TMPDIR", "TMP", "TEMP", "TOGETHER_RUN_DIR")}
+    )
     process = None
     try:
-        process = subprocess.Popen([sys.executable, '-u', str(BASE_DIR / 'main.py')],
-                                   cwd=BASE_DIR, env=env, stdout=subprocess.PIPE,
-                                   stderr=subprocess.STDOUT, start_new_session=True)
+        process = subprocess.Popen(
+            [sys.executable, "-u", str(BASE_DIR / "main.py")],
+            cwd=BASE_DIR,
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            start_new_session=True,
+        )
         started = time.monotonic()
         written = 0
-        with open(log_path, 'wb', buffering=0) as logfile, selectors.DefaultSelector() as selector:
+        with (
+            open(log_path, "wb", buffering=0) as logfile,
+            selectors.DefaultSelector() as selector,
+        ):
             selector.register(process.stdout, selectors.EVENT_READ)
             while selector.get_map():
                 if time.monotonic() - started > max_seconds:
-                    logfile.write(b'\n[supervisor] cycle timeout\n')
+                    logfile.write(b"\n[supervisor] cycle timeout\n")
                     return 124
                 for key, _ in selector.select(timeout=1):
                     chunk = os.read(key.fileobj.fileno(), 65536)
@@ -98,43 +115,57 @@ def run_cycle(log_path, max_seconds=7200):
 
 def run_main():
     os.chdir(BASE_DIR)
-    runtime = BASE_DIR / '.runtime'
+    runtime = BASE_DIR / ".runtime"
     runtime.mkdir(mode=0o700, exist_ok=True)
-    log_dir = BASE_DIR / 'logs'
+    log_dir = BASE_DIR / "logs"
     log_dir.mkdir(exist_ok=True)
-    with open(runtime / 'runner.lock', 'a') as lock:
+    with open(runtime / "runner.lock", "a") as lock:
         try:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
-            raise SystemExit('Crawler supervisor is already running')
-        failures = read_state(BASE_DIR).get('consecutive_failures',0)
-        update_state(BASE_DIR,expected_running=True,status='starting')
+            raise SystemExit("Crawler supervisor is already running")
+        failures = read_state(BASE_DIR).get("consecutive_failures", 0)
+        update_state(BASE_DIR, expected_running=True, status="starting")
         while True:
             cleanup_old_logs(log_dir)
             now = datetime.now()
             if now.hour < 6:
-                print("현재 시간이 밤 12시 ~ 오전 6시이므로 6시간 동안 대기합니다.", flush=True)
+                print(
+                    "현재 시간이 밤 12시 ~ 오전 6시이므로 6시간 동안 대기합니다.",
+                    flush=True,
+                )
                 wake = now.replace(hour=6, minute=0, second=0, microsecond=0)
-                notify('-' * 100, channel='DISCORD_NIGHT_WEBHOOK_URL')
-                update_state(BASE_DIR,status='night_pause',next_wake=time.time()+(wake-now).total_seconds())
+                notify("-" * 100, channel="DISCORD_NIGHT_WEBHOOK_URL")
+                update_state(
+                    BASE_DIR,
+                    status="night_pause",
+                    next_wake=time.time() + (wake - now).total_seconds(),
+                )
                 time.sleep((wake - now).total_seconds())
                 continue
-            log_path = log_dir / f'log_{now:%Y-%m-%d_%H-%M-%S}.txt'
-            update_state(BASE_DIR,status='running',cycle_started=time.time(),next_wake=0)
+            log_path = log_dir / f"log_{now:%Y-%m-%d_%H-%M-%S}.txt"
+            update_state(
+                BASE_DIR, status="running", cycle_started=time.time(), next_wake=0
+            )
             code = run_cycle(log_path)
-            notify(log_path.name, channel='DISCORD_LOG_WEBHOOK_URL', log_path=log_path)
+            notify(log_path.name, channel="DISCORD_LOG_WEBHOOK_URL", log_path=log_path)
             cleanup_old_logs(log_dir)
             failures = min(failures + 1, 5) if code else 0
-            fields={'status':'waiting','last_exit':code,'consecutive_failures':failures}
-            if not code:fields['last_success']=time.time()
-            update_state(BASE_DIR,**fields)
+            fields = {
+                "status": "waiting",
+                "last_exit": code,
+                "consecutive_failures": failures,
+            }
+            if not code:
+                fields["last_success"] = time.time()
+            update_state(BASE_DIR, **fields)
             delay = 10
             print("\n메인 함수 종료됨. 10초 후 다시 실행\n\n\n", flush=True)
             time.sleep(delay)
 
 
 def _terminate(signum, frame):
-    update_state(BASE_DIR,expected_running=False,status='stopped_by_signal')
+    update_state(BASE_DIR, expected_running=False, status="stopped_by_signal")
     raise SystemExit(128 + signum)
 
 

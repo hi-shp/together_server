@@ -26,6 +26,8 @@ python3 run_main.py
 
 한 번 실행할 때는 `python3 main.py`를 사용합니다. 실행하면 설정한 강좌에 공지를 게시하고 신청자에게 알림을 보냅니다.
 
+이메일은 전용 작업자가 대기열에서 처리합니다. 서버 적용 스크립트가 작업자를 함께 등록하며, 직접 실행하는 환경의 설정은 [운영 안내](docs/operations.md)를 참고하면 됩니다.
+
 ## 구성
 
 | 파일 | 역할 |
@@ -36,8 +38,7 @@ python3 run_main.py
 | `together/plato/` | PLATO 로그인, 게시, 알림과 이메일 양식 |
 | `together/storage/` | 첨부 보관과 API 사용량 |
 | `together/operations/`, `together/config.py` | 실행 상태와 환경설정 |
-| `together/notices/`, `together/integrations/` | 제목 이력과 GPT 연동 |
-| `notice_intelligence/` | 분류, 중복 판별, 게시 검증과 보강 |
+| `together/notices/`, `together/integrations/` | 제목 이력, 분류·중복·보강과 GPT 연동 |
 
 `pages.csv`에는 게시판별 마지막 공지 번호, `titles.txt`에는 중복 검사 이력, `sorted_labeled_data.csv`에는 분류 결과를 저장합니다. `yesterday.txt`는 대학 공지의 마지막 확인 제목을 보관합니다. 서버의 기존 파일을 이어서 사용합니다.
 

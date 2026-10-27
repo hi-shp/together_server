@@ -11,7 +11,7 @@ class NoticeUpdater:
         self.csv_file = csv_file
         self.urls = [
             "https://www.pusan.ac.kr/kor/CMS/Board/PopupBoard.do?robot=Y&mgr_seq=3&mode=list&page=1",
-            "https://www.pusan.ac.kr/kor/CMS/Board/PopupBoard.do?robot=Y&mgr_seq=3&mode=list&page=2"
+            "https://www.pusan.ac.kr/kor/CMS/Board/PopupBoard.do?robot=Y&mgr_seq=3&mode=list&page=2",
         ]
 
     def get_last_notice_title(self):
@@ -62,7 +62,9 @@ class NoticeUpdater:
             department, page_url, number = row
             numeber = number.strip()
             if i < 2:
-                updated_rows.append([department, page_url, new_number if new_number else number])
+                updated_rows.append(
+                    [department, page_url, new_number if new_number else number]
+                )
             else:
                 updated_rows.append(row)
 
@@ -97,15 +99,17 @@ class NoticeUpdater:
                         if notice_number > highest_number:
                             highest_number = notice_number
 
-                            highest_title = title_link.get("title") if title_link.get("title") else title_link.get_text(
-                                strip=True)
+                            highest_title = (
+                                title_link.get("title")
+                                if title_link.get("title")
+                                else title_link.get_text(strip=True)
+                            )
 
                             if highest_title.endswith("..."):
                                 highest_url = title_link["href"]
 
                     except ValueError:
                         continue
-
 
         return highest_title
 

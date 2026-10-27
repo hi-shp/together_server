@@ -1,0 +1,17 @@
+[Unit]
+Description=Together email delivery worker
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/together/Source
+ExecStart=/usr/bin/python3 -u -m together.operations.email_worker
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=10
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target
