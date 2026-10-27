@@ -64,8 +64,16 @@ def _intent_matches(title, category):
     return False
 
 
-def category_hint(title, keyword_categories, classifier=None, allow_provisional=False):
+def category_hint(
+    title, keyword_categories, classifier=None, allow_provisional=False, *, body=""
+):
     title = str(title)
+    if re.search(r"설문\s*응답|의견\s*수렴", title) and not CONTEST.search(title):
+        return {
+            "category": "해당없음",
+            "method": "administrative_intent",
+            "reason": "설문·의견 수렴 안내",
+        }
     if re.search(r"SSAFY|삼성청년.*아카데미", title, re.I) and not re.search(
         r"강사|직원|조교|교수", title
     ):
@@ -79,6 +87,30 @@ def category_hint(title, keyword_categories, classifier=None, allow_provisional=
             "category": "해당없음",
             "method": "administrative_intent",
             "reason": "행정·결과 안내",
+        }
+    if re.search(
+        r"봉사단.{0,40}(?:참가자|참여자|파견팀|봉사자|단원).{0,15}모집", title
+    ):
+        return {
+            "category": "봉사활동",
+            "method": "volunteer_recruitment_intent",
+            "reason": "봉사단 참가자 모집",
+        }
+    if re.search(r"현장실습(?:학기제)?.{0,25}(?:학생|실습기관).{0,15}모집", title):
+        return {
+            "category": "취업 정보",
+            "method": "internship_recruitment_intent",
+            "reason": "현장실습 참여 모집",
+        }
+    if (
+        re.search(r"(?:고사|시험).{0,10}(?:진행|감독|운영)요원.{0,10}모집", title)
+        and re.search(r"수당|시급|급여", str(body))
+        and not re.search(r"무급|수당\s*없|시급\s*없", str(body))
+    ):
+        return {
+            "category": "취업 정보",
+            "method": "paid_exam_staff_intent",
+            "reason": "본문의 근무·수당 조건 확인",
         }
     prediction = classifier.predict(title) if classifier else None
     usable_model = bool(

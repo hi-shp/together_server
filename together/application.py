@@ -93,7 +93,10 @@ def categorize_announcement(title, content_text):
             }
         else:
             hint = category_hint(
-                title, KEYWORD_CATEGORIES, configured_classifier(BASE_DIR)
+                title,
+                KEYWORD_CATEGORIES,
+                configured_classifier(BASE_DIR),
+                body=content_text,
             )
     except Exception as exc:
         event(
