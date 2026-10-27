@@ -1,7 +1,9 @@
 """기존 전송 양식과 출력 문구, 터미널의 실시간 표시를 확인한다."""
 
 import contextlib
+from datetime import datetime
 import io
+import json
 import os
 import sys
 from pathlib import Path
@@ -17,9 +19,112 @@ sys.modules.setdefault(
 import run_main
 from together.plato.content import email_content
 from together.plato.service import WriteNoticeService
+from together import config
 
 
 class LegacyPresentationTests(unittest.TestCase):
+    def supervisor_fixture(self):
+        return json.loads(
+            (Path(__file__).parent / "fixtures/legacy-supervisor.json").read_text(
+                encoding="utf-8"
+            )
+        )
+
+    def test_cycle_end_precedes_upload_and_log_caption_matches_original(self):
+        fixture = self.supervisor_fixture()
+
+        class Afternoon(datetime):
+            @classmethod
+            def now(cls):
+                return cls(2026, 10, 27, 14, 30, 0)
+
+        output = io.StringIO()
+
+        def check_upload(content, **kwargs):
+            self.assertEqual(output.getvalue(), fixture["cycle_end_console"] + "\n")
+            name = "log_2026-10-27_14-30-00.txt"
+            self.assertEqual(
+                content,
+                fixture["log_caption_prefix"] + name + fixture["log_caption_suffix"],
+            )
+            self.assertEqual(kwargs["channel"], "DISCORD_LOG_WEBHOOK_URL")
+            self.assertEqual(kwargs["log_path"].name, name)
+            self.assertEqual(kwargs["error_prefix"], fixture["log_error_prefix"])
+
+        with (
+            tempfile.TemporaryDirectory() as temp,
+            patch.object(run_main, "BASE_DIR", Path(temp)),
+            patch.object(run_main.os, "chdir"),
+            patch.object(run_main, "datetime", Afternoon),
+            patch.object(run_main, "read_state", return_value={}),
+            patch.object(run_main, "update_state"),
+            patch.object(run_main, "cleanup_old_logs"),
+            patch.object(run_main, "run_cycle", return_value=0) as cycle,
+            patch.object(run_main, "notify", side_effect=check_upload) as notify,
+            patch.object(run_main.time, "sleep", side_effect=StopIteration),
+            contextlib.redirect_stdout(output),
+        ):
+            with self.assertRaises(StopIteration):
+                run_main.run_main()
+            cycle.assert_called_once()
+            notify.assert_called_once()
+
+    def test_night_pause_keeps_original_console_and_separator(self):
+        fixture = self.supervisor_fixture()
+
+        class Night(datetime):
+            @classmethod
+            def now(cls):
+                return cls(2026, 10, 27, 1, 0, 0)
+
+        with (
+            tempfile.TemporaryDirectory() as temp,
+            patch.object(run_main, "BASE_DIR", Path(temp)),
+            patch.object(run_main.os, "chdir"),
+            patch.object(run_main, "datetime", Night),
+            patch.object(run_main, "read_state", return_value={}),
+            patch.object(run_main, "update_state"),
+            patch.object(run_main, "cleanup_old_logs"),
+            patch.object(run_main, "run_cycle") as cycle,
+            patch.object(run_main, "notify") as notify,
+            patch.object(run_main.time, "sleep", side_effect=StopIteration),
+            contextlib.redirect_stdout(io.StringIO()) as output,
+        ):
+            with self.assertRaises(StopIteration):
+                run_main.run_main()
+            self.assertEqual(output.getvalue(), fixture["night_console"] + "\n")
+            notify.assert_called_once_with(
+                fixture["night_separator"], channel="DISCORD_NIGHT_WEBHOOK_URL"
+            )
+            cycle.assert_not_called()
+
+    def test_log_upload_failure_keeps_original_prefix_and_hides_secret(self):
+        fixture = self.supervisor_fixture()
+        with (
+            tempfile.TemporaryDirectory() as temp,
+            patch.dict(os.environ, {"TEST_WEBHOOK": "https://example.invalid/hook"}),
+            patch.object(
+                config.requests,
+                "post",
+                side_effect=config.requests.ConnectionError("private credential"),
+            ),
+            contextlib.redirect_stdout(io.StringIO()) as output,
+        ):
+            path = Path(temp) / "log.txt"
+            path.write_text("log", encoding="utf-8")
+            self.assertFalse(
+                config.notify(
+                    "`log.txt`",
+                    channel="TEST_WEBHOOK",
+                    log_path=path,
+                    error_prefix=fixture["log_error_prefix"],
+                )
+            )
+            self.assertEqual(
+                output.getvalue(), fixture["log_error_prefix"] + "ConnectionError\n"
+            )
+            self.assertNotIn("private credential", output.getvalue())
+
     def test_email_html_matches_the_original_template(self):
         with tempfile.TemporaryDirectory() as temp:
             (Path(temp) / "together.png").write_bytes(b"fixture-banner")

@@ -12,7 +12,7 @@ HTTP_TIMEOUT = (5, 30)
 _warned = set()
 
 
-def notify(content=None, *, channel="WEBHOOK_URL", log_path=None):
+def notify(content=None, *, channel="WEBHOOK_URL", log_path=None, error_prefix=None):
     """Discord 알림을 보낸다. 중복 전송을 막기 위해 실패 시 재시도하지 않는다."""
     url = os.getenv(channel, "").strip()
     if not url:
@@ -37,5 +37,6 @@ def notify(content=None, *, channel="WEBHOOK_URL", log_path=None):
         response.close()
         return True
     except (requests.RequestException, OSError) as exc:
-        print(f"Discord {channel}: {type(exc).__name__}", flush=True)
+        prefix = error_prefix if error_prefix is not None else f"Discord {channel}: "
+        print(f"{prefix}{type(exc).__name__}", flush=True)
         return False

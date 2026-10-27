@@ -135,7 +135,7 @@ def run_main():
                     flush=True,
                 )
                 wake = now.replace(hour=6, minute=0, second=0, microsecond=0)
-                notify("-" * 100, channel="DISCORD_NIGHT_WEBHOOK_URL")
+                notify("-" * 108, channel="DISCORD_NIGHT_WEBHOOK_URL")
                 update_state(
                     BASE_DIR,
                     status="night_pause",
@@ -148,7 +148,6 @@ def run_main():
                 BASE_DIR, status="running", cycle_started=time.time(), next_wake=0
             )
             code = run_cycle(log_path)
-            notify(log_path.name, channel="DISCORD_LOG_WEBHOOK_URL", log_path=log_path)
             cleanup_old_logs(log_dir)
             failures = min(failures + 1, 5) if code else 0
             fields = {
@@ -161,6 +160,12 @@ def run_main():
             update_state(BASE_DIR, **fields)
             delay = 10
             print("\n메인 함수 종료됨. 10초 후 다시 실행\n\n\n", flush=True)
+            notify(
+                f"`{log_path.name}`",
+                channel="DISCORD_LOG_WEBHOOK_URL",
+                log_path=log_path,
+                error_prefix="디스코드 전송 중 예외 발생: ",
+            )
             time.sleep(delay)
 
 
