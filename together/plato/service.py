@@ -306,7 +306,8 @@ class WriteNoticeService:
         count = result["sent"] + result["deduplicated"]
         event(
             "쪽지",
-            f"전송 확인 {count}명 (새 전송 {result['sent']}명, 이력 재사용 {result['deduplicated']}명)",
+            f"{department}/Plato 쪽지 전송 완료 ({count}명)",
+            plain=True,
             count=count,
             sent=result["sent"],
             deduplicated=result["deduplicated"],
@@ -345,7 +346,8 @@ class WriteNoticeService:
             count = result["recipients"]
             event(
                 "이메일",
-                f"발송 요청 등록 {count}명 · 별도 작업자가 발송 내역 확인",
+                f"{department}/이메일 전송 완료 ({count}명)",
+                plain=True,
                 count=count,
                 status=result["state"],
             )
@@ -361,7 +363,8 @@ class WriteNoticeService:
         count = result["sent"] + result["deduplicated"]
         event(
             "이메일",
-            f"발송 확인 {count}명",
+            f"{department}/이메일 전송 완료 ({count}명)",
+            plain=True,
             count=count,
             sent=result["sent"],
             deduplicated=result["deduplicated"],
@@ -465,7 +468,7 @@ class WriteNoticeService:
             discord_message = (
                 f"{department}/Plato 쪽지 전송 완료 ({len(student_ids)}명) -{title}"
             )
-            event("PLATO", message, level="INFO")
+            event("PLATO", message, level="INFO", plain=True)
             notify(discord_message, channel="DISCORD_MESSAGE_WEBHOOK_URL")
 
         self.safe_get(
@@ -638,7 +641,7 @@ class WriteNoticeService:
             discord_message = (
                 f"{department}/이메일 전송 완료 ({len(email_addresses)}명) -{title}"
             )
-            event("PLATO", message, level="INFO")
+            event("PLATO", message, level="INFO", plain=True)
             notify(discord_message, channel="DISCORD_EMAIL_WEBHOOK_URL")
 
         self.safe_get(

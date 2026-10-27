@@ -1,5 +1,6 @@
 import json
 import os
+from together.operations.events import duplicate_review
 
 from openai import OpenAI
 
@@ -62,6 +63,7 @@ def answer_gpt(user_content):
 def check_title_similarity(new_title, recent_titles):
     # 학과별 모집은 모델이 동일 제목을 중복으로 판단하더라도 근거 없이 누락하지 않는다.
     if requires_department_evidence(new_title):
+        duplicate_review.set("학과별 모집·대상 확인 필요")
         return "중복 아님"
     candidates = [
         title
@@ -70,9 +72,13 @@ def check_title_similarity(new_title, recent_titles):
         and not requires_department_evidence(title)
     ]
     if not candidates:
+        duplicate_review.set("연도·회차·학과 조건에 맞는 후보 없음")
         return "중복 아님"
     request = duplicate_request(new_title, candidates)
     result = _decision(DUPLICATE_MODEL, request)
+    duplicate_review.set(
+        "GPT 후보 검토: " + " ".join(str(result.get("reason", "")).split())[:120]
+    )
     relation = result.get("relation")
     if relation == "same_event":
         index = result.get("matched_index")

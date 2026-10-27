@@ -159,7 +159,9 @@ class LegacyPresentationTests(unittest.TestCase):
             output = io.StringIO()
             with contextlib.redirect_stdout(output):
                 service.send_message("공지", "https://example.invalid", "시험학과")
-            self.assertIn("전송 확인 199명", output.getvalue())
+            self.assertEqual(
+                "시험학과/Plato 쪽지 전송 완료 (199명)\n", output.getvalue()
+            )
             notify.assert_called_once_with(
                 "시험학과/Plato 쪽지 전송 완료 (199명) -공지",
                 channel="DISCORD_MESSAGE_WEBHOOK_URL",
@@ -179,7 +181,7 @@ class LegacyPresentationTests(unittest.TestCase):
                 service.send_email(
                     "공지", "https://example.invalid", "본문", "시험학과"
                 )
-            self.assertIn("발송 확인 199명", output.getvalue())
+            self.assertEqual("시험학과/이메일 전송 완료 (199명)\n", output.getvalue())
             notify.assert_called_once_with(
                 "시험학과/이메일 전송 완료 (199명) -공지",
                 channel="DISCORD_EMAIL_WEBHOOK_URL",
@@ -187,6 +189,32 @@ class LegacyPresentationTests(unittest.TestCase):
             self.assertEqual(
                 client.send.call_args.args[2:4], ("✔ [시험학과] 공지", "legacy-body")
             )
+
+    def test_unimportant_notice_skips_only_discord_notice_delivery(self):
+        token = config.notice_category.set("해당없음")
+        try:
+            with (
+                patch.dict(
+                    os.environ,
+                    {
+                        "DISCORD_EMAIL_WEBHOOK_URL": "https://example.invalid/hook",
+                        "DISCORD_MESSAGE_WEBHOOK_URL": "https://example.invalid/hook",
+                        "WEBHOOK_URL": "https://example.invalid/hook",
+                    },
+                ),
+                patch.object(config.requests, "post") as post,
+            ):
+                self.assertFalse(
+                    config.notify("완료", channel="DISCORD_EMAIL_WEBHOOK_URL")
+                )
+                self.assertFalse(
+                    config.notify("완료", channel="DISCORD_MESSAGE_WEBHOOK_URL")
+                )
+                post.assert_not_called()
+                self.assertTrue(config.notify("운영 경고"))
+                post.assert_called_once()
+        finally:
+            config.notice_category.reset(token)
 
     def test_console_and_log_receive_child_output_before_the_cycle_ends(self):
         with tempfile.TemporaryDirectory() as temp:

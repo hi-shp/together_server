@@ -131,6 +131,20 @@ class DiagnosticsTests(unittest.TestCase):
             self.assertNotIn("recipients", row)
             events.clear_notice()
 
+    def test_dollar_in_saved_title_preserves_recent_history(self):
+        from together.notices.history import recent_title
+        from datetime import datetime
+        import os
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "titles.txt"
+            path.write_text(datetime.now().strftime("%Y-%m-%d %H:%M:%S") + "$장학금 $100 지원\n", encoding="utf-8")
+            previous = os.getcwd()
+            try:
+                os.chdir(temp)
+                self.assertEqual(recent_title(), ["장학금 $100 지원"])
+            finally:
+                os.chdir(previous)
+
     def test_storage_failure_does_not_interrupt_processing(self):
         with (
             patch.object(events, "_save", side_effect=OSError),

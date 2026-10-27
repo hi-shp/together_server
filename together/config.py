@@ -1,6 +1,7 @@
 """환경설정과 Discord 알림."""
 
 import os
+from contextvars import ContextVar
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -10,10 +11,16 @@ BASE_DIR = Path(__file__).resolve().parents[1]
 load_dotenv(BASE_DIR / ".env", override=False)
 HTTP_TIMEOUT = (5, 30)
 _warned = set()
+notice_category = ContextVar("discord_notice_category", default=None)
 
 
 def notify(content=None, *, channel="WEBHOOK_URL", log_path=None, error_prefix=None):
     """Discord 알림을 보낸다. 중복 전송을 막기 위해 실패 시 재시도하지 않는다."""
+    if (
+        channel in ("DISCORD_MESSAGE_WEBHOOK_URL", "DISCORD_EMAIL_WEBHOOK_URL")
+        and notice_category.get() == "해당없음"
+    ):
+        return False
     url = os.getenv(channel, "").strip()
     if not url:
         if channel not in _warned:

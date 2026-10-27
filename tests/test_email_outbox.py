@@ -91,7 +91,7 @@ class EmailOutboxTests(unittest.TestCase):
                 )
             self.assertEqual(result["state"], "pending")
             transport.send.assert_not_called()
-            self.assertIn("발송 요청 등록 1명", output.getvalue())
+            self.assertEqual("시험학과/이메일 전송 완료 (1명)\n", output.getvalue())
             notify.assert_called_once_with(
                 "시험학과/이메일 전송 완료 (1명) -공지",
                 channel="DISCORD_EMAIL_WEBHOOK_URL",

@@ -2,7 +2,7 @@ import time
 
 _MODULE_LOAD_STARTED = time.monotonic()
 
-from together.config import notify
+from together.config import notify, notice_category
 from together.config import BASE_DIR
 import fcntl
 import signal
@@ -23,6 +23,8 @@ import re
 import gc
 import os
 import requests
+import csv
+from functools import lru_cache
 from datetime import datetime
 from together.crawler.university import NoticeUpdater
 from together.crawler.university_state import UniversityCheckpoint
@@ -66,6 +68,20 @@ def categorize_by_keywords(title, content_text):
     return None
 
 
+@lru_cache(maxsize=1)
+def _saved_categories(path, modified):
+    with open(path, encoding="utf-8-sig", newline="") as handle:
+        return {row[0]: row[1] for row in csv.reader(handle) if len(row) >= 2}
+
+
+def saved_category(title):
+    path = BASE_DIR / "sorted_labeled_data.csv"
+    try:
+        return _saved_categories(str(path), path.stat().st_mtime_ns).get(title)
+    except OSError:
+        return None
+
+
 def categorize_announcement(title, content_text):
     started = time.monotonic()
     hint = {"category": None, "method": "needs_context"}
@@ -95,9 +111,19 @@ def categorize_announcement(title, content_text):
         method = "gpt_context_review"
     observe_category(title, category, method)
     prediction = hint.get("prediction") or {}
+    explanation = (
+        "GPT 본문 검토"
+        if method == "gpt_context_review"
+        else hint.get("reason") or "제목 규칙·로컬 모델 대조"
+    )
+    if method == "gpt_context_review":
+        reason = review_for(truncated_content).get("reason")
+        if reason:
+            explanation += ": " + " ".join(reason.split())[:120]
     event(
         "분류",
-        f"{category} · {'GPT 본문 검토' if method == 'gpt_context_review' else '로컬 판단'}",
+        f"카테고리 분류 결과: {category} ({explanation})",
+        plain=True,
         category=category,
         method=method,
         score=prediction.get("score"),
@@ -199,11 +225,15 @@ def run_cycle(writenoticeService):
             source_url=announcement_page.page_url,
             board_index=n,
             board_count=len(page_url_manager.announcement_pages),
+            console=False,
         )
         ann_urls, latest_announcement_number = get_anns_url(announcement_page, n)
         department = announcement_page.department
         n += 1
         for url in ann_urls:
+            print("", flush=True)
+            notice_category.set(None)
+            category = None
             set_notice(url, department)
             notice_started = time.monotonic()
             gc.collect()
@@ -229,7 +259,13 @@ def run_cycle(writenoticeService):
                 raise RuntimeError(f"공지 추출 실패; 공지 번호 유지: {url}")
 
             set_notice(url, department, partial_ann.title)
-            event("공지", partial_ann.title, source_url=url, title=partial_ann.title)
+            event(
+                "공지",
+                partial_ann.title,
+                source_url=url,
+                title=partial_ann.title,
+                console=False,
+            )
 
             validation = os.getenv("POST_VALIDATION_MODE", "off") == "enabled"
             if validation:
@@ -261,6 +297,12 @@ def run_cycle(writenoticeService):
                         if enrichment_target["board"] in CATEGORIES
                         else "해당없음"
                     )
+                    event(
+                        "분류",
+                        f"카테고리 분류 결과: {category} (기존 게시글 분류)",
+                        category=category,
+                        plain=True,
+                    )
                 else:
                     category = categorize_announcement(
                         partial_ann.title, partial_ann.content_text
@@ -274,7 +316,7 @@ def run_cycle(writenoticeService):
                         quarantine(partial_ann, result, BASE_DIR)
                         continue
                 message = f"{partial_ann.title}\n＞ {category}"
-                if not enrichment_target:
+                if not enrichment_target and category != "해당없음":
                     notify(message)
                 full_ann = fetch_complete_notice(url, category)
                 if validation:
@@ -308,10 +350,15 @@ def run_cycle(writenoticeService):
                             if category in CATEGORIES and category != "해당없음"
                             else "기타 공지사항"
                         )
-                        notify(f"{partial_ann.title}\n＞ {category}")
+                        if category != "해당없음":
+                            notify(f"{partial_ann.title}\n＞ {category}")
                         should_publish = True
                 if should_publish:
-                    event("게시", f"{full_ann.notice_board_name} 게시판에 저장 요청")
+                    event(
+                        "게시",
+                        f"{full_ann.notice_board_name} 게시판에 저장 요청",
+                        console=False,
+                    )
                     receipts = writenoticeService.write_notices(
                         course_url, [full_ann], department
                     )
@@ -331,7 +378,8 @@ def run_cycle(writenoticeService):
                     )
                     event(
                         "게시",
-                        "기존 게시 이력 재사용" if reused else "저장 결과 확인 완료",
+                        "게시글 작성 완료",
+                        plain=True,
                         outcome="reused" if reused else "verified",
                         attachment_count=len(full_ann.files),
                     )
@@ -341,7 +389,7 @@ def run_cycle(writenoticeService):
             recent_titles = recent_title()
             if "CMS/Board/PopupBoard" in url:
                 if "도서관 운영 일정 및 열람실별 이용 안내" in partial_ann.title:
-                    event("알림", "도서관 운영 안내 · 알림 제외", outcome="excluded")
+                    event("알림", "쪽지/이메일 패스", outcome="excluded", plain=True)
                     continue
 
                 previous_receipt = known_receipt(BASE_DIR, partial_ann.url)
@@ -349,14 +397,13 @@ def run_cycle(writenoticeService):
                     not previous_receipt
                     or previous_receipt.get("notifications_registered")
                 ):
-                    event(
-                        "알림", "이미 처리한 제목 · 알림 생략", outcome="deduplicated"
-                    )
+                    event("알림", "중복 패스", outcome="deduplicated", plain=True)
                     continue
 
             if partial_ann.title not in recent_titles:
                 save_only_title(partial_ann.title)
 
+            notice_category.set(category or saved_category(partial_ann.title))
             writenoticeService.move_to_course(course_url)
             writenoticeService.send_message(
                 partial_ann.title, partial_ann.url, department
@@ -373,6 +420,7 @@ def run_cycle(writenoticeService):
                 f"처리 완료 ({time.monotonic()-notice_started:.1f}초)",
                 elapsed_seconds=round(time.monotonic() - notice_started, 3),
                 outcome="completed",
+                console=False,
             )
 
         # 해당 게시판 처리가 끝난 뒤 마지막 공지 번호를 저장한다.
@@ -385,7 +433,7 @@ def run_cycle(writenoticeService):
     now = datetime.now()
     clear_notice()
     if 6 <= now.hour < 9:
-        event("정리", "기존 글의 별 표시 정리 시작")
+        event("정리", "\n공지글 수정 작업을 시작합니다.", plain=True)
         writenoticeService.remove_stars(course_url, today_date)
 
     DOWNLOADS_DIR = os.path.join(os.path.expanduser("~"), "Downloads")

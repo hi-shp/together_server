@@ -9,7 +9,7 @@ import heapq
 from collections import defaultdict, deque
 from together.notices.intelligence.text import occurrence_conflict
 from together.notices.intelligence.events import Notice, compare_notices
-from together.operations.events import event
+from together.operations.events import event, duplicate_review
 
 _TITLE_TIMESTAMP = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}")
 
@@ -77,7 +77,7 @@ def recent_title():
         with open(filename, "r", encoding="utf-8") as file:
             lines = file.readlines()
             for line in lines:
-                saved_datetime, saved_title = line.strip().split("$")
+                saved_datetime, saved_title = line.strip().split("$", 1)
                 saved_date = _parse_title_timestamp(saved_datetime)
                 if saved_date > datetime.now() - timedelta(days=10):
                     recent_titles.append((saved_date, saved_title))
@@ -87,12 +87,13 @@ def recent_title():
 
 
 def is_recent_title_duplicate(new_title, filename="titles.txt", *, identity_title=None):
+    duplicate_review.set("")
     recent_titles = []
     if os.path.exists(filename):
         with open(filename, "r", encoding="utf-8") as file:
             lines = file.readlines()
             for line in lines:
-                saved_datetime, saved_title = line.strip().split("$")
+                saved_datetime, saved_title = line.strip().split("$", 1)
                 saved_date = _parse_title_timestamp(saved_datetime)
                 if saved_date > datetime.now() - timedelta(days=10):
                     recent_titles.append((saved_date, saved_title))
@@ -117,14 +118,13 @@ def is_recent_title_duplicate(new_title, filename="titles.txt", *, identity_titl
     candidate_labels = [title for _, title in title_similarities[:3]]
 
     def decision(result, method, similarity=None):
+        method = duplicate_review.get() or method
         event(
             "중복",
-            f"{result} · {method}"
-            + (
-                f" · 제목 문자열 유사도 {similarity:.3f}"
-                if similarity is not None
-                else ""
-            ),
+            f"중복 체크 결과: {result} ({method}"
+            + (f", 유사도 {similarity:.5f}" if similarity is not None else "")
+            + f") - {new_title}",
+            plain=True,
             result=result,
             method=method,
             similarity=similarity,

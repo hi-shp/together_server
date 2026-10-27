@@ -29,7 +29,7 @@ from together.plato.notifications import (
     NotificationOutcomeUnknown,
     response_is_success,
 )
-from tools.health_check import evaluate
+from tools.health_check import evaluate, delivery_metrics
 
 
 def form(kind="message", uid="42", name="김학생", identity="202600001", course=COURSE):
@@ -569,6 +569,64 @@ class HealthTests(unittest.TestCase):
                 for i in evaluate(self.metrics(unknown_delivery_recipients=100))[0]
             ],
         )
+
+    def test_delivery_metrics_allow_normal_six_minute_email_requests(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            runtime = root / ".runtime"
+            runtime.mkdir()
+            with sqlite3.connect(runtime / "notification-deliveries.sqlite3") as db:
+                db.execute(
+                    "CREATE TABLE deliveries (state TEXT, recipients INTEGER, updated REAL)"
+                )
+                db.executemany(
+                    "INSERT INTO deliveries VALUES (?,?,?)",
+                    [("sent", 68, 9600), ("sending", 68, 9400)],
+                )
+            with sqlite3.connect(runtime / "email-outbox.sqlite3") as db:
+                db.execute(
+                    "CREATE TABLE jobs (state TEXT, recipients INTEGER, created REAL, updated REAL)"
+                )
+                db.executemany(
+                    "INSERT INTO jobs VALUES (?,?,?,?)",
+                    [
+                        ("pending", 68, 2000, 2000),
+                        ("sending", 68, 3000, 9400),
+                        ("sent", 68, 4000, 9600),
+                    ],
+                )
+            metrics = delivery_metrics(root, now=10000)
+            self.assertEqual(metrics["unknown_delivery_recipients"], 0)
+            self.assertEqual(metrics["email_queue_oldest_seconds"], 8000)
+            self.assertEqual(metrics["email_queue_idle_seconds"], 400)
+            self.assertEqual(
+                delivery_metrics(root, now=10400)["unknown_delivery_recipients"], 68
+            )
+
+    def test_healthy_email_backlog_is_not_a_stall(self):
+        self.assertEqual(
+            evaluate(
+                self.metrics(
+                    email_queue_pending=80,
+                    email_queue_oldest_seconds=7200,
+                    email_queue_idle_seconds=350,
+                    email_worker="active",
+                )
+            )[0],
+            [],
+        )
+        codes = [
+            row["code"]
+            for row in evaluate(
+                self.metrics(
+                    email_queue_pending=80,
+                    email_queue_oldest_seconds=7200,
+                    email_queue_idle_seconds=1900,
+                    email_worker="active",
+                )
+            )[0]
+        ]
+        self.assertIn("email_queue_stalled", codes)
 
     def test_night_pause_and_unverified_forecast_do_not_raise_false_alarms(self):
         metrics = self.metrics(

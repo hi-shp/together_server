@@ -158,15 +158,20 @@ def get_anns_url(announcementPage, n):
             "수집",
             f"{n}. {announcementPage.department} {max_announcement_number}",
             level="INFO",
+            plain=True,
         )
 
         if difference > 0:
-            event("수집", f"목록 번호 변화 +{difference}", level="INFO")
+            event(
+                "수집",
+                f"💡{difference}개의 New Announcment!: {announcementPage.page_url}",
+                plain=True,
+            )
         else:
             event(
                 "수집",
                 f"새로 추가된 공지사항 없음: {announcementPage.page_url}",
-                level="DEBUG",
+                plain=True,
             )
 
         idx = 0
@@ -348,6 +353,7 @@ def get_anns_url(announcementPage, n):
             f"처리 대상 {len(urls)}건 (미완료 이력 포함)",
             count=len(urls),
             source_url=announcementPage.page_url,
+            console=False,
         )
         return urls[::-1], max_announcement_number
     else:

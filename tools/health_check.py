@@ -74,8 +74,14 @@ def evaluate(metrics, previous=None):
         )
     if metrics.get("email_queue_blocked", 0) >= 10:
         add("email_delivery_blocked", "완료 여부를 확인할 이메일 발송 요청이 있습니다.")
-    if metrics.get("email_queue_oldest_seconds", 0) > 1800:
-        add("email_queue_stalled", "이메일 발송 대기가 30분 이상 이어지고 있습니다.")
+    if (
+        metrics.get("email_queue_pending", 0)
+        and metrics.get(
+            "email_queue_idle_seconds", metrics.get("email_queue_oldest_seconds", 0)
+        )
+        > 1800
+    ):
+        add("email_queue_stalled", "이메일 발송 진행이 30분 이상 확인되지 않습니다.")
     if (
         metrics.get("email_queue_pending", 0)
         and metrics.get("email_worker") != "active"
@@ -161,6 +167,43 @@ def budget_status(base_dir, api):
     }
 
 
+def delivery_metrics(base_dir, now=None):
+    now = time.time() if now is None else now
+    unknown = 0
+    ledger = base_dir / ".runtime/notification-deliveries.sqlite3"
+    if ledger.exists():
+        with sqlite3.connect(ledger) as db:
+            unknown = db.execute(
+                "SELECT COALESCE(SUM(recipients),0) FROM deliveries WHERE (state='unknown' AND updated<?) OR (state='sending' AND updated<?)",
+                (now - 300, now - 900),
+            ).fetchone()[0]
+    queue_pending = queue_blocked = 0
+    queue_oldest = queue_idle = 0
+    outbox = base_dir / ".runtime/email-outbox.sqlite3"
+    if outbox.exists():
+        with sqlite3.connect(outbox) as db:
+            queue_pending, oldest = db.execute(
+                "SELECT COUNT(*),MIN(created) FROM jobs WHERE state!='sent'"
+            ).fetchone()
+            queue_blocked = db.execute(
+                "SELECT COALESCE(SUM(recipients),0) FROM jobs WHERE state IN ('blocked','unknown') AND created<?",
+                (now - 120,),
+            ).fetchone()[0]
+            queue_oldest = now - oldest if oldest else 0
+            progress = db.execute(
+                "SELECT MAX(updated) FROM jobs WHERE state IN ('sent','sending')"
+            ).fetchone()[0]
+            if oldest:
+                queue_idle = max(0, now - max(oldest, progress or oldest))
+    return {
+        "unknown_delivery_recipients": unknown,
+        "email_queue_pending": queue_pending,
+        "email_queue_blocked": queue_blocked,
+        "email_queue_oldest_seconds": queue_oldest,
+        "email_queue_idle_seconds": queue_idle,
+    }
+
+
 def collect(base_dir):
     base_dir = Path(base_dir)
     service = subprocess.run(
@@ -186,14 +229,6 @@ def collect(base_dir):
     memory = psutil.virtual_memory()
     free = shutil.disk_usage(base_dir).free
     api = ApiAccounting(base_dir).summary()
-    unknown = 0
-    ledger = base_dir / ".runtime/notification-deliveries.sqlite3"
-    if ledger.exists():
-        with sqlite3.connect(ledger) as db:
-            unknown = db.execute(
-                "SELECT COALESCE(SUM(recipients),0) FROM deliveries WHERE state IN ('sending','unknown') AND updated<?",
-                (time.time() - 300,),
-            ).fetchone()[0]
     quarantined = sum(
         path.stat().st_mtime > time.time() - 3600
         for path in (base_dir / ".runtime/quarantine").glob("*.json")
@@ -215,19 +250,6 @@ def collect(base_dir):
             and len(row["missing_hashes"]) / max(1, row["requested"]) >= 0.25
         ):
             mismatch = True
-    queue_pending = queue_blocked = 0
-    queue_oldest = 0
-    outbox = base_dir / ".runtime/email-outbox.sqlite3"
-    if outbox.exists():
-        with sqlite3.connect(outbox) as db:
-            queue_pending, oldest = db.execute(
-                "SELECT COUNT(*),MIN(created) FROM jobs WHERE state!='sent'"
-            ).fetchone()
-            queue_blocked = db.execute(
-                "SELECT COALESCE(SUM(recipients),0) FROM jobs WHERE state IN ('blocked','unknown') AND created<?",
-                (time.time() - 120,),
-            ).fetchone()[0]
-            queue_oldest = time.time() - oldest if oldest else 0
     worker = subprocess.run(
         ["systemctl", "is-active", "together-email.service"],
         capture_output=True,
@@ -237,9 +259,7 @@ def collect(base_dir):
         "checked_at": datetime.now(timezone.utc).isoformat(),
         "service": service,
         "crawler_running": running,
-        "email_queue_pending": queue_pending,
-        "email_queue_blocked": queue_blocked,
-        "email_queue_oldest_seconds": queue_oldest,
+        **delivery_metrics(base_dir),
         "email_worker": worker,
         "expected_running": os.getenv("OPERATIONS_EXPECT_CRAWLER", "0") == "1"
         or runner.get("expected_running", False),
@@ -249,7 +269,6 @@ def collect(base_dir):
         "attachment_cache": AttachmentCache(base_dir).maintain(),
         "api": api,
         "budget": budget_status(base_dir, api),
-        "unknown_delivery_recipients": unknown,
         "recent_quarantined": quarantined,
         "unverified_publications": unverified,
         "recipient_directory_mismatch": mismatch,
@@ -287,6 +306,7 @@ def main():
             "email_queue_pending",
             "email_queue_blocked",
             "email_queue_oldest_seconds",
+            "email_queue_idle_seconds",
             "email_worker",
         )
     }

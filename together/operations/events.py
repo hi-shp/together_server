@@ -141,7 +141,7 @@ def _save(record):
             handle.write(line)
 
 
-def event(stage, message, *, level="INFO", **fields):
+def event(stage, message, *, level="INFO", console=True, plain=False, **fields):
     global _warned
     now = datetime.now().astimezone()
     record = {
@@ -156,10 +156,16 @@ def event(stage, message, *, level="INFO", **fields):
     record.update(
         {key: _value(key, value) for key, value in fields.items() if key in FIELDS}
     )
-    if level != "DEBUG" or os.getenv("CRAWLER_LOG_LEVEL", "INFO") == "DEBUG":
+    if console and (
+        level != "DEBUG" or os.getenv("CRAWLER_LOG_LEVEL", "INFO") == "DEBUG"
+    ):
         identity = record.get("notice_id") or record.get("cycle_id") or "운영"
         print(
-            f"{now:%H:%M:%S} {level:5} [{identity}] {stage} | {record['message']}",
+            (
+                record["message"]
+                if plain
+                else f"{now:%H:%M:%S} {level:5} [{identity}] {stage} | {record['message']}"
+            ),
             flush=True,
         )
     try:
@@ -171,3 +177,6 @@ def event(stage, message, *, level="INFO", **fields):
                 flush=True,
             )
             _warned = True
+
+
+duplicate_review = ContextVar("duplicate_review", default="")
