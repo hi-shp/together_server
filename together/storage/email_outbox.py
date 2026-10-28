@@ -61,13 +61,18 @@ class EmailOutbox:
                 (time.time(),),
             )
 
-    def claim(self):
+    def claim(self, ordered=False):
         with self.connection() as db:
             db.execute("BEGIN IMMEDIATE")
-            row = db.execute(
-                "SELECT * FROM jobs WHERE state IN ('pending','unknown') AND ready<=? ORDER BY created LIMIT 1",
-                (time.time(),),
-            ).fetchone()
+            if ordered:
+                row = db.execute("SELECT * FROM jobs WHERE state!='sent' ORDER BY created,rowid LIMIT 1").fetchone()
+                if row is None or row["state"] not in ("pending", "unknown") or row["ready"] > time.time():
+                    return None
+            else:
+                row = db.execute(
+                    "SELECT * FROM jobs WHERE state IN ('pending','unknown') AND ready<=? ORDER BY created,rowid LIMIT 1",
+                    (time.time(),),
+                ).fetchone()
             if row is None:
                 return None
             db.execute(

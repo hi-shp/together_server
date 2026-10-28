@@ -85,7 +85,7 @@ class ContinuousVerification(unittest.TestCase):
             ):
                 with self.assertRaises(StopFixture):
                     supervisor.run_main()
-            self.assertEqual(run.call_args.kwargs["idle_seconds"], 0)
+            self.assertEqual(run.call_args.kwargs.get("idle_seconds", 0), 0)
 
     def test_original_night_pause_remains_after_verification(self):
         with tempfile.TemporaryDirectory() as temp:

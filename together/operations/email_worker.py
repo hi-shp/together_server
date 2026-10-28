@@ -84,7 +84,7 @@ def main():
     parser.add_argument(
         "--concurrency",
         type=int,
-        default=int(os.getenv("PLATO_EMAIL_CONCURRENCY", "0")),
+        default=int(os.getenv("PLATO_EMAIL_CONCURRENCY", "1")),
     )
     args = parser.parse_args()
     if args.concurrency < 0:
@@ -184,7 +184,7 @@ def main():
                             raise
                         stop.wait(10)
                         continue
-                job = outbox.claim()
+                job = outbox.claim(ordered=args.concurrency == 1)
                 if job is None:
                     if args.once:
                         return

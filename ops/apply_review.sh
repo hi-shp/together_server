@@ -49,6 +49,7 @@ sha256sum pages.csv sorted_labeled_data.csv titles.txt yesterday.txt > "$backup_
 git switch main
 git merge --ff-only "$revision"
 sha256sum --check "$backup_dir/state.sha256"
+python3 ops/restore_boards.py
 python3 ops/configure_webhooks.py --from-ref "$(cat "$backup_dir/previous-commit.txt")"
 sudo install -d -m 755 /etc/systemd/journald.conf.d
 sudo install -m 644 ops/90-together-limits.conf /etc/systemd/journald.conf.d/90-together-limits.conf

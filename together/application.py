@@ -27,7 +27,6 @@ import csv
 from functools import lru_cache
 from datetime import datetime
 from together.crawler.university import NoticeUpdater
-from together.crawler.university_state import UniversityCheckpoint
 from together.notices.intelligence.publication import known_receipt, remember_receipt
 from together.notices.intelligence.routing import category_hint, configured_classifier
 from together.notices.intelligence.shadow import (
@@ -165,7 +164,7 @@ def fetch_complete_notice(url, category):
     raise RuntimeError(f"공지 본문 추출 실패; 공지 번호 유지: {url}")
 
 
-def run_cycle(writenoticeService):
+def prepare_cycle():
     start_cycle()
     event("사이클", "공지 확인 시작")
     gc.collect()
@@ -181,6 +180,11 @@ def run_cycle(writenoticeService):
             os.remove(file_path)
     page_url_manager = PageUrlManager()
 
+    return today_date, updater, page_url_manager
+
+
+def run_cycle(writenoticeService, prepared=None):
+    today_date, updater, page_url_manager = prepared or prepare_cycle()
     updates = {}
     course_url = "https://dev-plato.pusan.ac.kr/course/view.php?id=157301"
 
@@ -399,11 +403,7 @@ def run_cycle(writenoticeService):
                     event("알림", "쪽지/이메일 패스", outcome="excluded", plain=True)
                     continue
 
-                previous_receipt = known_receipt(BASE_DIR, partial_ann.url)
-                if partial_ann.title in recent_titles and (
-                    not previous_receipt
-                    or previous_receipt.get("notifications_registered")
-                ):
+                if partial_ann.title in recent_titles:
                     event("알림", "중복 패스", outcome="deduplicated", plain=True)
                     continue
 
@@ -474,10 +474,10 @@ def main():
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
             raise SystemExit("A crawler cycle is already running")
+        prepared = prepare_cycle()
         service = WriteNoticeService()
         try:
-            with UniversityCheckpoint(BASE_DIR):
-                run_cycle(service)
+            run_cycle(service, prepared)
         except Exception as exc:
             event(
                 "사이클",

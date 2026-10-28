@@ -19,8 +19,6 @@ from together.plato.browser_runtime import scratch_root
 from together.operations.state import update_state, read_state
 from together.operations.events import event
 
-MAX_LOG_BYTES = 8 * 1024 * 1024
-MAX_TOTAL_LOG_BYTES = 128 * 1024 * 1024
 LOG_NAME = re.compile(r"log_\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}\.txt")
 
 
@@ -35,13 +33,10 @@ def cleanup_old_logs(log_dir):
         key=lambda p: p.stat().st_mtime,
         reverse=True,
     )
-    total = 0
     for path in files:
         info = path.stat()
-        if info.st_mtime < cutoff or total + info.st_size > MAX_TOTAL_LOG_BYTES:
+        if info.st_mtime < cutoff:
             path.unlink()
-        else:
-            total += info.st_size
 
 
 def stop_process_group(process):
@@ -65,7 +60,7 @@ def stop_process_group(process):
     process.wait(timeout=10)
 
 
-def run_cycle(log_path, max_seconds=0, idle_seconds=1200):
+def run_cycle(log_path, max_seconds=0, idle_seconds=0):
     runtime = scratch_root()
     workspace = Path(tempfile.mkdtemp(prefix="run-", dir=runtime))
     env = os.environ.copy()
@@ -84,7 +79,6 @@ def run_cycle(log_path, max_seconds=0, idle_seconds=1200):
         )
         started = time.monotonic()
         last_output = started
-        written = 0
         with (
             open(log_path, "wb", buffering=0) as logfile,
             selectors.DefaultSelector() as selector,
@@ -109,10 +103,7 @@ def run_cycle(log_path, max_seconds=0, idle_seconds=1200):
                         sys.stdout.buffer.flush()
                     except BrokenPipeError:
                         pass
-                    available = MAX_LOG_BYTES - written
-                    if available > 0:
-                        logfile.write(chunk[:available])
-                        written += min(available, len(chunk))
+                    logfile.write(chunk)
             return process.wait(timeout=10)
     finally:
         if process is not None:
@@ -170,7 +161,7 @@ def run_main():
                 next_wake=0,
                 boards={"checked": 0, "failed": 0},
             )
-            code = run_cycle(log_path, idle_seconds=0 if continuous else 1200)
+            code = run_cycle(log_path)
             cleanup_old_logs(log_dir)
             failures = min(failures + 1, 5) if code else 0
             fields = {

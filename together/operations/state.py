@@ -9,7 +9,10 @@ _boards = {"checked": 0, "failed": 0}
 
 def record_board_result(ok):
     _boards["checked"] += 1
-    _boards["failed"] += int(not ok)
+    if ok is None:
+        _boards["unavailable"] = _boards.get("unavailable", 0) + 1
+    else:
+        _boards["failed"] += int(not ok)
 
 
 def board_summary():

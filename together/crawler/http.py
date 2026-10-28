@@ -12,7 +12,7 @@ _session = requests.Session()
 atexit.register(_session.close)
 _next_request = {}
 _lock = threading.Lock()
-INTERVAL = 2.0
+INTERVAL = 0.0
 
 
 @lru_cache(maxsize=256)

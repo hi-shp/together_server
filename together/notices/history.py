@@ -7,7 +7,7 @@ from difflib import SequenceMatcher
 import csv
 import heapq
 from collections import defaultdict, deque
-from together.notices.intelligence.text import occurrence_conflict
+from together.notices.intelligence.text import occurrence_conflict, normalize_title
 from together.notices.intelligence.events import Notice, compare_notices
 from together.config import BASE_DIR
 from together.notices.intelligence.context import duplicate_context
@@ -149,15 +149,18 @@ def is_recent_title_duplicate(
 
     def decision(result, method, similarity=None):
         method = duplicate_review.get() or method
+        raw_similarity = max((calculate_similarity(normalize_title(new_title), normalize_title(value)) for value in candidate_labels), default=0.0) if candidate_labels else None
+        shown_similarity = similarity if mode == "legacy" else raw_similarity
         event(
             "중복",
             f"중복 체크 결과: {result} ({method}"
-            + (f", 제목 유사도 {similarity:.5f}" if similarity is not None else "")
+            + (f", 제목 유사도 {shown_similarity:.5f}" if shown_similarity is not None else "")
             + ")",
             plain=True,
             result=result,
             method=method,
-            similarity=similarity,
+            similarity=shown_similarity,
+            normalized_similarity=similarity,
             candidates=candidate_labels,
             reason=duplicate_review_reason.get(),
         )

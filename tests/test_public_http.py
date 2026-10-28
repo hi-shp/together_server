@@ -6,7 +6,7 @@ from together.crawler import http
 
 
 class PublicHttpTests(unittest.TestCase):
-    def test_different_departments_on_one_server_share_an_interval(self):
+    def test_connections_are_reused_without_a_new_fixed_delay(self):
         session = MagicMock()
         with (
             patch.object(http, "_session", session),
@@ -17,7 +17,7 @@ class PublicHttpTests(unittest.TestCase):
         ):
             http.get("https://eec.pusan.ac.kr/first", timeout=(5, 30))
             http.get("https://semi.pusan.ac.kr/second", timeout=(5, 30))
-            sleep.assert_called_once_with(2)
+            sleep.assert_not_called()
             self.assertEqual(session.get.call_count, 2)
             self.assertEqual(session.get.call_args.kwargs["timeout"], (5, 30))
 

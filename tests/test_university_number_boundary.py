@@ -60,12 +60,13 @@ class UniversityNumberBoundary(unittest.TestCase):
                 )
             )
             anchor = '<tr><td class="num">210</td><td class="subject"><a href="?board_seq=700">최신 일반 기준</a></td></tr>'
+            (root / "titles.txt").write_text("2026-10-28 08:00:00$같은 행사\n", encoding="utf-8")
             pinned, _ = self.collect(root, row('<img alt="공지">') + anchor, page=1)
-            ordinary, _ = self.collect(root, row("211"), page=2)
+            ordinary, _ = self.collect(root, row("211"), number=211, page=2)
             self.assertEqual(pinned, [])
             self.assertEqual(ordinary, [])
 
-    def test_only_a_recorded_unfinished_notice_can_resume_below_the_number(self):
+    def test_receipt_cannot_bypass_the_original_saved_number(self):
         with tempfile.TemporaryDirectory() as temp:
             root = self.root(temp)
             folder = root / ".runtime"
@@ -76,4 +77,4 @@ class UniversityNumberBoundary(unittest.TestCase):
             )
             body = '<tr><td class="num">209</td><td class="subject"><a href="?board_seq=777">이미 게시한 미완료 글</a></td></tr>'
             urls, _ = self.collect(root, body)
-            self.assertEqual(urls, [canonical])
+            self.assertEqual(urls, [])

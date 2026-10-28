@@ -227,6 +227,7 @@ class BrowserSafety(unittest.TestCase):
         with (
             tempfile.TemporaryDirectory() as temp,
             patch.object(main, "BASE_DIR", Path(temp)),
+            patch.object(main, "prepare_cycle", return_value=("2026-10-28", None, None)),
             patch.object(main, "WriteNoticeService") as service,
             patch.object(main, "run_cycle", side_effect=RuntimeError),
         ):
@@ -286,7 +287,7 @@ class SupervisorSafety(unittest.TestCase):
             self.assertFalse(old.exists())
             self.assertTrue(foreign.exists())
 
-    def test_supervisor_timeout_caps_logs_and_cleans_own_descendants(self):
+    def test_explicit_test_timeout_keeps_the_full_log_and_cleans_own_descendants(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             (root / "main.py").write_text(
@@ -304,7 +305,6 @@ class SupervisorSafety(unittest.TestCase):
                 (root / ".runtime").mkdir()
                 with (
                     patch.object(run_main, "BASE_DIR", root),
-                    patch.object(run_main, "MAX_LOG_BYTES", 4096),
                     patch.object(
                         run_main, "scratch_root", return_value=root / ".runtime"
                     ),
@@ -317,7 +317,7 @@ class SupervisorSafety(unittest.TestCase):
                     self.assertEqual(
                         run_main.run_cycle(root / "log.txt", max_seconds=2), 124
                     )
-                self.assertLessEqual((root / "log.txt").stat().st_size, 4200)
+                self.assertGreater((root / "log.txt").stat().st_size, 200000)
                 self.assertEqual(list((root / ".runtime").glob("run-*")), [])
                 self.assertIsNone(unrelated.poll())
                 child_pid = int(

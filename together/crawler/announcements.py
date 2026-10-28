@@ -15,7 +15,6 @@ from together.operations.state import record_board_result
 from together.operations.events import event
 from together.crawler.files import download_attachment, sanitize_filename
 from together.config import BASE_DIR
-from together.crawler.university_state import receipt_for
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -95,22 +94,22 @@ def get_anns_url(announcementPage, n):
             level="WARN",
             error=type(e).__name__,
         )
-        if is_university:
-            raise
         return [], announcementPage.number
 
     soup = BeautifulSoup(response.text, "html.parser")
 
     # 정적 HTML은 한 번만 받아 파싱한다.
     table_element = soup.find("tbody")
+    if table_element is None and any(message in soup.get_text(" ", strip=True) for message in ("메뉴이(가) 존재 하지 않습니다", "사용중지된 싱글 모듈입니다")):
+        record_board_result(None)
+        event("수집", f"{n}. {announcementPage.department} / 학교 사이트에서 운영 중단: {announcementPage.page_url}", plain=True, outcome="source_unavailable", source_url=announcementPage.page_url)
+        return [], announcementPage.number
     record_board_result(table_element is not None)
 
     if table_element:
         rows = table_element.find_all("tr")
     else:
         event("수집", "⚠️ tbody 태그를 찾을 수 없습니다.", level="WARN")
-        if is_university:
-            raise ValueError("University notice table unavailable")
         rows = []
 
     announcement_numbers = []
@@ -224,24 +223,7 @@ def get_anns_url(announcementPage, n):
                                         element = title_tag.find("a")
                                         if element:
                                             url = urljoin(response.url, element["href"])
-                                            receipt = (
-                                                receipt_for(BASE_DIR, url)
-                                                if is_university
-                                                else None
-                                            )
-                                            candidate = (
-                                                (
-                                                    None
-                                                    if receipt.get(
-                                                        "notifications_registered"
-                                                    )
-                                                    else receipt["source_url"]
-                                                )
-                                                if receipt
-                                                else url
-                                            )
-                                            if candidate:
-                                                urls.append(candidate)
+                                            urls.append(url)
 
                             # 원본의 고정 공지 제목 기준과 한 번에 하나씩 확인하는 순서를 유지한다.
                             elif number_tag and number_tag.find("img"):
@@ -254,17 +236,7 @@ def get_anns_url(announcementPage, n):
                                             idx += 1
                                         if idx == 0:
                                             url = urljoin(response.url, element["href"])
-                                            receipt = receipt_for(BASE_DIR, url)
-                                            pending = receipt and not receipt.get(
-                                                "notifications_registered"
-                                            )
-                                            known = title in recent_title() or (
-                                                receipt
-                                                and receipt.get(
-                                                    "notifications_registered"
-                                                )
-                                            )
-                                            if known and not pending:
+                                            if title in recent_title():
                                                 while len(lines) < 2:
                                                     lines.append("\n")
                                                 lines[1] = title + "\n"
@@ -281,11 +253,7 @@ def get_anns_url(announcementPage, n):
                                                     plain=True,
                                                 )
                                             else:
-                                                urls.append(
-                                                    receipt["source_url"]
-                                                    if pending
-                                                    else url
-                                                )
+                                                urls.append(url)
                                                 idx += 1
                                                 if num_idx == 0:
                                                     while len(lines) < 2:
@@ -360,14 +328,6 @@ def get_anns_url(announcementPage, n):
                         if element:
                             url = element["href"]
                             urls.append(urljoin(response.url, url))
-        if is_university:
-            # 번호 기준 밖에서는 이미 게시해 둔 미완료 건만 같은 주소로 이어 처리한다.
-            for row in rows:
-                link = row.select_one("td.subject a[href]")
-                if link:
-                    receipt = receipt_for(BASE_DIR, urljoin(response.url, link["href"]))
-                    if receipt and not receipt.get("notifications_registered"):
-                        urls.append(receipt["source_url"])
         # 상세 링크 추출에 실패하면 공지 번호를 넘기지 않는다.
         urls = list(dict.fromkeys(urls))
         if any(urlparse(url).scheme not in ("http", "https") for url in urls):

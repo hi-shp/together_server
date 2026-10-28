@@ -818,126 +818,26 @@ class WriteNoticeService:
             "취업 정보",
         ]
 
-        for board_name in board_names:
-            self.safe_get(course_url, login_required=True)
-
-            board_link_element = self.driver.find_element(
-                By.XPATH,
-                f'//a[span[contains(@class, "instancename") and contains(text(), "{board_name}")]]',
-            )
-            board_url = board_link_element.get_attribute("href")
-            board_link_element.click()
-
-            event("PLATO", f"\n현재 작업 중인 게시판: {board_name}", level="INFO")
-
-            page = 1
-            while True:
-                current_url = self.update_page_url(board_url, page)
-                self.driver.get(current_url)
-
-                try:
-                    WebDriverWait(self.driver, 10).until(
-                        EC.presence_of_element_located((By.CSS_SELECTOR, "tbody tr"))
-                    )
-
-                    rows = self.driver.find_elements(By.CSS_SELECTOR, "tbody tr")
-                    found_star = False
-                    found_older_post = False
-
-                    # 수정한 공지를 다시 읽지 않도록 마지막 확인 위치를 저장한다.
-                    last_checked_index = len(rows) - 1
-
-                    while last_checked_index > -1:
-                        try:
-                            row = rows[last_checked_index]
-
-                            try:
-                                title_element = row.find_element(
-                                    By.CSS_SELECTOR, "td:nth-child(3) a"
-                                )
-                                notice_url = title_element.get_attribute("href")
-                                date_selector = "td:nth-child(5)"
-                            except Exception:
-                                title_element = row.find_element(
-                                    By.CSS_SELECTOR, "td:nth-child(4) a"
-                                )
-                                notice_url = title_element.get_attribute("href")
-                                date_selector = "td:nth-child(6)"
-
-                            title_text = title_element.text.strip()
-                            date_element = row.find_element(
-                                By.CSS_SELECTOR, date_selector
-                            )
-                            date_text = date_element.text.strip()
-
-                            if date_text == today_date:
-                                last_checked_index -= 1
-                                continue
-
-                            found_older_post = True
-
-                            if title_text.startswith("⭐"):
-                                new_title = title_text[1:].strip()
-                                found_star = True
-
-                                self.driver.get(notice_url)
-                                WebDriverWait(self.driver, 10).until(
-                                    EC.presence_of_element_located(
-                                        (By.XPATH, "//a[contains(@class, 'modify')]")
-                                    )
-                                )
-
-                                modify_button = self.driver.find_element(
-                                    By.XPATH, "//a[contains(@class, 'modify')]"
-                                )
-                                modify_link = modify_button.get_attribute("href")
-                                modify_link = modify_link.replace("&amp;", "&")
-
-                                self.driver.get(modify_link)
-                                WebDriverWait(self.driver, 10).until(
-                                    EC.presence_of_element_located((By.NAME, "subject"))
-                                )
-
-                                self.update_title(new_title)
-                                event("PLATO", f"수정 완료: {new_title}", level="INFO")
-
-                                self.driver.get(current_url)
-                                WebDriverWait(self.driver, 10).until(
-                                    EC.presence_of_element_located(
-                                        (By.CSS_SELECTOR, "tbody tr")
-                                    )
-                                )
-
-                                # 목록을 다시 읽은 뒤 다음 위치부터 확인한다.
-                                rows = self.driver.find_elements(
-                                    By.CSS_SELECTOR, "tbody tr"
-                                )
-                                last_checked_index -= 1
-                                continue
-
-                        except Exception as e:
-                            event(
-                                "PLATO", f"오류 발생: {type(e).__name__}", level="WARN"
-                            )
-
-                        last_checked_index -= 1
-
-                    if found_older_post and not found_star:
-                        if board_name == "취업 정보":
-                            event("PLATO", "모든 게시판 수정 완료", level="INFO")
-                        else:
-                            event(
-                                "PLATO",
-                                f"{board_name} 게시판 수정 완료 → 다음 게시판으로 이동",
-                                level="INFO",
-                            )
-                        break
-
-                    page += 1
-
-                except Exception as e:
-                    event("PLATO", f"오류 발생: {type(e).__name__}", level="WARN")
-                    break
+        from together.plato.star_cleanup import collect_old_stars, remove_star
+        session = requests.Session()
+        try:
+            for cookie in self.driver.get_cookies():
+                session.cookies.set(cookie["name"], cookie["value"], domain="dev-plato.pusan.ac.kr", path=cookie.get("path", "/"))
+            session.headers["User-Agent"] = self.driver.execute_script("return navigator.userAgent")
+            for board_name in board_names:
+                self.safe_get(course_url, login_required=True)
+                link = self.driver.find_element(By.XPATH, f'//a[span[contains(@class, "instancename") and contains(text(), "{board_name}")]]')
+                board_url = link.get_attribute("href")
+                event("PLATO", f"\n현재 작업 중인 게시판: {board_name}", level="INFO")
+                urls, pages = collect_old_stars(session, board_url, today_date)
+                event("정리", "별표 검색 전체 페이지 확인", count=len(urls), candidates=pages, source_url=board_url, console=False)
+                for url in urls:
+                    subject = remove_star(self, url, BASE_DIR)
+                    if subject is not None:
+                        event("PLATO", f"수정 완료: {subject}", level="INFO")
+                event("PLATO", "모든 게시판 수정 완료" if board_name == "취업 정보" else f"{board_name} 게시판 수정 완료 → 다음 게시판으로 이동", level="INFO")
+        finally:
+            session.close()
 
     def update_page_url(self, base_url: str, page: int) -> str:
         parsed_url = urlparse(base_url)
