@@ -85,29 +85,38 @@ def check_title_similarity(new_title, recent_titles, *, context_provider=None):
     if not candidates:
         duplicate_review.set("연도·회차·학과 조건에 맞는 후보 없음")
         return "중복 아님"
-    context = context_provider(candidates) if context_provider else None
-    request = duplicate_request(new_title, candidates, context)
-    result = _decision(DUPLICATE_MODEL, request)
-    used_context = bool(context)
-    relation = result.get("relation")
-    duplicate_review_reason.set(str(result.get("reason", "")))
+    used_context = False
+    reviews = []
+    final_relation = "different_event"
     labels = {
         "same_event": "동일 행사",
         "different_event": "별도 행사",
         "related_update": "변경·추가 안내",
         "needs_context": "동일성 확인 보류",
     }
-    duplicate_review.set(
-        ("GPT 본문 검토·" if used_context else "GPT 후보 검토·")
-        + labels.get(relation, "판정값 확인 필요")
-    )
-    if relation == "same_event":
-        index = result.get("matched_index")
-        if type(index) is not int or not 0 <= index < len(candidates):
+    for position, candidate in enumerate(candidates):
+        context = context_provider([candidate]) if context_provider else None
+        used_context = used_context or bool(context)
+        request = duplicate_request(new_title, [candidate], context)
+        result = _decision(DUPLICATE_MODEL, request)
+        relation = result.get("relation")
+        if relation not in labels:
+            raise ValueError("Unknown duplicate relation")
+        if relation == "same_event" and (
+            type(result.get("matched_index")) is not int
+            or result["matched_index"] != 0
+        ):
             raise ValueError("Invalid duplicate match index")
         ApiAccounting(BASE_DIR).store(DUPLICATE_MODEL, request, result)
-        return "중복"
-    if relation in ("different_event", "related_update", "needs_context"):
-        ApiAccounting(BASE_DIR).store(DUPLICATE_MODEL, request, result)
-        return "중복 아님"
-    raise ValueError("Unknown duplicate relation")
+        reviews.append(f"{position}번 후보: {result.get('reason', '')}")
+        if relation == "same_event":
+            final_relation = relation
+            break
+        if relation in ("related_update", "needs_context"):
+            final_relation = relation
+    duplicate_review_reason.set(" / ".join(reviews))
+    duplicate_review.set(
+        ("GPT 본문 검토·" if used_context else "GPT 후보 검토·")
+        + labels[final_relation]
+    )
+    return "중복" if final_relation == "same_event" else "중복 아님"

@@ -138,6 +138,32 @@ class ContextTests(unittest.TestCase):
         exec(compile(ast.Module(body=[fn],type_ignores=[]),str(source),'exec'),scope)
         return scope['check_title_similarity'],decision
 
+    def test_each_candidate_is_checked_without_skipping_the_second(self):
+        check, decision = self.protected_checker()
+        decision.side_effect = [
+            {"relation": "different_event", "matched_index": -1, "reason": "다른 행사"},
+            {"relation": "same_event", "matched_index": 0, "reason": "본문 일정 일치"},
+        ]
+        provider = MagicMock(return_value=None)
+        self.assertEqual(check("신규 행사", ["첫 후보", "둘째 후보", "셋째 후보"], context_provider=provider), "중복")
+        self.assertEqual(decision.call_count, 2)
+        self.assertEqual([call.args[0] for call in provider.call_args_list], [["첫 후보"], ["둘째 후보"]])
+        payloads = [json.loads(call.args[1]["messages"][1]["content"]) for call in decision.call_args_list]
+        self.assertEqual([p["candidate_titles"] for p in payloads], [["첫 후보"], ["둘째 후보"]])
+
+    def test_all_three_different_candidates_are_reviewed(self):
+        check, decision = self.protected_checker()
+        decision.return_value = {"relation": "different_event", "matched_index": -1, "reason": "별도 행사"}
+        self.assertEqual(check("신규 행사", ["가", "나", "다"]), "중복 아님")
+        self.assertEqual(decision.call_count, 3)
+
+    def test_later_candidate_failure_is_not_reported_as_a_complete_review(self):
+        check, decision = self.protected_checker()
+        decision.side_effect = [{"relation": "different_event", "matched_index": -1}, RuntimeError("API unavailable")]
+        with self.assertRaises(RuntimeError):
+            check("신규 행사", ["가", "나"])
+        self.assertEqual(decision.call_count, 2)
+
     def test_same_scholarship_title_keeps_different_department_submission(self):
         check,decision=self.protected_checker();title='2027년도 한국지도자육성장학재단 장학생 선발 안내'
         context={'new_notice':{'source_url':'https://school.invalid/department-b'},'recent_notices':[{'title':title,'source_url':'https://school.invalid/department-a'}]}
