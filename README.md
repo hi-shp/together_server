@@ -42,6 +42,8 @@ python3 run_main.py
 
 `pages.csv`에는 게시판별 마지막 공지 번호, `titles.txt`에는 중복 검사 이력, `sorted_labeled_data.csv`에는 분류 결과를 저장합니다. `yesterday.txt`는 대학 공지의 마지막 확인 제목을 보관합니다. 서버의 기존 파일을 이어서 사용합니다.
 
+교내 기관·교수·연구실 사이트에서 확인한 신규 공개 게시판은 [추가 목록](together/crawler/additional_boards.json)에 정리했습니다. 성공 사이클을 마친 뒤 `python3 ops/restore_boards.py`를 실행하면 기존 목록의 끝에 한 번 추가합니다. 조사 당시 최신 글을 기준으로 시작하며, 새 학과의 구독 항목은 신청 양식과 따로 연결합니다.
+
 ## 점검과 적용
 
 ```bash

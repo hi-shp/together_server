@@ -98,6 +98,17 @@ def get_anns_url(announcementPage, n):
 
     soup = BeautifulSoup(response.text, "html.parser")
 
+    if "/CMS/Board/Board.do" in announcementPage.page_url:
+        from together.crawler.auxiliary_cms import manager_for, collect
+        if manager_for(announcementPage.page_url):
+            return collect(announcementPage, soup, response.url, n, event, record_board_result)
+
+    if not is_university:
+        from together.crawler.article_id_boards import configured_board, collect
+        expected = configured_board(announcementPage.page_url)
+        if expected:
+            return collect(announcementPage, soup, response.url, expected, n, event, record_board_result)
+
     # 정적 HTML은 한 번만 받아 파싱한다.
     table_element = soup.find("tbody")
     if table_element is None and any(message in soup.get_text(" ", strip=True) for message in ("메뉴이(가) 존재 하지 않습니다", "사용중지된 싱글 모듈입니다")):
@@ -351,6 +362,26 @@ def get_anns_url(announcementPage, n):
             console=False,
         )
         return urls[::-1], max_announcement_number
+    elif (
+        not is_university
+        and table_element is not None
+        and soup.select_one("th._artclThNum, th.th-num")
+        and any(
+            message in table_element.get_text(" ", strip=True)
+            for message in ("게시물이(가) 없습니다", "there is no a posting")
+        )
+    ):
+        event(
+            "수집",
+            f"{n}. {announcementPage.department} {announcementPage.number}",
+            plain=True,
+        )
+        event(
+            "수집",
+            f"새로 추가된 공지사항 없음: {announcementPage.page_url}",
+            plain=True,
+        )
+        return [], announcementPage.number
     else:
         event(
             "수집",

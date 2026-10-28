@@ -1,4 +1,4 @@
-"""확인된 복구 게시판을 기존 CSV의 끝에 한 번만 추가한다."""
+"""확인된 복구·신규 게시판을 기존 CSV의 끝에 한 번만 추가한다."""
 
 import csv
 import json
@@ -9,6 +9,15 @@ from pathlib import Path
 def restore_boards(root):
     root = Path(root)
     config = json.loads((root / "together/crawler/recovered_boards.json").read_text(encoding="utf-8"))
+    additional = root / "together/crawler/additional_boards.json"
+    if additional.exists():
+        config += json.loads(additional.read_text(encoding="utf-8"))
+    from urllib.parse import urlsplit
+    for item in config:
+        assert isinstance(item.get("department"), str) and item["department"].strip(), "Missing board name"
+        parts = urlsplit(item.get("page_url", ""))
+        assert parts.scheme in ("http", "https") and parts.hostname, "Invalid board URL"
+        assert type(item.get("number")) is int and item["number"] >= 0, "Invalid board baseline"
     path = root / (os.getenv("PAGE_NAME") or "pages.csv")
     with path.open(encoding="utf-8-sig", newline="") as handle:
         reader = csv.DictReader(handle)
@@ -16,7 +25,7 @@ def restore_boards(root):
     assert fields == ["department", "page_url", "number"], "Unexpected CSV columns"
     added = []
     for item in config:
-        if any(row["department"] == item["department"] or row["page_url"] in (item["page_url"], item["previous_url"]) for row in rows):
+        if any(row["department"] == item["department"] or row["page_url"] in (item["page_url"], item.get("previous_url", item["page_url"])) for row in rows):
             continue
         rows.append({key: str(item[key]) for key in fields})
         added.append(item["department"])

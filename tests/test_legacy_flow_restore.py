@@ -18,6 +18,76 @@ from together.notices.intelligence.routing import category_hint
 
 
 class RestoredFlow(unittest.TestCase):
+    def test_explicit_empty_k2_board_preserves_cursor_without_warning(self):
+        from together.crawler import announcements
+        page=types.SimpleNamespace(page_url='https://example.pusan.ac.kr/example/1/subview.do', department='새 게시판', number=0)
+        html='<table><thead><tr><th class="_artclThNum">번호</th></tr></thead><tbody><tr><td>게시물이(가) 없습니다.</td></tr></tbody></table>'
+        with patch.object(announcements, '_get_board_response', return_value=types.SimpleNamespace(text=html)), patch.object(announcements, 'record_board_result'), patch.object(announcements, 'event') as log:
+            self.assertEqual(announcements.get_anns_url(page, 1), ([], 0))
+        self.assertFalse(any(call.kwargs.get('level')=='WARN' for call in log.call_args_list))
+
+    def test_missing_tbody_is_not_misreported_as_empty_board(self):
+        from together.crawler import announcements
+        page=types.SimpleNamespace(page_url='https://example.pusan.ac.kr/example/1/subview.do', department='새 게시판', number=42)
+        with patch.object(announcements, '_get_board_response', return_value=types.SimpleNamespace(text='<html>Service unavailable</html>')), patch.object(announcements, 'record_board_result') as state, patch.object(announcements, 'event') as log:
+            self.assertEqual(announcements.get_anns_url(page, 1), ([], 42))
+        state.assert_called_once_with(False)
+        self.assertTrue(any(call.kwargs.get('level')=='WARN' for call in log.call_args_list))
+
+    def test_auxiliary_cms_uses_article_identity_and_keeps_pinned_notices(self):
+        from together.crawler.auxiliary_cms import collect
+        from bs4 import BeautifulSoup
+        page=types.SimpleNamespace(page_url='https://www.pusan.ac.kr/kor/CMS/Board/Board.do?mCode=MN103', department='교수초빙/직원채용', number=100)
+        html='<tbody>'+''.join(f'<tr><td class="num">{number}</td><td class="subject"><a href="?mode=view&amp;mgr_seq=10&amp;board_seq={identifier}">Notice</a></td></tr>' for number,identifier in [('공지',102),(1,101),(2,99)])+'</tbody>'
+        urls, maximum=collect(page,BeautifulSoup(html,'html.parser'),page.page_url,1,MagicMock(),MagicMock())
+        self.assertEqual(maximum,102)
+        self.assertEqual([url.split('board_seq=')[-1] for url in urls],['101','102'])
+        page.number=maximum
+        self.assertEqual(collect(page,BeautifulSoup(html,'html.parser'),page.page_url,1,MagicMock(),MagicMock()),([],102))
+
+    def test_auxiliary_cms_rejects_foreign_manager_without_advancing_cursor(self):
+        from together.crawler.auxiliary_cms import collect, manager_for
+        from bs4 import BeautifulSoup
+        self.assertIsNone(manager_for('https://www.pusan.ac.kr/kor/CMS/Board/PopupBoard.do?mgr_seq=3'))
+        self.assertIsNone(manager_for('https://www.pusan.ac.kr/kor/CMS/Board/Board.do?mCode=MN095'))
+        page=types.SimpleNamespace(page_url='https://www.pusan.ac.kr/kor/CMS/Board/Board.do?mCode=MN103', department='교수초빙/직원채용', number=100)
+        state=MagicMock()
+        self.assertEqual(collect(page,BeautifulSoup('<tbody><tr><td class="subject"><a href="?mgr_seq=3&amp;board_seq=999">Other</a></td></tr></tbody>','html.parser'),page.page_url,1,MagicMock(),state),([],100))
+        state.assert_called_once_with(False)
+
+    def test_card_board_uses_ids_with_plain_and_encoded_links(self):
+        from together.crawler.article_id_boards import collect
+        from bs4 import BeautifulSoup
+        import base64
+        page=types.SimpleNamespace(page_url='https://news.pusan.ac.kr/news/1/subview.do',department='뉴스',number=100)
+        encoded=base64.b64encode(b'fnct1|@@|/bbs/news/2/102/artclView.do').decode()
+        html=f'<form action="/bbs/news/2/artclList.do"></form><a href="/bbs/news/2/99/artclView.do">old</a><a href="/bbs/news/2/101/artclView.do">new</a><a href="?enc={encoded}">newer</a><a href="https://external.example/bbs/news/2/999/artclView.do">foreign</a>'
+        soup=BeautifulSoup(html,'html.parser');urls, maximum=collect(page,soup,page.page_url,'k2web:news:2',1,MagicMock(),MagicMock())
+        self.assertEqual(maximum,102)
+        self.assertEqual(len(urls),2)
+        page.number=102
+        self.assertEqual(collect(page,soup,page.page_url,'k2web:news:2',1,MagicMock(),MagicMock()),([],102))
+
+    def test_card_board_checks_identity_and_empty_board_cursor(self):
+        from together.crawler.article_id_boards import collect
+        from bs4 import BeautifulSoup
+        page=types.SimpleNamespace(page_url='https://news.pusan.ac.kr/news/1/subview.do',department='뉴스',number=0)
+        state=MagicMock()
+        self.assertEqual(collect(page,BeautifulSoup('<form action="/bbs/other/2/artclList.do"></form>','html.parser'),page.page_url,'k2web:news:2',1,MagicMock(),state),([],0))
+        state.assert_called_once_with(False)
+        state=MagicMock()
+        self.assertEqual(collect(page,BeautifulSoup('<form action="/bbs/news/2/artclList.do"></form><p>게시물이(가) 없습니다.</p>','html.parser'),page.page_url,'k2web:news:2',1,MagicMock(),state),([],0))
+        state.assert_called_once_with(True)
+
+    def test_additional_source_manifest_has_unique_names_urls_and_identities(self):
+        rows=json.loads((Path(__file__).resolve().parents[1]/'together/crawler/additional_boards.json').read_text(encoding='utf-8'))
+        for field in ('department','page_url','canonical_board'):
+            self.assertEqual(len(rows),len({row[field] for row in rows}),field)
+        for row in rows:
+            self.assertIs(type(row['number']),int)
+            self.assertGreaterEqual(row['number'],0)
+            self.assertIn(row['verification'],('verified','verified_empty_template'))
+
     def test_mandatory_video_and_card_news_submission_is_visual_contest(self):
         result=category_hint('지역기업 홍보 콘텐츠 공모전',{},body='필수과제: ①3분 영상(+1분 숏츠 별도), ②카드뉴스(8장 이상), ③자유주제 콘텐츠')
         self.assertEqual(result['category'],'[공모전] 미술/디자인/건축')
@@ -167,3 +237,37 @@ class RestoredFlow(unittest.TestCase):
             self.assertTrue(once.startswith(original))
             self.assertEqual(module.restore_boards(root), [])
             self.assertEqual((root / 'pages.csv').read_bytes(), once)
+
+    def test_new_sources_preserve_the_old_rows_and_skip_existing_urls(self):
+        path = Path(__file__).resolve().parents[1] / 'ops/restore_boards.py'
+        spec = importlib.util.spec_from_file_location('append_sources_test', path)
+        module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+        with tempfile.TemporaryDirectory() as temp, patch.dict(os.environ, {'PAGE_NAME':'pages.csv'}):
+            root = Path(temp); config = root / 'together/crawler'; config.mkdir(parents=True)
+            (config / 'recovered_boards.json').write_text('[]')
+            (config / 'additional_boards.json').write_text(json.dumps([
+                {'department':'new department','page_url':'https://new.invalid/list','number':42},
+                {'department':'same old board alias','page_url':'https://existing.invalid','number':0}]))
+            original = b'department,page_url,number\r\nexisting,https://existing.invalid,99\r\n'
+            (root / 'pages.csv').write_bytes(original)
+            self.assertEqual(module.restore_boards(root), ['new department'])
+            once = (root / 'pages.csv').read_bytes()
+            self.assertTrue(once.startswith(original))
+            self.assertIn(b'new department,https://new.invalid/list,42', once)
+            self.assertEqual(module.restore_boards(root), [])
+            self.assertEqual((root / 'pages.csv').read_bytes(), once)
+
+    def test_invalid_source_baseline_cannot_partially_modify_the_csv(self):
+        path = Path(__file__).resolve().parents[1] / 'ops/restore_boards.py'
+        spec = importlib.util.spec_from_file_location('invalid_sources_test', path)
+        module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+        with tempfile.TemporaryDirectory() as temp, patch.dict(os.environ, {'PAGE_NAME':'pages.csv'}):
+            root = Path(temp); config = root / 'together/crawler'; config.mkdir(parents=True)
+            (config / 'recovered_boards.json').write_text('[]')
+            (config / 'additional_boards.json').write_text(json.dumps([
+                {'department':'valid','page_url':'https://valid.invalid','number':1},
+                {'department':'invalid','page_url':'https://invalid.invalid','number':-1}]))
+            original = b'department,page_url,number\nexisting,https://existing.invalid,99\n'
+            (root / 'pages.csv').write_bytes(original)
+            with self.assertRaises(AssertionError): module.restore_boards(root)
+            self.assertEqual((root / 'pages.csv').read_bytes(), original)
