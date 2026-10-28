@@ -14,9 +14,19 @@ from together.plato.star_cleanup import collect_old_stars, remove_star
 from together.storage.email_outbox import EmailOutbox
 from together.plato.service import WriteNoticeService
 from together.plato import service as plato_service
+from together.notices.intelligence.routing import category_hint
 
 
 class RestoredFlow(unittest.TestCase):
+    def test_degree_administration_is_distinguished_from_open_lectures(self):
+        for title in ('지도교수상담사업 시행 알림(재학생 전원 필수)', '한의학연구과정 지도교수 선정일정 안내', '학위논문발표회 개최 관련 알림', '합격자 초청 특강 자료집 파일 공유(사전 신청자에 한함.)'):
+            with self.subTest(title=title):
+                self.assertEqual(category_hint(title, {})['category'], '해당없음')
+        for title in ('지도교수와 함께하는 연구 특강', '학위논문 발표회 준비를 위한 발표기법 워크숍', '학위논문 작성법 특강'):
+            with self.subTest(title=title):
+                result=category_hint(title, {})
+                self.assertTrue(result is None or result['category']!='해당없음')
+
     def test_star_only_title_is_never_submitted_as_empty(self):
         service = MagicMock()
         service.driver.find_element.return_value.get_attribute.return_value = '⭐'

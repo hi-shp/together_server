@@ -68,6 +68,10 @@ def category_hint(
     title, keyword_categories, classifier=None, allow_provisional=False, *, body=""
 ):
     title = str(title)
+    if re.search(r"지도교수\s*(?:상담사업|선정\s*일정)|학위논문\s*발표회", title) and not re.search(r"특강|워크숍|워크샵|작성법", title):
+        return {"category": "해당없음", "method": "administrative_intent", "reason": "지도교수 배정·상담 또는 학위심사 안내"}
+    if re.search(r"특강.*자료집.*(?:파일\s*)?공유", title):
+        return {"category": "해당없음", "method": "administrative_intent", "reason": "기존 특강 자료 배포"}
     if re.search(r"설문\s*응답|의견\s*수렴", title) and not CONTEST.search(title):
         return {
             "category": "해당없음",
