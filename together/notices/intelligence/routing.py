@@ -104,10 +104,10 @@ def category_hint(
         }
     if (
         CONTEST.search(title)
-        and re.search(
+        and (re.search(
             r"(?:시각화|숏폼|솟폼|숏츠|영상|카드뉴스).{0,15}(?:부문|부분|제출|제작|출품)",
             body,
-        )
+        ) or re.search(r"필수\s*(?:과제|산출물|제작물).{0,120}(?:영상|숏츠|카드뉴스)", body))
         and not re.search(
             r"소스\s*코드|코드\s*제출|프로그램\s*구현|SW\s*개발|소프트웨어\s*개발",
             body,

@@ -32,6 +32,13 @@ EVENT_SYSTEM = """두 공지가 같은 행사 발생 건을 안내하는지 판�
 - 한쪽에 기관명·연도·개최일 등이 빠져 동일성을 확인할 수 없으면 needs_context로 답한다.
 - 학과별 장학 추천·근로장학생·조교 선발·수강/졸업 안내는 같은 연도와 제목이어도 담당 학과와 대상이 다를 수 있다. 담당 부서와 대상의 일치를 확인할 자료가 없으면 needs_context로 둔다.
 - observed_at은 수집 시각이며 원래 게시일이나 행사일이 아니다. 같은 날 수집됐다는 사실만으로 합치지 않는다.
+본문이 제공되면 제목보다 실제 행사명·기업명·일정·회차·모집 대상의 일치를 우선한다.
+다른 회사의 채용, 학술대회와 테니스대회처럼 고유 주체나 활동이 다르면 같은 연도·채용·행사 단어가 겹쳐도 different_event이다.
+한쪽 제목에 회차가 없더라도 양쪽 본문의 개최일·회차가 같으면 제목 누락만으로 다른 행사로 판단하지 않는다.
+주관 부서 이름이 달라도 고유 프로그램과 같은 일정·대상이 확인되면 같은 행사일 수 있다.
+same_event를 고르면 선택한 후보의 실제 고유 행사·기업이 새 공지와 일치하는지 마지막으로 확인한다.
+후보는 0번부터 마지막까지 각각 검토한다. 일부 후보가 다른 행사라는 이유로 나머지 후보를 제외하지 않는다.
+candidate_titles와 recent_notices는 같은 순서이다. 0번 후보의 제목과 본문을 다른 후보의 내용으로 바꾸어 해석하지 않는다.
 same_event는 같은 발생 건이라는 근거가 충분할 때만 사용한다. 이유는 짧게 쓴다."""
 
 
@@ -130,7 +137,13 @@ def duplicate_request(new_title, recent_titles, context=None):
     }
     payload = {"new_notice": new_title, "candidate_titles": recent_titles}
     if context:
-        payload.update(context)
+        payload["new_notice"] = context.get("new_notice", new_title)
+        previous = context.get("recent_notices", [])
+        payload["candidates"] = [
+            {**(previous[index] if index < len(previous) else {}),
+             "index": index, "title": title}
+            for index, title in enumerate(recent_titles)
+        ]
     return {
         "messages": [
             {

@@ -8,7 +8,8 @@ import sqlite3
 import tempfile
 import types
 import unittest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
+from together.notices.intelligence.text import requires_department_evidence, normalize_title
 from together.notices.history import comparison_title, calculate_similarity
 from together.notices.intelligence.context import duplicate_context
 from together.notices.intelligence.prompts import duplicate_request
@@ -87,11 +88,6 @@ class ContextTests(unittest.TestCase):
         decision = MagicMock(
             side_effect=[
                 {
-                    "relation": "needs_context",
-                    "matched_index": -1,
-                    "reason": "본문 확인 필요",
-                },
-                {
                     "relation": "same_event",
                     "matched_index": 0,
                     "reason": "프로그램 일정과 대상 일치",
@@ -125,11 +121,44 @@ class ContextTests(unittest.TestCase):
             ),
             "중복",
         )
-        self.assertEqual(decision.call_count, 2)
+        self.assertEqual(decision.call_count, 1)
         payload = json.loads(
-            decision.call_args_list[1].args[1]["messages"][1]["content"]
+            decision.call_args_list[0].args[1]["messages"][1]["content"]
         )
         self.assertEqual(payload["new_notice"]["body_excerpt"], "이번 본문")
         self.assertIn("GPT 본문 검토", duplicate_review.get())
         duplicate_review.set("")
         duplicate_review_reason.set("")
+
+    def protected_checker(self):
+        source=Path(__file__).resolve().parents[1]/'together/integrations/openai_client.py'
+        fn=next(n for n in ast.parse(source.read_text(encoding='utf-8')).body if isinstance(n,ast.FunctionDef) and n.name=='check_title_similarity')
+        decision=MagicMock()
+        scope={'requires_department_evidence':requires_department_evidence,'normalize_title':normalize_title,'occurrence_conflict':lambda a,b:None,'duplicate_request':duplicate_request,'_decision':decision,'DUPLICATE_MODEL':'test','BASE_DIR':'test','ApiAccounting':MagicMock(),'duplicate_review':duplicate_review,'duplicate_review_reason':duplicate_review_reason}
+        exec(compile(ast.Module(body=[fn],type_ignores=[]),str(source),'exec'),scope)
+        return scope['check_title_similarity'],decision
+
+    def test_same_scholarship_title_keeps_different_department_submission(self):
+        check,decision=self.protected_checker();title='2027년도 한국지도자육성장학재단 장학생 선발 안내'
+        context={'new_notice':{'source_url':'https://school.invalid/department-b'},'recent_notices':[{'title':title,'source_url':'https://school.invalid/department-a'}]}
+        self.assertEqual(check(title,[title],context_provider=lambda _:context),'중복 아님')
+        decision.assert_not_called()
+
+    def test_retry_of_same_department_source_and_title_is_duplicate(self):
+        check,decision=self.protected_checker();title='2026학년도 치의학과 학위청구논문 발표 계획'
+        context={'new_notice':{'source_url':'https://school.invalid/same'},'recent_notices':[{'title':title,'source_url':'https://school.invalid/same'}]}
+        self.assertEqual(check(title,[title],context_provider=lambda _:context),'중복')
+        decision.assert_not_called()
+
+    def test_ai_learning_assistant_lecture_is_not_assistant_recruitment(self):
+        self.assertFalse(requires_department_evidence('학습전략특강(나만의 AI 학습 조교 설계하기)'))
+        self.assertTrue(requires_department_evidence('2027학년도 교육조교 모집 안내'))
+
+    def test_title_heuristic_cannot_bypass_department_scholarship_check(self):
+        from together.notices import history
+        title='2027년도 한국지도자육성장학재단 장학생 선발 안내'
+        with tempfile.TemporaryDirectory() as temp:
+            path=Path(temp)/'titles.txt';path.write_text(datetime.now().strftime('%Y-%m-%d %H:%M:%S')+'$'+title+'\n',encoding='utf-8')
+            with patch.object(history,'check_title_similarity',return_value='중복 아님') as review:
+                self.assertEqual(history.is_recent_title_duplicate(title,str(path)),'중복 아님')
+            review.assert_called_once()

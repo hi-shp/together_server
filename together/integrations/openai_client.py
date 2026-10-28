@@ -9,6 +9,7 @@ from together.notices.intelligence.prompts import category_request, duplicate_re
 from together.notices.intelligence.text import (
     occurrence_conflict,
     requires_department_evidence,
+    normalize_title,
 )
 from together.storage.api_usage import ApiAccounting
 from together.notices.intelligence.quality import remember_review
@@ -63,6 +64,16 @@ def answer_gpt(user_content):
 def check_title_similarity(new_title, recent_titles, *, context_provider=None):
     # 학과별 모집은 모델이 동일 제목을 중복으로 판단하더라도 근거 없이 누락하지 않는다.
     if requires_department_evidence(new_title):
+        context = context_provider(recent_titles[:3]) if context_provider else None
+        if context:
+            source = context.get("new_notice", {}).get("source_url")
+            if source and any(
+                row.get("source_url") == source
+                and normalize_title(row.get("title", "")) == normalize_title(new_title)
+                for row in context.get("recent_notices", [])
+            ):
+                duplicate_review.set("같은 원문·제목 재확인")
+                return "중복"
         duplicate_review.set("학과별 모집·대상 확인 필요")
         return "중복 아님"
     candidates = [
@@ -74,16 +85,10 @@ def check_title_similarity(new_title, recent_titles, *, context_provider=None):
     if not candidates:
         duplicate_review.set("연도·회차·학과 조건에 맞는 후보 없음")
         return "중복 아님"
-    request = duplicate_request(new_title, candidates)
+    context = context_provider(candidates) if context_provider else None
+    request = duplicate_request(new_title, candidates, context)
     result = _decision(DUPLICATE_MODEL, request)
-    used_context = False
-    if result.get("relation") == "needs_context" and context_provider is not None:
-        context = context_provider(candidates)
-        if context:
-            ApiAccounting(BASE_DIR).store(DUPLICATE_MODEL, request, result)
-            request = duplicate_request(new_title, candidates, context)
-            result = _decision(DUPLICATE_MODEL, request)
-            used_context = True
+    used_context = bool(context)
     relation = result.get("relation")
     duplicate_review_reason.set(str(result.get("reason", "")))
     labels = {

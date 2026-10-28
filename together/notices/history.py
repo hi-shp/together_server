@@ -7,7 +7,7 @@ from difflib import SequenceMatcher
 import csv
 import heapq
 from collections import defaultdict, deque
-from together.notices.intelligence.text import occurrence_conflict, normalize_title
+from together.notices.intelligence.text import occurrence_conflict, normalize_title, requires_department_evidence
 from together.notices.intelligence.events import Notice, compare_notices
 from together.config import BASE_DIR
 from together.notices.intelligence.context import duplicate_context
@@ -190,7 +190,7 @@ def is_recent_title_duplicate(
     current = Notice(original_title, datetime.now().isoformat())
     for date, title in candidates:
         result = compare_notices(current, Notice(title, date.isoformat()))
-        if result["relation"] == "same_event":
+        if result["relation"] == "same_event" and not requires_department_evidence(original_title):
             return decision("중복", "행사·연도·회차 대조", highest_similarity)
     context = None
     if announcement is not None:

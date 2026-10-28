@@ -18,6 +18,10 @@ from together.notices.intelligence.routing import category_hint
 
 
 class RestoredFlow(unittest.TestCase):
+    def test_mandatory_video_and_card_news_submission_is_visual_contest(self):
+        result=category_hint('지역기업 홍보 콘텐츠 공모전',{},body='필수과제: ①3분 영상(+1분 숏츠 별도), ②카드뉴스(8장 이상), ③자유주제 콘텐츠')
+        self.assertEqual(result['category'],'[공모전] 미술/디자인/건축')
+
     def test_degree_administration_is_distinguished_from_open_lectures(self):
         for title in ('지도교수상담사업 시행 알림(재학생 전원 필수)', '한의학연구과정 지도교수 선정일정 안내', '학위논문발표회 개최 관련 알림', '합격자 초청 특강 자료집 파일 공유(사전 신청자에 한함.)'):
             with self.subTest(title=title):
