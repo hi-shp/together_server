@@ -88,7 +88,7 @@ class WriteNoticeService:
         self.safe_get("https://dev-plato.pusan.ac.kr/")
 
     def safe_get(self, url, login_required=False):
-        for attempt in range(3):
+        while True:
             try:
                 self.driver.get(url)
                 if login_required and self.driver.find_elements(
@@ -98,8 +98,6 @@ class WriteNoticeService:
                     self.driver.get(url)
                 return
             except Exception:
-                if attempt == 2:
-                    raise
                 event("PLATO", "⭐접속 에러 발생. 브라우저 재시작", level="INFO")
                 time.sleep(2)
                 self.restart_driver()

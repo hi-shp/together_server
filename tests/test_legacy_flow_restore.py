@@ -17,6 +17,16 @@ from together.plato import service as plato_service
 
 
 class RestoredFlow(unittest.TestCase):
+    def test_legacy_navigation_recovers_after_more_than_three_failures(self):
+        service = WriteNoticeService.__new__(WriteNoticeService)
+        service.driver = MagicMock()
+        service.driver.get.side_effect = [TimeoutError()]*5+[None]
+        service.restart_driver = MagicMock()
+        with patch.object(plato_service.time, 'sleep'), patch.object(plato_service, 'event'):
+            service.safe_get('https://dev-plato.pusan.ac.kr/')
+        self.assertEqual(service.driver.get.call_count, 6)
+        self.assertEqual(service.restart_driver.call_count, 5)
+
     def test_star_edit_preserves_body_and_attachment_snapshot(self):
         with tempfile.TemporaryDirectory() as temp:
             service = MagicMock()

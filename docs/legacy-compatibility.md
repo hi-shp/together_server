@@ -40,7 +40,7 @@
 | `ready.py:NoticeUpdater.update_university_notices` | `together/crawler/university.py` | 실행문 동일. 경로·주석·설명 정리. |
 | `selenium_service.py:WriteNoticeService.__init__` | `together/plato/service.py` | 환경설정·로그인 순서 유지. 초기화 실패 때 자신이 만든 브라우저 정리와 완료 로그 추가. |
 | `selenium_service.py:WriteNoticeService.login_ready` | `together/plato/service.py` | 로그인 준비와 개별 페이지 로드 시간 관리. 전체 사이클 제한과 별개. |
-| `selenium_service.py:WriteNoticeService.safe_get` | `together/plato/service.py` | 접속 실패 시 브라우저 재시작·재로그인. 재실행기를 감시가 종료하지 않도록 별도 복원. |
+| `selenium_service.py:WriteNoticeService.safe_get` | `together/plato/service.py` | 접속 실패 시 원본처럼 횟수 제한 없이 브라우저 재시작·재로그인. 재실행기를 감시가 종료하지 않도록 별도 복원. |
 | `selenium_service.py:WriteNoticeService.init_driver` | `together/plato/service.py` | 같은 headless 브라우저 동작과 임시 작업 폴더 분리. 전역 Chrome 종료·타 사용자 임시폴더 삭제 제거. |
 | `selenium_service.py:WriteNoticeService.restart_driver` | `together/plato/service.py` | 자신이 만든 프로세스만 정리한 뒤 브라우저 다시 생성. |
 | `selenium_service.py:WriteNoticeService.login` | `together/plato/service.py` | 실행문 동일. 경로·주석·설명 정리. |
@@ -64,4 +64,4 @@
 | `run_main.py:send_log_to_discord` | `together/supervisor.py` | config.notify(log_path)로 이동. 기존 채널에 원문 파일 업로드. 실제11파일을 Discord에서 다운로드해 서버 해시 일치 확인, 미확인 구간10파일 복구. |
 | `run_main.py:run_main` | `together/supervisor.py` | 레거시 무한 반복/10초 재실행/전체 로그 전송과 0~6시 대기 복원. 전체·무출력 사이클 시간 제한 제거. 실패1회로 반복기를 종료하던 검증 감시 제거. |
 
-검증: 자동 검사210개, 원본 main의 신규/중복 대학공지·일반공지·뒤쪽 학과 실패4개 시나리오의 호출·파일 기록 순서 동일, 원본 게시판 분기 후보 대조, 실제학교원문/발송내역/전체로그해시 대조. 실제 받은편지함 UI 확인은 로컬 브라우저 도구 연결 중단으로 아직 미확인입니다.
+검증: 자동 검사211개, 원본 main의 신규/중복 대학공지·일반공지·뒤쪽 학과 실패4개 시나리오의 호출·파일 기록 순서 동일, 원본 게시판 분기 후보 대조, 실제학교원문/발송내역/전체로그해시 대조. 실제 받은편지함 UI 확인은 로컬 브라우저 도구 연결 중단으로 아직 미확인입니다.

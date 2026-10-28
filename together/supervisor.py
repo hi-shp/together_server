@@ -163,7 +163,7 @@ def run_main():
             )
             code = run_cycle(log_path)
             cleanup_old_logs(log_dir)
-            failures = min(failures + 1, 5) if code else 0
+            failures = failures + 1 if code else 0
             fields = {
                 "status": "waiting",
                 "last_exit": code,
