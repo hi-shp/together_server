@@ -2,13 +2,13 @@
 
 from dataclasses import asdict
 from datetime import datetime, timedelta
-import hashlib
 from html import escape
 import json
 import os
 from pathlib import Path
 import re
 import tempfile
+import shutil
 from bs4 import BeautifulSoup
 from requests import RequestException
 
@@ -29,6 +29,7 @@ from .quality import (
 )
 from together.operations.events import event
 from together.crawler.files import download_attachment, IMAGES
+from together.storage.attachments import file_digest
 
 
 def _preserved_after_failed_enrichment(record, announcement, restored, base_dir):
@@ -251,7 +252,7 @@ def apply_enrichment(service, record, announcement, department, base_dir):
         uploads = []
         for value in candidates:
             path = Path(value)
-            digest = hashlib.sha256(path.read_bytes()).hexdigest()
+            digest = file_digest(path)
             if digest in known_hashes:
                 continue
             name = path.name
@@ -260,7 +261,7 @@ def apply_enrichment(service, record, announcement, department, base_dir):
             if name in known_names:
                 raise PostEditError("Conflicting upload filename")
             destination = Path(temporary) / name
-            destination.write_bytes(path.read_bytes())
+            shutil.copyfile(path, destination)
             os.chmod(destination, 0o600)
             uploads.append(destination)
             known_hashes.add(digest)
@@ -279,8 +280,6 @@ def apply_enrichment(service, record, announcement, department, base_dir):
         body = merged_body(current["body_html"], announcement, old_notice) if improvements else current["body_html"]
         reasons = improvements + (["attachment_added"] if uploads else [])
         event("보강", "보강 자료 확인", source_url=announcement.url, reason=",".join(reasons), attachment_count=len(uploads), console=False)
-        if len(body.encode()) > 300000:
-            raise PostEditError("Enriched body exceeds limit")
         try:
             result = editor.update(
                 record["article_url"],

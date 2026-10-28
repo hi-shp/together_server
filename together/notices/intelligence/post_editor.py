@@ -9,6 +9,7 @@ import shutil
 import tempfile
 from urllib.parse import parse_qs, unquote, urlsplit
 import uuid
+from together.storage.attachments import file_digest
 
 from bs4 import BeautifulSoup
 import requests
@@ -17,8 +18,8 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 
 HOST = "dev-plato.pusan.ac.kr"
-MAX_BACKUP_BYTES = 128 * 1024 * 1024
-MAX_OPERATION_BYTES = 32 * 1024 * 1024
+MAX_BACKUP_BYTES = int(float(os.getenv("ATTACHMENT_CACHE_GB", "10")) * 1024**3)
+MAX_OPERATION_BYTES = MAX_BACKUP_BYTES
 
 
 class PostEditError(RuntimeError):
@@ -243,8 +244,14 @@ class PlatoPostEditor:
         )
         links = self._attachment_links(article_url)
         folder = None
+        download_budget = MAX_OPERATION_BYTES
         if backup:
             self._prune()
+            used = sum(path.stat().st_size for path in self.backup_root.rglob("*") if path.is_file())
+            min_free = int(float(os.getenv("ATTACHMENT_MIN_FREE_GB", "5")) * 1024**3)
+            download_budget = min(download_budget, MAX_BACKUP_BYTES - used, shutil.disk_usage(self.backup_root).free - min_free)
+            if download_budget <= 0:
+                raise PostEditError("Backup capacity reached")
             folder = self.backup_root / (
                 datetime.now().strftime("%Y%m%d_%H%M%S") + "-" + uuid.uuid4().hex[:8]
             )
@@ -255,7 +262,7 @@ class PlatoPostEditor:
             saved = self._download(
                 item,
                 destination,
-                MAX_OPERATION_BYTES - sum(item["bytes"] for item in files),
+                download_budget - sum(item["bytes"] for item in files),
             )
             if destination:
                 saved["backup_file"] = str(destination)
@@ -302,18 +309,16 @@ class PlatoPostEditor:
                 if path.is_file()
             )
 
-        remaining = len(folders)
         for folder in folders:
             verified = folder / "verified.json"
             if not verified.exists():
                 verified = folder / "restored.json"
             if verified.exists() and (
-                remaining > 10
+                size() >= MAX_BACKUP_BYTES
                 or (datetime.now().timestamp() - verified.stat().st_mtime) > 7 * 86400
             ):
                 shutil.rmtree(folder)
-                remaining -= 1
-        if size() + MAX_OPERATION_BYTES > MAX_BACKUP_BYTES:
+        if size() >= MAX_BACKUP_BYTES:
             raise PostEditError("Backup capacity reached")
 
     def _set_fields(self, subject, body_html):
@@ -397,12 +402,11 @@ class PlatoPostEditor:
         if (
             len(set(names)) != len(names)
             or old_names & set(names)
-            or len(old_names) + len(names) > 10
         ):
             raise PostEditError("Attachment name or count conflict")
         expected_files = {item["name"]: item["sha256"] for item in before["files"]}
         expected_files.update(
-            {path.name: hashlib.sha256(path.read_bytes()).hexdigest() for path in files}
+            {path.name: file_digest(path) for path in files}
         )
         for path in files:
             self._upload(path)
@@ -468,7 +472,7 @@ class PlatoPostEditor:
                 if name in existing and name not in damaged:
                     continue
                 source = Path(item["backup_file"])
-                if hashlib.sha256(source.read_bytes()).hexdigest() != item["sha256"]:
+                if file_digest(source) != item["sha256"]:
                     raise PostEditError("Original backup checksum mismatch")
                 destination = Path(temporary) / Path(name).name
                 shutil.copyfile(source, destination)

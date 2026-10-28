@@ -15,6 +15,54 @@ from together.notices.intelligence.post_editor import PlatoPostEditor
 
 
 class NoticeStateLimits(unittest.TestCase):
+    def test_download_hashes_forty_megabytes_as_chunks(self):
+        with tempfile.TemporaryDirectory() as temp:
+            driver=MagicMock();driver.get_cookies.return_value=[]
+            editor=PlatoPostEditor(types.SimpleNamespace(driver=driver),temp)
+            chunk=b'a'*(1024**2)
+            with patch('together.notices.intelligence.post_editor.requests.Session') as factory:
+                response=factory.return_value.get.return_value.__enter__.return_value
+                response.status_code=200
+                response.iter_content.return_value=(chunk for _ in range(40))
+                result=editor._download({'name':'large.pdf','url':'https://dev-plato.pusan.ac.kr/file'})
+            digest=hashlib.sha256()
+            for _ in range(40):digest.update(chunk)
+            self.assertEqual(result['bytes'],40*1024**2)
+            self.assertEqual(result['sha256'],digest.hexdigest())
+
+    def test_twelve_recent_verified_backups_are_retained(self):
+        with tempfile.TemporaryDirectory() as temp:
+            editor=PlatoPostEditor(types.SimpleNamespace(driver=MagicMock()),temp)
+            for i in range(12):
+                folder=Path(temp)/str(i);folder.mkdir();(folder/'verified.json').write_text('{}')
+            editor._prune()
+            self.assertEqual(len(list(Path(temp).iterdir())),12)
+
+    def test_low_free_space_stops_before_any_edit(self):
+        with tempfile.TemporaryDirectory() as temp:
+            editor=PlatoPostEditor(types.SimpleNamespace(driver=MagicMock(),safe_get=MagicMock()),temp)
+            editor._attachment_links=MagicMock(return_value=[])
+            editor._open_edit=MagicMock()
+            with patch('together.notices.intelligence.post_editor.WebDriverWait'),patch('together.notices.intelligence.post_editor.shutil.disk_usage',return_value=types.SimpleNamespace(free=1024**3)):
+                with self.assertRaisesRegex(RuntimeError,'Backup capacity reached'):
+                    editor.read('https://dev-plato.pusan.ac.kr/mod/ubboard/article.php?id=1&bwid=2',backup=True)
+            editor._open_edit.assert_not_called()
+
+    def test_new_file_can_be_added_after_twelve_existing_attachments(self):
+        from together.notices.intelligence.post_editor import snapshot_signature
+        with tempfile.TemporaryDirectory() as temp:
+            path=Path(temp)/'new.txt';path.write_bytes(b'new')
+            old=[{'name':f'{i}.txt','sha256':hashlib.sha256(str(i).encode()).hexdigest()} for i in range(12)]
+            before={'subject':'제목','body_html':'<p>본문</p>','files':old,'notice':False,'backup_dir':temp}
+            before['signature']=snapshot_signature(before)
+            after=dict(before,files=old+[{'name':'new.txt','sha256':hashlib.sha256(b'new').hexdigest()}])
+            after['signature']=snapshot_signature(after)
+            editor=PlatoPostEditor(types.SimpleNamespace(driver=MagicMock()),temp)
+            editor.read=MagicMock(return_value=before);editor._upload=MagicMock();editor._set_fields=MagicMock();editor._save=MagicMock(return_value=after)
+            result=editor.update('https://dev-plato.pusan.ac.kr/mod/ubboard/article.php?id=1&bwid=2','제목','<p>본문</p>',[path])
+            self.assertEqual(len(result['after']['files']),13)
+            editor._upload.assert_called_once_with(path)
+
     def test_receipts_remain_readable_after_four_megabytes(self):
         with tempfile.TemporaryDirectory() as temp:
             receipt={'source_url':'https://example.invalid/notice','subject':'공지','validation':{'body':'a'*(4*1024**2)}}
