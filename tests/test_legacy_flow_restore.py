@@ -17,6 +17,14 @@ from together.plato import service as plato_service
 
 
 class RestoredFlow(unittest.TestCase):
+    def test_star_only_title_is_never_submitted_as_empty(self):
+        service = MagicMock()
+        service.driver.find_element.return_value.get_attribute.return_value = '⭐'
+        with tempfile.TemporaryDirectory() as temp, patch('together.plato.star_cleanup.PlatoPostEditor'), patch('together.plato.star_cleanup.file_names', return_value=[]):
+            with self.assertRaisesRegex(RuntimeError, 'Empty title requires source review'):
+                remove_star(service, 'https://dev-plato.pusan.ac.kr/mod/ubboard/article.php?id=123&bwid=456', Path(temp))
+        service.driver.execute_script.assert_not_called()
+
     def test_legacy_navigation_recovers_after_more_than_three_failures(self):
         service = WriteNoticeService.__new__(WriteNoticeService)
         service.driver = MagicMock()
@@ -28,22 +36,23 @@ class RestoredFlow(unittest.TestCase):
         self.assertEqual(service.restart_driver.call_count, 5)
 
     def test_star_edit_preserves_body_and_attachment_snapshot(self):
-        with tempfile.TemporaryDirectory() as temp:
-            service = MagicMock()
-            subject = MagicMock()
-            subject.get_attribute.side_effect = ['⭐ old post', 'old post']
-            body = MagicMock()
-            body.get_attribute.return_value = '<p>Original content</p>'
-            service.driver.find_element.side_effect = lambda by, name: body if name == 'id_contenteditable' else subject
-            with patch('together.plato.star_cleanup.PlatoPostEditor') as editor, patch('together.plato.star_cleanup.file_names', return_value=['original.pdf']), patch('together.plato.star_cleanup.WebDriverWait'), patch('together.notices.intelligence.enrichment.PublishedNoticeStore') as store:
-                editor.return_value._notice_state.return_value = False
-                store.return_value.load.return_value = []
-                saved = remove_star(service, 'https://dev-plato.pusan.ac.kr/mod/ubboard/article.php?id=123&bwid=456', Path(temp))
-            proof = json.loads((Path(temp)/'.runtime/star-cleanup/456.json').read_text())
-            self.assertEqual(saved, 'old post')
-            self.assertTrue(proof['verified'])
-            self.assertEqual(proof['before']['body_html'], proof['after']['body_html'])
-            self.assertEqual(proof['after']['files'], ['original.pdf'])
+        for old, options in [('⭐ old post', {}), ('⭐', {'recovered_subject':'old post', 'recovery_evidence':'original attachment filename'})]:
+            with self.subTest(subject=old), tempfile.TemporaryDirectory() as temp:
+                service = MagicMock()
+                subject = MagicMock()
+                subject.get_attribute.side_effect = [old, 'old post']
+                body = MagicMock()
+                body.get_attribute.return_value = '<p>Original content</p>'
+                service.driver.find_element.side_effect = lambda by, name: body if name == 'id_contenteditable' else subject
+                with patch('together.plato.star_cleanup.PlatoPostEditor') as editor, patch('together.plato.star_cleanup.file_names', return_value=['original.pdf']), patch('together.plato.star_cleanup.WebDriverWait'), patch('together.notices.intelligence.enrichment.PublishedNoticeStore') as store:
+                    editor.return_value._notice_state.return_value = False
+                    store.return_value.load.return_value = []
+                    saved = remove_star(service, 'https://dev-plato.pusan.ac.kr/mod/ubboard/article.php?id=123&bwid=456', Path(temp), **options)
+                proof = json.loads((Path(temp)/'.runtime/star-cleanup/456.json').read_text())
+                self.assertEqual(saved, 'old post')
+                self.assertTrue(proof['verified'])
+                self.assertEqual(proof['before']['body_html'], proof['after']['body_html'])
+                self.assertEqual(proof['after']['files'], ['original.pdf'])
 
     def test_one_star_edit_failure_keeps_other_posts_and_boards_running(self):
         with tempfile.TemporaryDirectory() as temp:

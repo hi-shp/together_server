@@ -65,7 +65,7 @@ def collect_old_stars(session, board_url, today):
     return list(posts.values()), sorted(visited)
 
 
-def remove_star(service, article_url, base_dir):
+def remove_star(service, article_url, base_dir, *, recovered_subject=None, recovery_evidence=None):
     editor = PlatoPostEditor(service, Path(base_dir) / ".runtime/intelligence/edit-backups")
     editor._open_edit(article_url)
 
@@ -81,6 +81,13 @@ def remove_star(service, article_url, base_dir):
     if not before["subject"].startswith("⭐"):
         return None
     subject = before["subject"][1:].strip()
+    if not subject:
+        if not recovered_subject or not recovery_evidence:
+            raise PostEditError("Empty title requires source review")
+        from together.notices.intelligence.quality import display_title
+        subject = display_title(recovered_subject)
+        if not subject or subject.startswith("⭐"):
+            raise PostEditError("Reviewed title is invalid")
     root = Path(base_dir) / ".runtime/star-cleanup"
     root.mkdir(parents=True, exist_ok=True, mode=0o700)
     target = root / (validate_article_url(article_url)["post_id"] + ".json")
@@ -109,6 +116,6 @@ def remove_star(service, article_url, base_dir):
             if snapshot_signature(snapshot) == record["signature"]:
                 snapshot["subject"] = subject
                 store.put(dict(record, signature=snapshot_signature(snapshot)))
-    target.write_text(json.dumps({"article_url": article_url, "before": before, "after": after, "verified": True}, ensure_ascii=False), encoding="utf-8")
+    target.write_text(json.dumps({"article_url": article_url, "before": before, "after": after, "verified": True, "title_recovery_evidence": recovery_evidence if before["subject"][1:].strip() == "" else None}, ensure_ascii=False), encoding="utf-8")
     target.chmod(0o600)
     return subject
