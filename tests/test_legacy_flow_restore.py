@@ -43,12 +43,18 @@ class RestoredFlow(unittest.TestCase):
             service.driver.find_element.return_value.get_attribute.return_value = 'https://dev-plato.pusan.ac.kr/mod/ubboard/view.php?id=123'
             service.safe_get = MagicMock()
             service.restart_driver = MagicMock()
+            service.login_ready = MagicMock()
+            service.login = MagicMock()
+            service.plato_id = 'self'
+            service.plato_pw = 'test'
             with patch.object(plato_service, 'BASE_DIR', Path(temp)), patch('together.plato.star_cleanup.collect_old_stars', side_effect=[(['bad','good'], [1,2,3,4,5])] + [([], [1])]*8) as scan, patch('together.plato.star_cleanup.remove_star', side_effect=[RuntimeError(), 'preserved title']) as edit, patch.object(plato_service, 'event'):
                 failures = service.remove_stars('https://dev-plato.pusan.ac.kr/course/view.php?id=157301', '2026-10-28')
             self.assertEqual(scan.call_count, 9)
             self.assertEqual(edit.call_count, 2)
             self.assertEqual(len(failures), 1)
             self.assertFalse(service._title_maintenance)
+            self.assertEqual(service.login_ready.call_count, 2)
+            self.assertEqual(service.login.call_count, 2)
             self.assertEqual(len(json.loads((Path(temp)/'.runtime/star-cleanup/pending.json').read_text())['items']), 1)
 
     def test_initialization_happens_before_browser_and_later_failure_keeps_committed_state(self):

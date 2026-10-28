@@ -828,6 +828,8 @@ class WriteNoticeService:
         self._title_maintenance = True
         self.restart_driver()
         try:
+            self.login_ready()
+            self.login(self.plato_id, self.plato_pw)
             for cookie in self.driver.get_cookies():
                 session.cookies.set(cookie["name"], cookie["value"], domain="dev-plato.pusan.ac.kr", path=cookie.get("path", "/"))
             session.headers["User-Agent"] = self.driver.execute_script("return navigator.userAgent")
@@ -860,11 +862,13 @@ class WriteNoticeService:
         finally:
             session.close()
             self._title_maintenance = previous_mode
-            self.restart_driver()
             pending = BASE_DIR / ".runtime/star-cleanup/pending.json"
             pending.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
             pending.write_text(json.dumps({"items": failures}, ensure_ascii=False), encoding="utf-8")
             pending.chmod(0o600)
+            self.restart_driver()
+            self.login_ready()
+            self.login(self.plato_id, self.plato_pw)
         return failures
 
     def update_page_url(self, base_url: str, page: int) -> str:
