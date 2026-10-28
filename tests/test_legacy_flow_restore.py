@@ -10,13 +10,31 @@ import unittest
 from unittest.mock import MagicMock, patch
 
 from together import application
-from together.plato.star_cleanup import collect_old_stars
+from together.plato.star_cleanup import collect_old_stars, remove_star
 from together.storage.email_outbox import EmailOutbox
 from together.plato.service import WriteNoticeService
 from together.plato import service as plato_service
 
 
 class RestoredFlow(unittest.TestCase):
+    def test_star_edit_preserves_body_and_attachment_snapshot(self):
+        with tempfile.TemporaryDirectory() as temp:
+            service = MagicMock()
+            subject = MagicMock()
+            subject.get_attribute.side_effect = ['⭐ old post', 'old post']
+            body = MagicMock()
+            body.get_attribute.return_value = '<p>Original content</p>'
+            service.driver.find_element.side_effect = lambda by, name: body if name == 'id_contenteditable' else subject
+            with patch('together.plato.star_cleanup.PlatoPostEditor') as editor, patch('together.plato.star_cleanup.file_names', return_value=['original.pdf']), patch('together.plato.star_cleanup.WebDriverWait'), patch('together.notices.intelligence.enrichment.PublishedNoticeStore') as store:
+                editor.return_value._notice_state.return_value = False
+                store.return_value.load.return_value = []
+                saved = remove_star(service, 'https://dev-plato.pusan.ac.kr/mod/ubboard/article.php?id=123&bwid=456', Path(temp))
+            proof = json.loads((Path(temp)/'.runtime/star-cleanup/456.json').read_text())
+            self.assertEqual(saved, 'old post')
+            self.assertTrue(proof['verified'])
+            self.assertEqual(proof['before']['body_html'], proof['after']['body_html'])
+            self.assertEqual(proof['after']['files'], ['original.pdf'])
+
     def test_one_star_edit_failure_keeps_other_posts_and_boards_running(self):
         with tempfile.TemporaryDirectory() as temp:
             service = WriteNoticeService.__new__(WriteNoticeService)

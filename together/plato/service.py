@@ -832,14 +832,15 @@ class WriteNoticeService:
                 session.cookies.set(cookie["name"], cookie["value"], domain="dev-plato.pusan.ac.kr", path=cookie.get("path", "/"))
             session.headers["User-Agent"] = self.driver.execute_script("return navigator.userAgent")
             for board_name in board_names:
-                self.safe_get(course_url, login_required=True)
-                session.cookies.clear()
-                for cookie in self.driver.get_cookies():
-                    session.cookies.set(cookie["name"], cookie["value"], domain="dev-plato.pusan.ac.kr", path=cookie.get("path", "/"))
-                link = self.driver.find_element(By.XPATH, f'//a[span[contains(@class, "instancename") and contains(text(), "{board_name}")]]')
-                board_url = link.get_attribute("href")
                 event("PLATO", f"\n현재 작업 중인 게시판: {board_name}", level="INFO")
+                board_url = course_url
                 try:
+                    self.safe_get(course_url, login_required=True)
+                    session.cookies.clear()
+                    for cookie in self.driver.get_cookies():
+                        session.cookies.set(cookie["name"], cookie["value"], domain="dev-plato.pusan.ac.kr", path=cookie.get("path", "/"))
+                    link = self.driver.find_element(By.XPATH, f'//a[span[contains(@class, "instancename") and contains(text(), "{board_name}")]]')
+                    board_url = link.get_attribute("href")
                     urls, pages = collect_old_stars(session, board_url, today_date)
                     event("정리", f"별표 검색 {len(pages)}페이지 전체 확인", count=len(urls), source_url=board_url, console=False)
                 except Exception as exc:
@@ -854,7 +855,8 @@ class WriteNoticeService:
                     except Exception as exc:
                         failures.append({"board": board_name, "url": url, "error": type(exc).__name__})
                         event("PLATO", f"오류 발생: {type(exc).__name__}", level="WARN")
-                event("PLATO", "모든 게시판 수정 완료" if board_name == "취업 정보" else f"{board_name} 게시판 수정 완료 → 다음 게시판으로 이동", level="INFO")
+                if not any(item["board"] == board_name for item in failures):
+                    event("PLATO", "모든 게시판 수정 완료" if board_name == "취업 정보" and not failures else f"{board_name} 게시판 수정 완료 → 다음 게시판으로 이동", level="INFO")
         finally:
             session.close()
             self._title_maintenance = previous_mode
