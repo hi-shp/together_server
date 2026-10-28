@@ -12,9 +12,27 @@ from unittest.mock import MagicMock, patch
 from together import application
 from together.plato.star_cleanup import collect_old_stars
 from together.storage.email_outbox import EmailOutbox
+from together.plato.service import WriteNoticeService
+from together.plato import service as plato_service
 
 
 class RestoredFlow(unittest.TestCase):
+    def test_one_star_edit_failure_keeps_other_posts_and_boards_running(self):
+        with tempfile.TemporaryDirectory() as temp:
+            service = WriteNoticeService.__new__(WriteNoticeService)
+            service.driver = MagicMock()
+            service.driver.get_cookies.return_value = []
+            service.driver.find_element.return_value.get_attribute.return_value = 'https://dev-plato.pusan.ac.kr/mod/ubboard/view.php?id=123'
+            service.safe_get = MagicMock()
+            service.restart_driver = MagicMock()
+            with patch.object(plato_service, 'BASE_DIR', Path(temp)), patch('together.plato.star_cleanup.collect_old_stars', side_effect=[(['bad','good'], [1,2,3,4,5])] + [([], [1])]*8) as scan, patch('together.plato.star_cleanup.remove_star', side_effect=[RuntimeError(), 'preserved title']) as edit, patch.object(plato_service, 'event'):
+                failures = service.remove_stars('https://dev-plato.pusan.ac.kr/course/view.php?id=157301', '2026-10-28')
+            self.assertEqual(scan.call_count, 9)
+            self.assertEqual(edit.call_count, 2)
+            self.assertEqual(len(failures), 1)
+            self.assertFalse(service._title_maintenance)
+            self.assertEqual(len(json.loads((Path(temp)/'.runtime/star-cleanup/pending.json').read_text())['items']), 1)
+
     def test_initialization_happens_before_browser_and_later_failure_keeps_committed_state(self):
         trace = []
         class LaterFailure(Exception):

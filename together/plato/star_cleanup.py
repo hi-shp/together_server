@@ -48,6 +48,8 @@ def collect_old_stars(session, board_url, today):
             title = link.get_text(" ", strip=True)
             entries.append(ident["post_id"])
             dates = re.findall(r"\d{4}-\d{2}-\d{2}", row.get_text(" ", strip=True))
+            if title.startswith("⭐") and not dates:
+                raise PostEditError("Starred post date needs inspection")
             if title.startswith("⭐") and dates and dates[0] < today:
                 posts[ident["post_id"]] = url
         signature = tuple(entries)

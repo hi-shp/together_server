@@ -439,7 +439,9 @@ def run_cycle(writenoticeService, prepared=None):
 
     now = datetime.now()
     clear_notice()
-    if 6 <= now.hour < 9:
+    pending_stars = BASE_DIR / ".runtime/star-cleanup/pending.json"
+    retry_stars = pending_stars.exists() and bool(json.loads(pending_stars.read_text()).get("items"))
+    if 6 <= now.hour < 9 or retry_stars:
         event("정리", "\n공지글 수정 작업을 시작합니다.", plain=True)
         writenoticeService.remove_stars(course_url, today_date)
 

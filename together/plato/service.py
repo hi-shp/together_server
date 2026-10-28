@@ -4,6 +4,7 @@ from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 import os
+import json
 import requests
 from typing import List
 from together.crawler.announcements import Announcement
@@ -112,6 +113,8 @@ class WriteNoticeService:
         options.add_argument(f'--user-data-dir={self._workspace / "profile"}')
         options.add_argument(f'--disk-cache-dir={self._workspace / "cache"}')
         options.add_argument("--headless=new")
+        if getattr(self, "_title_maintenance", False):
+            options.add_experimental_option("prefs", {"profile.managed_default_content_settings.images": 2})
         options.add_argument("no-sandbox")
         options.add_argument(f"window-size={self.window_size}")
         options.add_argument("disable-gpu")
@@ -820,24 +823,47 @@ class WriteNoticeService:
 
         from together.plato.star_cleanup import collect_old_stars, remove_star
         session = requests.Session()
+        failures = []
+        previous_mode = getattr(self, "_title_maintenance", False)
+        self._title_maintenance = True
+        self.restart_driver()
         try:
             for cookie in self.driver.get_cookies():
                 session.cookies.set(cookie["name"], cookie["value"], domain="dev-plato.pusan.ac.kr", path=cookie.get("path", "/"))
             session.headers["User-Agent"] = self.driver.execute_script("return navigator.userAgent")
             for board_name in board_names:
                 self.safe_get(course_url, login_required=True)
+                session.cookies.clear()
+                for cookie in self.driver.get_cookies():
+                    session.cookies.set(cookie["name"], cookie["value"], domain="dev-plato.pusan.ac.kr", path=cookie.get("path", "/"))
                 link = self.driver.find_element(By.XPATH, f'//a[span[contains(@class, "instancename") and contains(text(), "{board_name}")]]')
                 board_url = link.get_attribute("href")
                 event("PLATO", f"\n현재 작업 중인 게시판: {board_name}", level="INFO")
-                urls, pages = collect_old_stars(session, board_url, today_date)
-                event("정리", "별표 검색 전체 페이지 확인", count=len(urls), candidates=pages, source_url=board_url, console=False)
+                try:
+                    urls, pages = collect_old_stars(session, board_url, today_date)
+                    event("정리", f"별표 검색 {len(pages)}페이지 전체 확인", count=len(urls), source_url=board_url, console=False)
+                except Exception as exc:
+                    failures.append({"board": board_name, "url": board_url, "error": type(exc).__name__})
+                    event("PLATO", f"오류 발생: {type(exc).__name__}", level="WARN")
+                    continue
                 for url in urls:
-                    subject = remove_star(self, url, BASE_DIR)
-                    if subject is not None:
-                        event("PLATO", f"수정 완료: {subject}", level="INFO")
+                    try:
+                        subject = remove_star(self, url, BASE_DIR)
+                        if subject is not None:
+                            event("PLATO", f"수정 완료: {subject}", level="INFO")
+                    except Exception as exc:
+                        failures.append({"board": board_name, "url": url, "error": type(exc).__name__})
+                        event("PLATO", f"오류 발생: {type(exc).__name__}", level="WARN")
                 event("PLATO", "모든 게시판 수정 완료" if board_name == "취업 정보" else f"{board_name} 게시판 수정 완료 → 다음 게시판으로 이동", level="INFO")
         finally:
             session.close()
+            self._title_maintenance = previous_mode
+            self.restart_driver()
+            pending = BASE_DIR / ".runtime/star-cleanup/pending.json"
+            pending.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+            pending.write_text(json.dumps({"items": failures}, ensure_ascii=False), encoding="utf-8")
+            pending.chmod(0o600)
+        return failures
 
     def update_page_url(self, base_url: str, page: int) -> str:
         parsed_url = urlparse(base_url)
