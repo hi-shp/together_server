@@ -20,8 +20,6 @@ def _load(base_dir):
     path = _path(base_dir)
     if not path.exists():
         return {}
-    if path.stat().st_size > 4 * 1024 * 1024:
-        raise PostVerificationError("Publication index exceeds limit")
     return json.loads(path.read_text(encoding="utf-8"))
 
 

@@ -242,8 +242,6 @@ class PlatoPostEditor:
             EC.presence_of_element_located((By.CSS_SELECTOR, "a.modify"))
         )
         links = self._attachment_links(article_url)
-        if len(links) > 10:
-            raise PostEditError("Too many existing attachments")
         folder = None
         if backup:
             self._prune()

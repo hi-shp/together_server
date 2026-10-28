@@ -106,8 +106,6 @@ class PublishedNoticeStore:
     def load(self):
         if not self.path.exists():
             return []
-        if self.path.stat().st_size > 16 * 1024 * 1024:
-            raise PostEditError("Published index exceeds limit")
         data = json.loads(self.path.read_text(encoding="utf-8"))
         if data.get("schema") != 1:
             raise PostEditError("Unsupported published index")
@@ -121,8 +119,6 @@ class PublishedNoticeStore:
         cutoff = (datetime.now() - timedelta(days=14)).isoformat()
         posts = [row for row in posts if row["notice"]["observed_at"] >= cutoff][-1000:]
         value = json.dumps({"schema": 1, "posts": posts}, ensure_ascii=False)
-        if len(value.encode()) > 16 * 1024 * 1024:
-            raise PostEditError("Published index exceeds limit")
         temporary = self.path.with_suffix(".pending")
         temporary.write_text(value, encoding="utf-8")
         os.chmod(temporary, 0o600)
@@ -136,7 +132,6 @@ class PublishedNoticeStore:
                 record.get("disabled")
                 or announcement.url in record["sources"]
                 or announcement.url in record.get("ignored_sources", [])
-                or record.get("updates", 0) >= 3
             ):
                 continue
             old = Notice(**record["notice"])
