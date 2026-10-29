@@ -13,6 +13,7 @@ from together.storage.attachments import file_digest
 
 from bs4 import BeautifulSoup
 import requests
+from selenium.common.exceptions import ElementClickInterceptedException
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
@@ -50,12 +51,26 @@ def wait_file_manager(driver):
     )
 
 
+def _click_filepicker_control(driver, element):
+    # 고정된 상단 메뉴 아래로 버튼을 옮긴 뒤 클릭한다.
+    driver.execute_script(
+        "arguments[0].scrollIntoView({block: 'center', inline: 'center'});", element
+    )
+    WebDriverWait(driver, 20).until(EC.element_to_be_clickable(element))
+    try:
+        element.click()
+    except ElementClickInterceptedException:
+        driver.execute_script("arguments[0].click();", element)
+
+
 def upload_file_in_manager(driver, path):
     path = Path(path)
     wait_file_manager(driver)
     if path.name in file_names(driver):
         raise PostEditError("Attachment filename already exists")
-    driver.find_element(By.CSS_SELECTOR, ".filemanager .fp-btn-add a").click()
+    _click_filepicker_control(
+        driver, driver.find_element(By.CSS_SELECTOR, ".filemanager .fp-btn-add a")
+    )
     file_input = WebDriverWait(driver, 20).until(
         lambda browser: next(
             (
@@ -79,7 +94,7 @@ def upload_file_in_manager(driver, path):
             False,
         )
     )
-    button.click()
+    _click_filepicker_control(driver, button)
     WebDriverWait(driver, 45).until(lambda browser: path.name in file_names(browser))
     wait_file_manager(driver)
 
