@@ -10,7 +10,9 @@ from together.crawler.http import get as http_get, origin_group
 from together.config import HTTP_TIMEOUT
 
 _group_limit_lock = threading.Lock()
-_group_limits = defaultdict(lambda: threading.BoundedSemaphore(2))
+# 부산대학교의 여러 서브도메인이 같은 서버를 함께 쓰므로 무제한 병렬화는
+# 피하되, 두 요청만 허용하던 병목은 세 요청까지 완화한다.
+_group_limits = defaultdict(lambda: threading.BoundedSemaphore(3))
 
 
 @dataclass(frozen=True)
@@ -44,7 +46,7 @@ def _fetch(url):
 class OrderedBoardPrefetch:
     """최대 window개만 미리 읽고 결과는 원래 인덱스에서만 꺼낸다."""
 
-    def __init__(self, pages, *, workers=5, window=8):
+    def __init__(self, pages, *, workers=8, window=12):
         self.pages = pages
         self.window = max(1, window)
         self.executor = ThreadPoolExecutor(

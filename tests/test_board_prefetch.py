@@ -7,6 +7,14 @@ from together.crawler.prefetch import BoardSnapshot, OrderedBoardPrefetch
 
 
 class OrderedBoardPrefetchTests(unittest.TestCase):
+    def test_default_window_keeps_more_ordered_requests_ready(self):
+        prefetch = OrderedBoardPrefetch([])
+        try:
+            self.assertEqual(prefetch.window, 12)
+            self.assertEqual(prefetch.executor._max_workers, 8)
+        finally:
+            prefetch.close()
+
     def test_small_window_returns_each_snapshot_at_its_original_index(self):
         pages = [
             types.SimpleNamespace(page_url=f"https://board{i}.pusan.ac.kr/list")
