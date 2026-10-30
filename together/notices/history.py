@@ -7,7 +7,7 @@ from difflib import SequenceMatcher
 import csv
 import heapq
 from collections import defaultdict, deque
-from together.notices.intelligence.text import occurrence_conflict, normalize_title, requires_department_evidence
+from together.notices.intelligence.text import occurrence_conflict, normalize_title, requires_department_evidence, clean_display_title, identity
 from together.notices.intelligence.events import Notice, compare_notices
 from together.config import BASE_DIR
 from together.notices.intelligence.context import duplicate_context
@@ -39,6 +39,9 @@ def remove_brackets(text):
 
 
 def comparison_title(title, mode="hybrid"):
+    if mode != "legacy":
+        # 행사명이 대괄호 안에 있고 바깥에는 '모집 안내'만 있는 경우도 보존한다.
+        return "".join(char.casefold() for char in clean_display_title(title) if char.isalnum())
     cleaned = remove_brackets(title).strip()
     if not cleaned and mode != "legacy":
         # 제목 전체를 감싼 대괄호에서는 안쪽의 행사명을 남긴다.
@@ -46,6 +49,28 @@ def comparison_title(title, mode="hybrid"):
         if not cleaned:
             cleaned = "".join(char for char in str(title) if char.isalnum())
     return cleaned
+
+
+def candidate_title_similarities(new_title, titles, mode="hybrid"):
+    cleaned = [comparison_title(title, mode) for title in titles]
+    query = comparison_title(new_title, mode)
+    if mode == "legacy":
+        return _top_title_similarities(query, cleaned)
+    # 긴 홍보 문구 때문에 같은 고유 프로그램의 같은 기수가 후보에서 밀리지 않게 한다.
+    # 이 가산점은 후보 순서에만 쓰며 중복 확정은 기존 본문 검토가 맡는다.
+    generic = {"pnu", "ai", "sw", "it", "bk21", "sns", "csr", "pbl"}
+    identifiers = lambda text: {x.casefold() for x in re.findall(r"[A-Za-z][A-Za-z0-9]{2,}", text)} - generic
+    current_ids = identifiers(new_title)
+    rounds = set(identity(new_title)["rounds"])
+    scored = []
+    for index, (original, value) in enumerate(zip(titles, cleaned)):
+        if not value:
+            continue
+        score = calculate_similarity(query, value)
+        if current_ids & identifiers(original) and rounds & set(identity(original)["rounds"]):
+            score += 0.35
+        scored.append((score, -index, value))
+    return [(score, title) for score, _, title in heapq.nlargest(3, scored)]
 
 
 def truncate_text(text, max_tokens):
@@ -143,8 +168,9 @@ def is_recent_title_duplicate(
         cleaned_titles = [cleaned for _, cleaned in valid]
     query_title = new_title if mode == "legacy" else comparison_title(new_title, mode)
     title_similarities = (
-        _top_title_similarities(query_title, cleaned_titles) if query_title else []
-    )
+        _top_title_similarities(query_title, cleaned_titles) if mode == "legacy"
+        else candidate_title_similarities(new_title, [title for _, title in recent_entries], mode)
+    ) if query_title else []
     candidate_labels = [title for _, title in title_similarities[:3]]
 
     def decision(result, method, similarity=None):
@@ -169,7 +195,10 @@ def is_recent_title_duplicate(
     if len(title_similarities) == 0:
         return decision("중복 아님", "최근 비교 대상 없음")
 
-    highest_similarity = title_similarities[0][0]
+    highest_similarity = (
+        title_similarities[0][0] if mode == "legacy"
+        else calculate_similarity(query_title, title_similarities[0][1])
+    )
 
     if mode == "legacy" and highest_similarity >= 0.85:
         return decision("중복", "기존 문자열 기준", highest_similarity)

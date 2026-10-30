@@ -218,7 +218,10 @@ def run_cycle(writenoticeService, prepared=None):
     page_url_manager = PageUrlManager()
     event("시작", f"게시판 {len(page_url_manager.announcement_pages)}개 준비 완료")
     n = 1
+    previous_board_had_notices = False
     for announcement_page in page_url_manager.announcement_pages:
+        if previous_board_had_notices:
+            print("", flush=True)
         clear_notice()
         notice_category.set(None)
         page_match = re.search(r"(?:[?&])page=(\d+)", announcement_page.page_url)
@@ -229,13 +232,14 @@ def run_cycle(writenoticeService, prepared=None):
         )
         event(
             "게시판",
-            f"{n}/{len(page_url_manager.announcement_pages)} · {announcement_page.department}{page_label}",
+            f"{n}/{len(page_url_manager.announcement_pages)} · {getattr(announcement_page, 'display_name', announcement_page.department)}{page_label}",
             source_url=announcement_page.page_url,
             board_index=n,
             board_count=len(page_url_manager.announcement_pages),
             console=False,
         )
-        ann_urls, latest_announcement_number = get_anns_url(announcement_page, n)
+        ann_urls, latest_announcement_number = get_anns_url(announcement_page, getattr(announcement_page, "display_ordinal", n))
+        previous_board_had_notices = bool(ann_urls)
         update_state(BASE_DIR, boards=board_summary())
         department = announcement_page.department
         n += 1

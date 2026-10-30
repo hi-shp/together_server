@@ -12,6 +12,7 @@ from together.notices.intelligence.text import (
     normalize_title,
 )
 from together.storage.api_usage import ApiAccounting
+from together.notices.intelligence.context import department_conditions_differ
 from together.notices.intelligence.quality import remember_review
 
 from together.notices.intelligence.policy import CATEGORIES
@@ -62,6 +63,7 @@ def answer_gpt(user_content):
 
 
 def check_title_similarity(new_title, recent_titles, *, context_provider=None):
+    shared_program = lambda title: "현장실습학기제" in normalize_title(title).replace(" ", "")
     # 학과별 모집은 모델이 동일 제목을 중복으로 판단하더라도 근거 없이 누락하지 않는다.
     if requires_department_evidence(new_title):
         context = context_provider(recent_titles[:3]) if context_provider else None
@@ -74,18 +76,20 @@ def check_title_similarity(new_title, recent_titles, *, context_provider=None):
             ):
                 duplicate_review.set("같은 원문·제목 재확인")
                 return "중복"
-        duplicate_review.set("학과별 모집·대상 확인 필요")
-        return "중복 아님"
+        if not shared_program(new_title):
+            duplicate_review.set("학과별 모집·대상 확인 필요")
+            return "중복 아님"
     candidates = [
         title
         for title in recent_titles[:3]
         if not occurrence_conflict(new_title, title)
-        and not requires_department_evidence(title)
+        and (not requires_department_evidence(title) or (shared_program(new_title) and shared_program(title)))
     ]
     if not candidates:
         duplicate_review.set("연도·회차·학과 조건에 맞는 후보 없음")
         return "중복 아님"
     used_context = False
+    used_model = False
     reviews = []
     final_relation = "different_event"
     labels = {
@@ -96,8 +100,21 @@ def check_title_similarity(new_title, recent_titles, *, context_provider=None):
     }
     for position, candidate in enumerate(candidates):
         context = context_provider([candidate]) if context_provider else None
+        if shared_program(new_title) and (
+            not context
+            or len(context.get("new_notice", {}).get("body_excerpt", "").strip()) < 80
+            or not any(len(row.get("body_excerpt", "").strip()) >= 80 for row in context.get("recent_notices", []))
+        ):
+            final_relation = "needs_context"
+            reviews.append(f"{position}번 후보: 학과별 조건을 대조할 본문 부족")
+            continue
+        if shared_program(new_title) and department_conditions_differ(context):
+            final_relation = "related_update"
+            reviews.append(f"{position}번 후보: 학과별 제출·학점 조건 추가")
+            continue
         used_context = used_context or bool(context)
         request = duplicate_request(new_title, [candidate], context)
+        used_model = True
         result = _decision(DUPLICATE_MODEL, request)
         relation = result.get("relation")
         if relation not in labels:
@@ -116,7 +133,7 @@ def check_title_similarity(new_title, recent_titles, *, context_provider=None):
             final_relation = relation
     duplicate_review_reason.set(" / ".join(reviews))
     duplicate_review.set(
-        ("GPT 본문 검토·" if used_context else "GPT 후보 검토·")
+        ("본문 조건 대조·" if not used_model else "GPT 본문 검토·" if used_context else "GPT 후보 검토·")
         + labels[final_relation]
     )
     return "중복" if final_relation == "same_event" else "중복 아님"

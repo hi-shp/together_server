@@ -1,6 +1,7 @@
 """학교 대표 홈페이지의 학술행사·채용 게시판."""
 
 from urllib.parse import parse_qs, urljoin, urlsplit
+from together.crawler.counts import notice_count
 
 BOARD_MANAGERS = {"MN077": "2", "MN103": "10"}
 
@@ -36,6 +37,6 @@ def collect(page, soup, response_url, ordinal, event, record_board_result):
     record_board_result(True)
     maximum = max([page.number, *articles])
     selected = [articles[key] for key in sorted(articles) if key > page.number]
-    event("수집", f"{ordinal}. {page.department} {maximum}", plain=True)
+    event("수집", f"{ordinal}. {getattr(page, 'display_name', page.department)} {notice_count(soup, len(articles))}", plain=True)
     event("수집", f"💡{len(selected)}개의 New Announcment!: {page.page_url}" if selected else f"새로 추가된 공지사항 없음: {page.page_url}", plain=True)
     return selected, maximum

@@ -68,3 +68,18 @@ class MaterialEnrichment(unittest.TestCase):
 
     def test_actual_new_attachment_preserves_existing_body_and_title(self):
         self.exercise_file(True)
+
+    def test_new_image_attachment_is_excluded_without_removing_published_files(self):
+        with tempfile.TemporaryDirectory() as temp:
+            image = Path(temp) / 'poster-disguised.pdf'
+            image.write_bytes(b'\x89PNG\r\n\x1a\nimage')
+            old = Notice('2026 IRB 지역교육', datetime.now().isoformat(), source_url='https://a.invalid/old', body_text='지역교육')
+            record = {'article_url': 'https://dev-plato.pusan.ac.kr/mod/ubboard/article.php?id=1&bwid=2', 'signature': 'same', 'notice': asdict(old), 'sources': [old.source_url], 'departments': ['기계'], 'updates': 0}
+            PublishedNoticeStore(temp).put(record)
+            ann = types.SimpleNamespace(title=old.title, url='https://a.invalid/new', content_text='지역교육', content_html=BODY, files=[str(image)], metadata={'attachment_links': [{'url': 'https://a.invalid/new-image', 'name': 'poster.png'}]})
+            current = {'signature': 'same', 'subject': '기존 제목', 'body_html': BODY, 'files': [{'name': 'previous-image.png', 'sha256': 'existing'}]}
+            with patch('together.notices.intelligence.enrichment.PlatoPostEditor') as factory, patch('together.notices.intelligence.enrichment.compare_notices', return_value={'relation': 'same_event'}), patch('together.notices.intelligence.enrichment.adds_information', return_value=True):
+                factory.return_value.read.return_value = current
+                self.assertFalse(apply_enrichment(types.SimpleNamespace(driver=MagicMock()), record, ann, '기계', temp))
+                factory.return_value.update.assert_not_called()
+            self.assertEqual(current['files'], [{'name': 'previous-image.png', 'sha256': 'existing'}])

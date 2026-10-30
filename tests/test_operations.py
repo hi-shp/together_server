@@ -60,9 +60,13 @@ class CacheTests(unittest.TestCase):
         source.url = "https://example.invalid/view/1"
         source.text = '<h2 class="artclViewTitle">교육 안내</h2><div class="artclView">본문</div><dd class="artclInsert"><li><a href="/download.do?f=1">자료.pdf</a></li><li><a href="/download.do?f=2">자료.pdf</a></li></dd>'
         first = MagicMock()
+        first.headers = {}
+        first.url = "https://example.invalid/download.do?f=1"
         first.__enter__.return_value = first
         first.iter_content.return_value = iter([b"one", b" data"])
         second = MagicMock()
+        second.headers = {}
+        second.url = "https://example.invalid/download.do?f=2"
         second.__enter__.return_value = second
         second.iter_content.return_value = iter([b"two data"])
         before = Path.cwd()

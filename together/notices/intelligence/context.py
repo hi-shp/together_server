@@ -2,7 +2,25 @@
 
 from datetime import timedelta
 from pathlib import Path
+import re
 import sqlite3
+
+
+def department_conditions_differ(context):
+    """같은 현장실습의 학과별 추가 조건을 공통 안내에 덮어 합치지 않는다."""
+    notices = [context.get("new_notice", {}), *context.get("recent_notices", [])]
+    scopes = []
+    for notice in notices:
+        body = re.sub(r"\s+", "", notice.get("body_excerpt", ""))
+        department = re.sub(r"\([^)]*\)", "", notice.get("department", ""))
+        department = re.sub(r"\s+", "", department)
+        conditions = set()
+        if len(department) >= 3 and re.search(r"학과|학부|전공", department):
+            for match in re.finditer(re.escape(department) + r".{0,100}", body):
+                if re.search(r"학점|제출|지원자격|참여대상|학년|이수|인정|불가", match[0]):
+                    conditions.add(match[0])
+        scopes.append(conditions)
+    return len(scopes) > 1 and any(scopes[0] != other and (scopes[0] or other) for other in scopes[1:])
 
 
 def excerpt(text):

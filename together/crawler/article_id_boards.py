@@ -6,6 +6,7 @@ import re
 from functools import lru_cache
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urljoin, urlsplit
+from together.crawler.counts import notice_count
 
 
 @lru_cache(maxsize=1)
@@ -46,6 +47,34 @@ def entries(soup, response_url, expected):
     return articles
 
 
+def last_page_size(soup, response_url, expected, last):
+    """표시 개수만 확인한다. 실패해도 현재 페이지의 수집 경계를 바꾸지 않는다."""
+    import requests
+    from bs4 import BeautifulSoup
+    from together.crawler.http import get
+    from together.config import HTTP_TIMEOUT
+
+    form = soup.select_one('form[name="pageForm"][action]')
+    if form is None:
+        return None
+    url = urljoin(response_url, form["action"])
+    if urlsplit(url).hostname != urlsplit(response_url).hostname:
+        return None
+    data = {node["name"]: node.get("value", "") for node in form.select("input[name]")}
+    data["page"] = last
+    try:
+        with get(url, params=data, timeout=HTTP_TIMEOUT, verify=False) as response:
+            response.raise_for_status()
+            final = BeautifulSoup(response.text, "html.parser")
+            current = final.select_one('form[name="pageForm"] input[name="page"]')
+            if current is None or current.get("value") != str(last):
+                return None
+            found = entries(final, response.url, expected)
+            return len(found) if found is not None else None
+    except requests.RequestException:
+        return None
+
+
 def collect(page, soup, response_url, expected, ordinal, event, record_board_result):
     articles = entries(soup, response_url, expected)
     if articles is None:
@@ -59,6 +88,7 @@ def collect(page, soup, response_url, expected, ordinal, event, record_board_res
     record_board_result(True)
     maximum = max([page.number, *articles])
     selected = [articles[key] for key in sorted(articles) if key > page.number]
-    event("수집", f"{ordinal}. {page.department} {maximum}", plain=True)
+    count = notice_count(soup, len(articles), lambda last: last_page_size(soup, response_url, expected, last))
+    event("수집", f"{ordinal}. {getattr(page, 'display_name', page.department)} {count}", plain=True)
     event("수집", f"💡{len(selected)}개의 New Announcment!: {page.page_url}" if selected else f"새로 추가된 공지사항 없음: {page.page_url}", plain=True)
     return selected, maximum

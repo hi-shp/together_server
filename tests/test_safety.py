@@ -124,12 +124,12 @@ class CrawlerSafety(unittest.TestCase):
         with patch.object(crawl, "http_get", side_effect=crawl.requests.Timeout):
             self.assertEqual(crawl.get_anns_url(self.board(), 1), ([], 10))
 
-    def test_disabled_board_is_fetched_once(self):
+    def test_missing_table_is_rechecked_without_changing_watermark(self):
         with patch.object(
             crawl, "http_get", return_value=self.response("<h1>disabled</h1>")
         ) as get:
             self.assertEqual(crawl.get_anns_url(self.board(), 1), ([], 10))
-            self.assertEqual(get.call_count, 1)
+            self.assertEqual(get.call_count, 2)
 
     def test_relative_image_uses_final_document_url(self):
         response = self.response(
@@ -287,14 +287,24 @@ class SupervisorSafety(unittest.TestCase):
             self.assertFalse(old.exists())
             self.assertTrue(foreign.exists())
 
-    def test_explicit_test_timeout_keeps_the_full_log_and_cleans_own_descendants(self):
+    def test_completed_cycle_keeps_output_larger_than_pipe_buffer(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            payload = ('공지 확인 완료\n' + 'x' * 200000 + '\nEND\n').encode('utf-8')
+            (root / 'main.py').write_text('import sys\nsys.stdout.buffer.write(' + repr(payload) + ')\n', encoding='utf-8')
+            (root / '.runtime').mkdir()
+            with patch.object(run_main, 'BASE_DIR', root), patch.object(run_main, 'scratch_root', return_value=root / '.runtime'), patch.object(run_main.sys, 'stdout', types.SimpleNamespace(buffer=io.BytesIO())):
+                self.assertEqual(run_main.run_cycle(root / 'log.txt'), 0)
+            self.assertEqual((root / 'log.txt').read_bytes(), payload)
+
+    def test_explicit_test_timeout_cleans_only_own_descendants(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             (root / "main.py").write_text(
                 "import subprocess,sys,time\n"
                 "p=subprocess.Popen([sys.executable,'-c','import time; time.sleep(60)'])\n"
                 "print('child-pid='+str(p.pid),flush=True)\n"
-                "print('x'*200000,flush=True)\n"
+                "print('ready',flush=True)\n"
                 "time.sleep(60)\n",
                 encoding="utf-8",
             )
@@ -317,7 +327,7 @@ class SupervisorSafety(unittest.TestCase):
                     self.assertEqual(
                         run_main.run_cycle(root / "log.txt", max_seconds=2), 124
                     )
-                self.assertGreater((root / "log.txt").stat().st_size, 200000)
+                self.assertIn('ready\n', (root / 'log.txt').read_text())
                 self.assertEqual(list((root / ".runtime").glob("run-*")), [])
                 self.assertIsNone(unrelated.poll())
                 child_pid = int(

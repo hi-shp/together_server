@@ -9,9 +9,10 @@ from pathlib import Path
 def restore_boards(root):
     root = Path(root)
     config = json.loads((root / "together/crawler/recovered_boards.json").read_text(encoding="utf-8"))
-    additional = root / "together/crawler/additional_boards.json"
-    if additional.exists():
-        config += json.loads(additional.read_text(encoding="utf-8"))
+    for filename in ("additional_boards.json", "authenticated_boards.json"):
+        additional = root / "together/crawler" / filename
+        if additional.exists():
+            config += json.loads(additional.read_text(encoding="utf-8"))
     from urllib.parse import urlsplit
     for item in config:
         assert isinstance(item.get("department"), str) and item["department"].strip(), "Missing board name"

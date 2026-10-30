@@ -10,7 +10,6 @@ import re
 import tempfile
 import shutil
 from bs4 import BeautifulSoup
-from requests import RequestException
 
 from .events import Notice, compare_notices
 from .enrichment_quality import profile, text_gain, compatible, body_gain
@@ -28,7 +27,7 @@ from .quality import (
     sanitize_html,
 )
 from together.operations.events import event
-from together.crawler.files import download_attachment, IMAGES
+from together.crawler.files import is_image_file
 from together.storage.attachments import file_digest
 
 
@@ -236,17 +235,8 @@ def apply_enrichment(service, record, announcement, department, base_dir):
     ):
         raise PostEditError("Enrichment attachments exceed limit")
     with tempfile.TemporaryDirectory(prefix="upload-", dir=folder_root) as temporary:
-        candidates = list(announcement.files)
-        # 원문에 파일로 등록된 안내 이미지도 보강 자료에 포함한다.
-        for item in (getattr(announcement, "metadata", {}) or {}).get("attachment_links", []):
-            if Path(item.get("name", "")).suffix.lower() in IMAGES:
-                try:
-                    saved = download_attachment(item["url"], item["name"], referer=announcement.url, directory=Path(temporary) / "images", allow_images=True, max_bytes=MAX_OPERATION_BYTES)
-                except (RequestException, OSError, ValueError) as exc:
-                    event("보강", "안내 이미지 수집 보류", level="WARN", source_url=item["url"], error=type(exc).__name__, console=False)
-                    continue
-                if saved:
-                    candidates.append(saved["path"])
+        # 본문 이미지는 유지하고 새 이미지 첨부는 보강에서도 제외한다.
+        candidates = [value for value in announcement.files if not is_image_file(value)]
         if sum(Path(value).stat().st_size for value in candidates) > MAX_OPERATION_BYTES:
             raise PostEditError("Enrichment attachments exceed limit")
         uploads = []

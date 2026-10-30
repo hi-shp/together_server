@@ -3,6 +3,7 @@ from dotenv import load_dotenv
 import os
 import json
 from pathlib import Path
+from together.crawler.catalog import display_name, order_pages, set_display_ordinals
 
 
 with open(Path(__file__).with_name("url_overrides.json"), encoding="utf-8") as handle:
@@ -30,6 +31,7 @@ class AnnouncementPage:
         self.page_url = URL_OVERRIDES.get(page_url, page_url)
         self.default_url = default_url
         self.number = number
+        self.display_name = display_name(department, self.source_url)
 
 
 class PageUrlManager:
@@ -44,6 +46,8 @@ class PageUrlManager:
         df = pd.read_csv(f"{filename}")
         self.announcement_pages = []
         self.__init_announcement_pages(df)
+        self.announcement_pages = order_pages(self.announcement_pages)
+        set_display_ordinals(self.announcement_pages)
 
     def reload_data(self):
         """변경된 CSV를 다시 읽는다."""

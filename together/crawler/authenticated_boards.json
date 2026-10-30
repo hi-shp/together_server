@@ -1,0 +1,16 @@
+[
+  {
+    "department": "학생지원시스템(공지사항)",
+    "page_url": "https://onestop.pusan.ac.kr/page?menuCD=000000000000386",
+    "number": 2216,
+    "verified_at": "2026-10-30",
+    "parser": "onestop_authenticated"
+  },
+  {
+    "department": "학생지원시스템(장학 공지사항)",
+    "page_url": "https://onestop.pusan.ac.kr/page?menuCD=000000000000062",
+    "number": 705,
+    "verified_at": "2026-10-30",
+    "parser": "onestop_authenticated"
+  }
+]

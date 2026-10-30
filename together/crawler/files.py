@@ -4,6 +4,7 @@ from email.header import decode_header, make_header
 from email.message import Message
 import hashlib
 import html
+from itertools import chain
 import os
 from pathlib import Path
 import re
@@ -15,7 +16,8 @@ from together.crawler import http as public_http
 
 from together.config import HTTP_TIMEOUT
 
-IMAGES = {".png", ".jpg", ".jpeg", ".gif"}
+IMAGES = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tif", ".tiff",
+          ".svg", ".ico", ".avif", ".heic", ".heif", ".jxl", ".jfif"}
 GENERIC = re.compile(
     r"^(?:다운로드|첨부파일|파일|download|attachment|downloadrun\.do|download\.do|download\.(?:asp|php))$",
     re.I,
@@ -54,17 +56,44 @@ def response_filename(response):
     return sanitize_filename(name)
 
 
-def download_attachment(url, suggested_name, *, referer, directory="downloads", allow_images=False, max_bytes=None):
+def is_image_attachment(name="", content_type="", prefix=b""):
+    """첨부의 표시 이름뿐 아니라 응답 형식과 실제 파일 머리도 확인한다."""
+    if Path(sanitize_filename(name)).suffix.lower() in IMAGES:
+        return True
+    if content_type.split(";", 1)[0].strip().lower().startswith("image/"):
+        return True
+    if prefix.startswith((b"\x89PNG\r\n\x1a\n", b"\xff\xd8\xff", b"GIF87a", b"GIF89a",
+                          b"II*\x00", b"MM\x00*", b"II+\x00", b"MM\x00+", b"\x00\x00\x01\x00", b"\xff\x0a",
+                          b"\x00\x00\x00\x0cJXL \r\n\x87\n")):
+        return True
+    if len(prefix) >= 14 and prefix[:2] == b"BM" and prefix[6:10] == b"\x00" * 4 and int.from_bytes(prefix[10:14], "little") >= 14:
+        return True
+    if prefix[:4] == b"RIFF" and prefix[8:12] == b"WEBP":
+        return True
+    if prefix[4:8] == b"ftyp" and any(
+        brand in prefix[8:40] for brand in (b"avif", b"avis", b"heic", b"heix", b"heif", b"mif1")
+    ):
+        return True
+    start = prefix.lstrip(b"\xef\xbb\xbf \t\r\n").lower()
+    return start.startswith(b"<svg") or (start.startswith(b"<?xml") and b"<svg" in start)
+
+
+def is_image_file(path):
+    with Path(path).open("rb") as handle:
+        return is_image_attachment(Path(path).name, prefix=handle.read(512))
+
+
+def download_attachment(url, suggested_name, *, referer, directory="downloads", max_bytes=None, http_client=None):
+    initial = sanitize_filename(suggested_name)
+    if is_image_attachment(initial):
+        return None
     root = Path(directory)
     root.mkdir(parents=True, exist_ok=True)
     if root.is_symlink():
         raise ValueError("Invalid download directory")
-    initial = sanitize_filename(suggested_name)
-    if not allow_images and Path(initial).suffix.lower() in IMAGES:
-        return None
     pending = None
     try:
-        with public_http.get(
+        with (http_client or public_http).get(
             url,
             verify=False,
             timeout=HTTP_TIMEOUT,
@@ -72,7 +101,11 @@ def download_attachment(url, suggested_name, *, referer, directory="downloads", 
             headers={"Referer": referer},
         ) as response:
             response.raise_for_status()
-            name = initial or response_filename(response)
+            header_name = response_filename(response)
+            content_type = response.headers.get("Content-Type", "")
+            if is_image_attachment(header_name, content_type):
+                return None
+            name = initial or header_name
             if not name:
                 path_name = sanitize_filename(
                     unquote(Path(urlsplit(response.url).path).name)
@@ -100,12 +133,23 @@ def download_attachment(url, suggested_name, *, referer, directory="downloads", 
                     + hashlib.sha256(url.encode()).hexdigest()[:12]
                     + extension
                 )
-            if not allow_images and Path(name).suffix.lower() in IMAGES:
+            if is_image_attachment(name):
                 return None
             if "text/html" in response.headers.get("Content-Type", "").lower() and Path(
                 name
             ).suffix.lower() not in (".html", ".htm"):
                 raise ValueError("Attachment endpoint returned HTML")
+            chunks = iter(response.iter_content(1024 * 1024))
+            buffered = []
+            prefix = b""
+            for chunk in chunks:
+                if chunk:
+                    buffered.append(chunk)
+                    prefix += chunk[:512 - len(prefix)]
+                    if len(prefix) >= 512:
+                        break
+            if is_image_attachment(name, content_type, prefix):
+                return None
             digest = hashlib.sha256()
             size = 0
             with tempfile.NamedTemporaryFile(
@@ -113,7 +157,7 @@ def download_attachment(url, suggested_name, *, referer, directory="downloads", 
             ) as handle:
                 pending = Path(handle.name)
                 os.chmod(pending, 0o600)
-                for chunk in response.iter_content(1024 * 1024):
+                for chunk in chain(buffered, chunks):
                     if not chunk:
                         continue
                     if shutil.disk_usage(root).free - len(chunk) < 1024**3:

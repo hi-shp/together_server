@@ -54,6 +54,24 @@ class RestoredFlow(unittest.TestCase):
             finally:
                 os.chdir(previous)
 
+    def test_temporary_missing_table_is_rechecked_before_marking_board_failed(self):
+        from together.crawler import announcements
+        page = types.SimpleNamespace(page_url='https://example.pusan.ac.kr/example/1/subview.do', department='연구실', number=42)
+        temporary = types.SimpleNamespace(text='<html>Service unavailable</html>', url=page.page_url)
+        normal = types.SimpleNamespace(text='<table><tbody><tr><td class="_artclTdNum">42</td></tr></tbody></table>', url=page.page_url)
+        previous = Path.cwd()
+        with tempfile.TemporaryDirectory() as directory:
+            try:
+                os.chdir(directory)
+                Path('yesterday.txt').write_text('\n\n', encoding='utf-8')
+                with patch.object(announcements, '_get_board_response', side_effect=[temporary, normal]) as get, patch.object(announcements, 'record_board_result') as state, patch.object(announcements, 'event') as log:
+                    self.assertEqual(announcements.get_anns_url(page, 1), ([], 42))
+                self.assertEqual(get.call_count, 2)
+                state.assert_called_once_with(True)
+                self.assertFalse(any(call.kwargs.get('level') == 'WARN' for call in log.call_args_list))
+            finally:
+                os.chdir(previous)
+
     def test_auxiliary_cms_uses_article_identity_and_keeps_pinned_notices(self):
         from together.crawler.auxiliary_cms import collect
         from bs4 import BeautifulSoup
@@ -291,3 +309,21 @@ class RestoredFlow(unittest.TestCase):
             (root / 'pages.csv').write_bytes(original)
             with self.assertRaises(AssertionError): module.restore_boards(root)
             self.assertEqual((root / 'pages.csv').read_bytes(), original)
+
+    def test_authenticated_sources_append_without_replacing_completed_boundaries(self):
+        path = Path(__file__).resolve().parents[1] / 'ops/restore_boards.py'
+        spec = importlib.util.spec_from_file_location('authenticated_sources_test', path)
+        module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+        with tempfile.TemporaryDirectory() as temp, patch.dict(os.environ, {'PAGE_NAME':'pages.csv'}):
+            root = Path(temp); config = root / 'together/crawler'; config.mkdir(parents=True)
+            (config / 'recovered_boards.json').write_text('[]')
+            (config / 'authenticated_boards.json').write_text(json.dumps([
+                {'department':'old','page_url':'https://existing.invalid','number':1},
+                {'department':'authenticated','page_url':'https://onestop.pusan.ac.kr/page?menuCD=000000000000386','number':2216}]))
+            original = b'department,page_url,number\r\nold,https://existing.invalid,9999\r\n'
+            (root / 'pages.csv').write_bytes(original)
+            self.assertEqual(module.restore_boards(root), ['authenticated'])
+            once = (root / 'pages.csv').read_bytes()
+            self.assertTrue(once.startswith(original))
+            self.assertEqual(module.restore_boards(root), [])
+            self.assertEqual((root / 'pages.csv').read_bytes(), once)

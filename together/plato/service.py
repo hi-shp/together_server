@@ -90,7 +90,8 @@ class WriteNoticeService:
     def _get_page(self, url):
         self.driver.get(url)
         current = getattr(self.driver, "current_url", "")
-        if isinstance(current, str) and current.startswith("chrome-error://"):
+        document = self.driver.execute_script("return document.documentURI")
+        if any(isinstance(value, str) and value.startswith("chrome-error://") for value in (current, document)):
             raise WebDriverException("Browser connection error page")
 
     def safe_get(self, url, login_required=False):
@@ -707,7 +708,8 @@ class WriteNoticeService:
         notice_board_name: str,
         department: str,
     ):
-
+        from together.crawler.files import is_image_file
+        files = [path for path in files if not is_image_file(path)]
         department_cleaned = re.sub(r"\([^)]*\)", "", department).replace(" ", "")
 
         if notice_board_name in ["기타 공지사항", "장학금"]:
@@ -893,7 +895,7 @@ class WriteNoticeService:
 
     def update_participants(self):
 
-        self.driver.get("https://dev-plato.pusan.ac.kr/user/users.php?id=157301")
+        self.safe_get("https://dev-plato.pusan.ac.kr/user/users.php?id=157301", login_required=True)
 
         html = self.driver.page_source
         soup = BeautifulSoup(html, "html.parser")
@@ -906,8 +908,8 @@ class WriteNoticeService:
 
         formatted_number = "{:,}".format(highest_number)
 
-        self.driver.get(
-            "https://dev-plato.pusan.ac.kr/course/editsection.php?id=1814053&sr"
+        self.safe_get(
+            "https://dev-plato.pusan.ac.kr/course/editsection.php?id=1814053&sr", login_required=True
         )
 
         content_div = WebDriverWait(self.driver, 10).until(

@@ -32,17 +32,39 @@ class Response:
 
 
 class AttachmentNameTests(unittest.TestCase):
-    def test_enrichment_can_keep_image_attachment_and_respects_byte_limit(self):
-        with tempfile.TemporaryDirectory() as temp, patch(
-            "together.crawler.files.public_http.get", return_value=Response(body=b"image-bytes")
-        ) as get:
-            self.assertIsNone(download_attachment("https://example.invalid/file", "안내.jpg", referer="https://example.invalid/notice", directory=temp))
+    def test_image_filename_is_skipped_without_request(self):
+        with tempfile.TemporaryDirectory() as temp, patch("together.crawler.files.public_http.get") as get:
+            for name in ("안내.JPG", "포스터.webp", "포스터.avif", "그림.svg", "사진.HEIC"):
+                self.assertIsNone(download_attachment("https://example.invalid/file", name,
+                    referer="https://example.invalid/notice", directory=temp))
             get.assert_not_called()
-            result = download_attachment("https://example.invalid/file", "안내.jpg", referer="https://example.invalid/notice", directory=temp, allow_images=True, max_bytes=20)
-            self.assertEqual(Path(result["path"]).read_bytes(), b"image-bytes")
-            with self.assertRaises(ValueError):
-                download_attachment("https://example.invalid/file", "다른안내.jpg", referer="https://example.invalid/notice", directory=temp, allow_images=True, max_bytes=5)
-            self.assertEqual([p.name for p in Path(temp).iterdir()], ["안내.jpg"])
+            self.assertEqual(list(Path(temp).iterdir()), [])
+
+    def test_image_response_and_disguised_bytes_are_skipped(self):
+        cases = [
+            Response({"Content-Type": "image/jpeg"}, b"image"),
+            Response({"Content-Disposition": "attachment; filename=poster.png"}),
+            Response(body=b"\x89PNG\r\n\x1a\n" + b"x" * 600),
+            Response(body=b"RIFF" + b"\x00" * 4 + b"WEBP" + b"image"),
+            Response(body=b"<?xml version='1.0'?><svg xmlns='http://www.w3.org/2000/svg'/>"),
+        ]
+        with tempfile.TemporaryDirectory() as temp:
+            for response in cases:
+                self.assertIsNone(self.fetch(temp, "안내.pdf", response))
+            self.assertEqual(list(Path(temp).iterdir()), [])
+
+    def test_split_image_signature_is_detected_and_documents_keep_all_bytes(self):
+        response = Response()
+        response.iter_content = lambda _: iter([b"\x89", b"PNG\r\n", b"\x1a\n", b"payload"])
+        with tempfile.TemporaryDirectory() as temp:
+            self.assertIsNone(self.fetch(temp, "unknown", response))
+            body = b"%PDF-1.7" + bytes(range(256)) * 5
+            response.iter_content = lambda _: iter([body[:1], b"", body[1:20], body[20:]])
+            result = self.fetch(temp, "자료.pdf", response)
+            self.assertEqual(Path(result["path"]).read_bytes(), body)
+            with patch("together.crawler.files.public_http.get", return_value=Response(body=body)), self.assertRaises(ValueError):
+                download_attachment("https://example.invalid/file", "자료.pdf",
+                    referer="https://example.invalid/notice", directory=temp, max_bytes=5)
 
     def fetch(self, root, name, response=None):
         with patch(

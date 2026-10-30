@@ -81,10 +81,26 @@ def _get_board_response(url):
 
 
 def get_anns_url(announcementPage, n):
+    from together.crawler.onestop import menu_for, collect
+    if menu_for(announcementPage.page_url):
+        return collect(announcementPage, n, event, record_board_result)
     is_university = "CMS/Board/PopupBoard.do" in announcementPage.page_url
     try:
         # 기존 사이트와의 호환성을 위해 인증서 검증 설정을 유지한다.
         response = _get_board_response(announcementPage.page_url)
+        soup = BeautifulSoup(response.text, "html.parser")
+        from together.crawler.article_id_boards import configured_board, entries
+        card_scope = configured_board(announcementPage.page_url)
+        valid_card = card_scope and entries(soup, response.url, card_scope) is not None
+        closed = ("메뉴이(가) 존재 하지 않습니다", "사용중지된 싱글 모듈입니다", "중지된 사이트입니다.")
+        if (
+            soup.find("tbody") is None
+            and not valid_card
+            and not any(message in soup.get_text(" ", strip=True) for message in closed)
+        ):
+            event("수집", "목록 형식 재확인", source_url=announcementPage.page_url, console=False)
+            response = _get_board_response(announcementPage.page_url)
+            soup = BeautifulSoup(response.text, "html.parser")
     except requests.exceptions.RequestException as e:
         record_board_result(False)
         event(
@@ -96,7 +112,10 @@ def get_anns_url(announcementPage, n):
         )
         return [], announcementPage.number
 
-    soup = BeautifulSoup(response.text, "html.parser")
+    if not is_university and soup.find("tbody") is None and any(message in soup.get_text(" ", strip=True) for message in closed):
+        record_board_result(None)
+        event("수집", f"{n}. {getattr(announcementPage, 'display_name', announcementPage.department)} / 학교 사이트에서 운영 중단: {announcementPage.page_url}", plain=True, outcome="source_unavailable", source_url=announcementPage.page_url)
+        return [], announcementPage.number
 
     if "/CMS/Board/Board.do" in announcementPage.page_url:
         from together.crawler.auxiliary_cms import manager_for, collect
@@ -111,10 +130,6 @@ def get_anns_url(announcementPage, n):
 
     # 정적 HTML은 한 번만 받아 파싱한다.
     table_element = soup.find("tbody")
-    if table_element is None and any(message in soup.get_text(" ", strip=True) for message in ("메뉴이(가) 존재 하지 않습니다", "사용중지된 싱글 모듈입니다", "중지된 사이트입니다.")):
-        record_board_result(None)
-        event("수집", f"{n}. {announcementPage.department} / 학교 사이트에서 운영 중단: {announcementPage.page_url}", plain=True, outcome="source_unavailable", source_url=announcementPage.page_url)
-        return [], announcementPage.number
     record_board_result(table_element is not None)
 
     if table_element:
@@ -184,7 +199,7 @@ def get_anns_url(announcementPage, n):
         difference = max_announcement_number - announcementPage.number
         event(
             "수집",
-            f"{n}. {announcementPage.department} {max_announcement_number}",
+            f"{n}. {getattr(announcementPage, 'display_name', announcementPage.department)} {max_announcement_number}",
             level="INFO",
             plain=True,
         )
@@ -373,7 +388,7 @@ def get_anns_url(announcementPage, n):
     ):
         event(
             "수집",
-            f"{n}. {announcementPage.department} {announcementPage.number}",
+            f"{n}. {getattr(announcementPage, 'display_name', announcementPage.department)} {announcementPage.number}",
             plain=True,
         )
         event(
@@ -392,6 +407,9 @@ def get_anns_url(announcementPage, n):
 
 
 def crawl_ann_partial(url: str) -> Announcement:
+    from together.crawler.onestop import menu_for, client
+    if menu_for(url):
+        return client().article(url)
     try:
         response = http_get(url, verify=False, timeout=HTTP_TIMEOUT)
         response.raise_for_status()
@@ -454,6 +472,9 @@ def crawl_ann_partial(url: str) -> Announcement:
 
 
 def crawl_ann(url: str, category: str) -> Announcement:
+    from together.crawler.onestop import menu_for, client
+    if menu_for(url):
+        return client().article(url, category)
     try:
         response = http_get(url, verify=False, timeout=HTTP_TIMEOUT)
         response.raise_for_status()
@@ -511,7 +532,6 @@ def crawl_ann(url: str, category: str) -> Announcement:
 
     files = []
     if category != "해당없음":
-        file_extensions_to_exclude = [".png", ".jpg", ".jpeg", ".gif"]
         os.makedirs("downloads", exist_ok=True)
 
         def download_file(file_url, file_name):

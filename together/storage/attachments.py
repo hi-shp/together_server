@@ -146,6 +146,8 @@ def archive_files(announcement, base_dir):
     if not announcement.files:
         return
     try:
+        from together.crawler.files import is_image_file
+        announcement.files = [path for path in announcement.files if not is_image_file(path)]
         cache = AttachmentCache(base_dir)
         for path in announcement.files:
             result = cache.add(path, announcement.url)

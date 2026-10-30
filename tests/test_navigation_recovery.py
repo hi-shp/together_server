@@ -39,3 +39,13 @@ class NavigationRecovery(unittest.TestCase):
         service.login_ready.assert_called_once_with()
         self.assertEqual(service.login.call_count, 2)
         self.assertEqual(service.driver.current_url, target)
+
+    @patch("together.plato.service.time.sleep")
+    @patch("together.plato.service.event")
+    def test_document_error_page_is_detected_even_when_address_bar_keeps_requested_url(self, event, sleep):
+        target = "https://dev-plato.pusan.ac.kr/mod/feedback/view.php?id=2007210"
+        service = self.service([target, target])
+        service.driver.execute_script.side_effect = ['chrome-error://chromewebdata/', target]
+        service.safe_get(target)
+        self.assertEqual(service.driver.get.call_count, 2)
+        service.restart_driver.assert_called_once_with()
