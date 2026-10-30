@@ -1,9 +1,11 @@
 from pathlib import Path
+import stat
 import tempfile
 import unittest
 from unittest.mock import patch
 
 import pandas as pd
+import requests
 
 from together.plato.http_client import HttpSubmissionUnknown, PlatoHttpClient
 from together.plato.service import WriteNoticeService
@@ -48,6 +50,63 @@ class Session:
 
 
 class PlatoHttpClientTests(unittest.TestCase):
+    def test_cached_login_cookie_is_private_scoped_and_reusable(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "cookies.json"
+            original = requests.Session()
+            original.cookies.set(
+                "session",
+                "private-test-value",
+                domain="dev-plato.pusan.ac.kr",
+                path="/",
+                secure=True,
+            )
+            original.cookies.set(
+                "foreign", "ignored", domain="example.invalid", path="/"
+            )
+            PlatoHttpClient._save_cookies(original, path)
+            self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
+
+            cached = requests.Session()
+            cached.get = lambda *args, **kwargs: Response(
+                "https://dev-plato.pusan.ac.kr/course/view.php?id=157301",
+                '<a href="/login/logout.php?sesskey=x">logout</a>',
+            )
+            with patch(
+                "together.plato.http_client.requests.Session", return_value=cached
+            ):
+                restored = PlatoHttpClient._cached_session(path)
+            self.assertIs(restored, cached)
+            self.assertEqual(restored.cookies.get("session"), "private-test-value")
+            self.assertIsNone(restored.cookies.get("foreign"))
+
+    def test_expired_cached_session_reauthenticates_only_on_safe_get(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "cookies.json"
+            expired = requests.Session()
+            expired.get = lambda *args, **kwargs: Response(
+                "https://dev-plato.pusan.ac.kr/login/index.php",
+                '<input id="input-username">',
+            )
+            fresh = requests.Session()
+            fresh.cookies.set(
+                "session",
+                "fresh-test-value",
+                domain="dev-plato.pusan.ac.kr",
+                path="/",
+            )
+            fresh.get = lambda *args, **kwargs: Response(
+                "https://dev-plato.pusan.ac.kr/user/users.php?id=157301",
+                '<td class="cell c1 number text-center column-number">2,740</td>',
+            )
+            client = PlatoHttpClient(expired, path)
+            with patch(
+                "together.plato.http_client.http_login_session", return_value=fresh
+            ) as login:
+                self.assertEqual(client.participant_count(), 2740)
+            login.assert_called_once_with()
+            self.assertEqual(client.session.cookies.get("session"), "fresh-test-value")
+
     def test_participant_count_and_displayed_count_are_read_every_cycle(self):
         session = Session(
             [

@@ -1,6 +1,7 @@
 """읽기 작업과 알림 전송에 재사용할 PLATO HTTP 세션."""
 
 from io import BytesIO
+import json
 import os
 from pathlib import Path
 import re
@@ -13,6 +14,7 @@ import requests
 
 from together.plato.auth import http_login_session
 from together.plato.notifications import NotificationAuthenticationError
+from together.config import BASE_DIR
 
 
 ROOT = "https://dev-plato.pusan.ac.kr/"
@@ -22,13 +24,70 @@ SURVEY = ROOT + "mod/feedback/view.php?id=2007210&lang=ko"
 
 
 class PlatoHttpClient:
-    def __init__(self, session):
+    def __init__(self, session, cookie_path=None):
         self.session = session
+        self.cookie_path = Path(cookie_path) if cookie_path else None
         self._course_html = None
 
+    @staticmethod
+    def _allowed_cookie_domain(value):
+        return str(value or "").lstrip(".") in (
+            "dev-plato.pusan.ac.kr",
+            "pusan.ac.kr",
+        )
+
     @classmethod
-    def login(cls):
-        return cls(http_login_session())
+    def _save_cookies(cls, session, path):
+        path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        pending = path.with_suffix(".pending")
+        values = [
+            {
+                "name": cookie.name,
+                "value": cookie.value,
+                "domain": cookie.domain,
+                "path": cookie.path,
+                "secure": cookie.secure,
+                "expires": cookie.expires,
+            }
+            for cookie in session.cookies
+            if cls._allowed_cookie_domain(cookie.domain)
+        ]
+        pending.write_text(json.dumps(values), encoding="utf-8")
+        pending.chmod(0o600)
+        pending.replace(path)
+
+    @classmethod
+    def _cached_session(cls, path):
+        if not path.exists():
+            return None
+        session = requests.Session()
+        session.headers["User-Agent"] = os.getenv("USER_AGENT") or "Mozilla/5.0"
+        try:
+            for item in json.loads(path.read_text(encoding="utf-8")):
+                if not cls._allowed_cookie_domain(item.get("domain")):
+                    raise ValueError("PLATO cookie scope changed")
+                session.cookies.set(
+                    item["name"],
+                    item["value"],
+                    domain=item.get("domain") or "dev-plato.pusan.ac.kr",
+                    path=item.get("path") or "/",
+                    secure=bool(item.get("secure")),
+                    expires=item.get("expires"),
+                )
+            return session
+        except Exception:
+            session.close()
+            path.unlink(missing_ok=True)
+            return None
+
+    @classmethod
+    def login(cls, base_dir=BASE_DIR):
+        path = Path(base_dir) / ".runtime/plato-http-cookies.json"
+        session = cls._cached_session(path)
+        if session is None:
+            session = http_login_session()
+            cls._save_cookies(session, path)
+        return cls(session, path)
 
     def close(self):
         self.session.close()
@@ -40,6 +99,12 @@ class PlatoHttpClient:
                 response.raise_for_status()
                 if "/login/" in response.url or 'id="input-username"' in response.text:
                     response.close()
+                    if attempt == 0 and self.cookie_path is not None:
+                        self.session.close()
+                        self.session = http_login_session()
+                        self._save_cookies(self.session, self.cookie_path)
+                        self._course_html = None
+                        continue
                     raise NotificationAuthenticationError("PLATO login required")
                 return response
             except requests.RequestException:
