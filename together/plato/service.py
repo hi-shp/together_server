@@ -122,7 +122,7 @@ class WriteNoticeService:
             return
         started = time.monotonic()
         self.init_driver()
-        if self._http is not None:
+        if getattr(self, "_http", None) is not None:
             cookies = []
             for cookie in self._http.session.cookies:
                 value = {
