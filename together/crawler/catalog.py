@@ -31,6 +31,30 @@ def order_pages(pages):
     ).get("order", len(catalog) + 1))
 
 
+def coalesce_pages(pages):
+    """같은 실제 게시판은 한 번만 읽되 기존 구독 이름은 모두 보존한다."""
+    catalog = records()
+    merged = []
+    by_board = {}
+    for page in pages:
+        row = catalog.get((page.source_url, page.department), {})
+        board = row.get("canonical_board") or page.source_url
+        current = by_board.get(board)
+        if current is None:
+            page.notification_departments = [page.department]
+            page.source_urls = [page.source_url]
+            by_board[board] = page
+            merged.append(page)
+            continue
+        if page.department not in current.notification_departments:
+            current.notification_departments.append(page.department)
+        if page.source_url not in current.source_urls:
+            current.source_urls.append(page.source_url)
+        # 어느 별칭의 기록이 뒤처졌더라도 새 공지를 놓치지 않는다.
+        current.number = min(current.number, page.number)
+    return merged
+
+
 def set_display_ordinals(pages):
     """대학 공지의 내부 두 목록은 유지하고 표시 순번만 하나로 묶는다."""
     from urllib.parse import parse_qs, urlsplit

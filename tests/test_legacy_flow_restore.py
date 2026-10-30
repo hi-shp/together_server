@@ -72,6 +72,49 @@ class RestoredFlow(unittest.TestCase):
             finally:
                 os.chdir(previous)
 
+    def test_temporary_card_layout_is_rechecked_before_marking_board_failed(self):
+        from together.crawler import announcements
+
+        page = types.SimpleNamespace(
+            page_url='https://pioneer.pusan.ac.kr/pioneer/74125/subview.do',
+            department='국립대학육성사업(행사안내)',
+            number=1745398,
+        )
+        temporary = types.SimpleNamespace(
+            text='<html>Service unavailable</html>', url=page.page_url
+        )
+        normal = types.SimpleNamespace(
+            text=(
+                '<form action="/bbs/pioneer/18475/artclList.do"></form>'
+                '<a href="/bbs/pioneer/18475/1745400/artclView.do">행사</a>'
+            ),
+            url=page.page_url,
+        )
+        with (
+            patch.object(
+                announcements,
+                '_get_board_response',
+                side_effect=[temporary, temporary, normal],
+            ) as get,
+            patch(
+                'together.crawler.article_id_boards.configured_board',
+                return_value='k2web:pioneer:18475',
+            ),
+            patch.object(announcements, 'record_board_result') as state,
+            patch.object(announcements, 'event') as log,
+        ):
+            urls, number = announcements.get_anns_url(page, 1)
+        self.assertEqual(get.call_count, 3)
+        self.assertEqual(number, 1745400)
+        self.assertEqual(
+            urls,
+            ['https://pioneer.pusan.ac.kr/bbs/pioneer/18475/1745400/artclView.do'],
+        )
+        state.assert_called_once_with(True)
+        self.assertFalse(
+            any(call.kwargs.get('level') == 'WARN' for call in log.call_args_list)
+        )
+
     def test_auxiliary_cms_uses_article_identity_and_keeps_pinned_notices(self):
         from together.crawler.auxiliary_cms import collect
         from bs4 import BeautifulSoup

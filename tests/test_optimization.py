@@ -199,10 +199,10 @@ class CycleCompatibility(unittest.TestCase):
             def move_to_course(self, course):
                 events.append(("course",))
 
-            def send_message(self, title, url, department):
+            def send_message(self, title, url, department, recipient_departments=None):
                 events.append(("message", title, department))
 
-            def send_email(self, title, url, html, department):
+            def send_email(self, title, url, html, department, recipient_departments=None):
                 events.append(("email", title, department))
 
             def remove_stars(self, course, date):

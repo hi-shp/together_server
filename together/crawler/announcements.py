@@ -126,6 +126,21 @@ def get_anns_url(announcementPage, n):
         from together.crawler.article_id_boards import configured_board, collect
         expected = configured_board(announcementPage.page_url)
         if expected:
+            from together.crawler.article_id_boards import entries
+
+            # 갤러리형 게시판이 일시적으로 껍데기 HTML만 돌려주는 경우가 있어
+            # 게시판 식별 폼과 글 링크가 함께 확인될 때까지 짧게 재조회한다.
+            for _ in range(2):
+                if entries(soup, response.url, expected) is not None:
+                    break
+                event(
+                    "수집",
+                    "목록 형식 재확인",
+                    source_url=announcementPage.page_url,
+                    console=False,
+                )
+                response = _get_board_response(announcementPage.page_url)
+                soup = BeautifulSoup(response.text, "html.parser")
             return collect(announcementPage, soup, response.url, expected, n, event, record_board_result)
 
     # 정적 HTML은 한 번만 받아 파싱한다.

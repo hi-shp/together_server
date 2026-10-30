@@ -301,7 +301,12 @@ class WriteNoticeService:
             )
         return self._notification_client
 
-    def _recipients(self, kind, department):
+    def _recipients(self, kind, departments):
+        departments = (
+            {departments}
+            if isinstance(departments, str)
+            else {department for department in departments if department}
+        )
         filename = "message.csv" if kind == "message" else "email.csv"
         df = pd.read_csv(
             os.path.join(os.path.expanduser("~"), "Downloads", filename), dtype=str
@@ -310,23 +315,31 @@ class WriteNoticeService:
         df = df[df["(선택/복수 가능) 알림 설정"].str.contains(selected, regex=False)]
         df = df[
             df["(선택/복수 가능) 학과"].apply(
-                lambda value: department in value.split("\n")
+                lambda value: bool(departments.intersection(value.split("\n")))
             )
         ]
         if kind == "message":
+            df = df.drop_duplicates(subset=["학번"], keep="first")
             return [
                 {"name": row["이름"].strip(), "student_id": row["학번"].strip()}
                 for _, row in df.iterrows()
             ]
+        df = df.drop_duplicates(subset=["이메일 주소"], keep="first")
         return [
             {"name": row["이름"].strip(), "email": row["이메일 주소"].strip()}
             for _, row in df.iterrows()
         ]
 
-    def send_message(self, title, url, department):
+    def send_message(
+        self, title, url, department, recipient_departments=None
+    ):
         if os.getenv("PLATO_NOTIFICATION_TRANSPORT", "http") == "ui":
-            return self._send_message_ui(title, url, department)
-        recipients = self._recipients("message", department)
+            return self._send_message_ui(
+                title, url, department, recipient_departments
+            )
+        recipients = self._recipients(
+            "message", recipient_departments or department
+        )
         if not recipients:
             return
         body = message_content(title, url, department)
@@ -350,10 +363,16 @@ class WriteNoticeService:
             )
         return result
 
-    def send_email(self, title, url, content, department):
+    def send_email(
+        self, title, url, content, department, recipient_departments=None
+    ):
         if os.getenv("PLATO_NOTIFICATION_TRANSPORT", "http") == "ui":
-            return self._send_email_ui(title, url, content, department)
-        recipients = self._recipients("email", department)
+            return self._send_email_ui(
+                title, url, content, department, recipient_departments
+            )
+        recipients = self._recipients(
+            "email", recipient_departments or department
+        )
         if not recipients:
             return
         subject = f"✔ [{department}] {title}"
@@ -406,7 +425,9 @@ class WriteNoticeService:
             )
         return result
 
-    def _send_message_ui(self, title, url, department):
+    def _send_message_ui(
+        self, title, url, department, recipient_departments=None
+    ):
         self.safe_get(
             "https://dev-plato.pusan.ac.kr/local/ubmessage/send.php?id=157301&lang=ko",
             login_required=True,
@@ -438,11 +459,12 @@ class WriteNoticeService:
             .str.contains("Plato 쪽지", na=False)
         ]
 
+        departments = set(recipient_departments or [department])
         filtered_users = selected_users[
             selected_users["department"].apply(
-                lambda dept_list: department in dept_list
+                lambda dept_list: bool(departments.intersection(dept_list))
             )
-        ]
+        ].drop_duplicates(subset=["학번"], keep="first")
 
         student_ids = filtered_users["학번"].tolist()
         student_names = filtered_users["이름"].tolist()
@@ -506,7 +528,9 @@ class WriteNoticeService:
             login_required=True,
         )
 
-    def _send_email_ui(self, title, url, content, department):
+    def _send_email_ui(
+        self, title, url, content, department, recipient_departments=None
+    ):
         self.safe_get(
             "https://dev-plato.pusan.ac.kr/local/ubmessage/email_send.php?id=157301&lang=ko",
             login_required=True,
@@ -531,11 +555,12 @@ class WriteNoticeService:
             .str.contains("이메일", na=False)
         ]
 
+        departments = set(recipient_departments or [department])
         filtered_users = selected_users[
             selected_users["department"].apply(
-                lambda dept_list: department in dept_list
+                lambda dept_list: bool(departments.intersection(dept_list))
             )
-        ]
+        ].drop_duplicates(subset=["이메일 주소"], keep="first")
 
         student_names = filtered_users["이름"].tolist()
         email_addresses = filtered_users["이메일 주소"].tolist()

@@ -12,6 +12,8 @@ import types
 import unittest
 from unittest.mock import MagicMock, patch
 
+import pandas as pd
+
 sys.modules.setdefault(
     "together.integrations.openai_client",
     types.SimpleNamespace(answer_gpt=MagicMock(), check_title_similarity=MagicMock()),
@@ -153,7 +155,13 @@ class LegacyPresentationTests(unittest.TestCase):
         client.send.return_value = {"sent": 199, "deduplicated": 0, "missing": 0}
         service._notification = MagicMock(return_value=client)
         with (
-            patch.dict(os.environ, {"PLATO_NOTIFICATION_TRANSPORT": "http"}),
+            patch.dict(
+                os.environ,
+                {
+                    "PLATO_NOTIFICATION_TRANSPORT": "http",
+                    "PLATO_EMAIL_MODE": "direct",
+                },
+            ),
             patch("together.plato.service.notify") as notify,
         ):
             output = io.StringIO()
@@ -189,6 +197,36 @@ class LegacyPresentationTests(unittest.TestCase):
             self.assertEqual(
                 client.send.call_args.args[2:4], ("✔ [시험학과] 공지", "legacy-body")
             )
+
+    def test_same_board_aliases_use_the_union_of_subscribers_only_once(self):
+        with tempfile.TemporaryDirectory() as temp:
+            downloads = Path(temp) / "Downloads"
+            downloads.mkdir()
+            common = {
+                "(선택/복수 가능) 알림 설정": [
+                    "Plato 쪽지, 이메일",
+                    "Plato 쪽지, 이메일",
+                    "Plato 쪽지, 이메일",
+                ],
+                "(선택/복수 가능) 학과": ["학부", "대학원", "학부\n대학원"],
+                "이름": ["가", "나", "가"],
+                "학번": ["1", "2", "1"],
+                "이메일 주소": ["a@example.invalid", "b@example.invalid", "a@example.invalid"],
+            }
+            frame = pd.DataFrame(common)
+            frame.to_csv(downloads / "message.csv", index=False, encoding="utf-8-sig")
+            frame.to_csv(downloads / "email.csv", index=False, encoding="utf-8-sig")
+            service = WriteNoticeService.__new__(WriteNoticeService)
+            with patch.dict(
+                os.environ, {"HOME": temp, "USERPROFILE": temp}
+            ):
+                messages = service._recipients("message", ["학부", "대학원"])
+                emails = service._recipients("email", ["학부", "대학원"])
+        self.assertEqual([row["student_id"] for row in messages], ["1", "2"])
+        self.assertEqual(
+            [row["email"] for row in emails],
+            ["a@example.invalid", "b@example.invalid"],
+        )
 
     def test_unimportant_notice_skips_only_discord_notice_delivery(self):
         token = config.notice_category.set("해당없음")

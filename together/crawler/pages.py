@@ -3,7 +3,12 @@ from dotenv import load_dotenv
 import os
 import json
 from pathlib import Path
-from together.crawler.catalog import display_name, order_pages, set_display_ordinals
+from together.crawler.catalog import (
+    coalesce_pages,
+    display_name,
+    order_pages,
+    set_display_ordinals,
+)
 
 
 with open(Path(__file__).with_name("url_overrides.json"), encoding="utf-8") as handle:
@@ -47,6 +52,7 @@ class PageUrlManager:
         self.announcement_pages = []
         self.__init_announcement_pages(df)
         self.announcement_pages = order_pages(self.announcement_pages)
+        self.announcement_pages = coalesce_pages(self.announcement_pages)
         set_display_ordinals(self.announcement_pages)
 
     def reload_data(self):

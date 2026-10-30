@@ -242,6 +242,9 @@ def run_cycle(writenoticeService, prepared=None):
         previous_board_had_notices = bool(ann_urls)
         update_state(BASE_DIR, boards=board_summary())
         department = announcement_page.department
+        notification_departments = getattr(
+            announcement_page, "notification_departments", [department]
+        )
         n += 1
         for url in ann_urls:
             print("", flush=True)
@@ -417,10 +420,17 @@ def run_cycle(writenoticeService, prepared=None):
             notice_category.set(category or saved_category(partial_ann.title))
             writenoticeService.move_to_course(course_url)
             writenoticeService.send_message(
-                partial_ann.title, partial_ann.url, department
+                partial_ann.title,
+                partial_ann.url,
+                department,
+                recipient_departments=notification_departments,
             )
             writenoticeService.send_email(
-                partial_ann.title, partial_ann.url, partial_ann.content_html, department
+                partial_ann.title,
+                partial_ann.url,
+                partial_ann.content_html,
+                department,
+                recipient_departments=notification_departments,
             )
             receipt = known_receipt(BASE_DIR, partial_ann.url)
             if receipt:
@@ -436,7 +446,10 @@ def run_cycle(writenoticeService, prepared=None):
 
         # 해당 게시판 처리가 끝난 뒤 마지막 공지 번호를 저장한다.
         if latest_announcement_number > announcement_page.number:
-            updates[announcement_page.source_url] = latest_announcement_number
+            for source_url in getattr(
+                announcement_page, "source_urls", [announcement_page.source_url]
+            ):
+                updates[source_url] = latest_announcement_number
             update_csv_with_announcement_numbers(updates, os.getenv("PAGE_NAME"))
             gc.collect()
             updates = {}

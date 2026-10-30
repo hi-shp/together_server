@@ -3,7 +3,12 @@ from pathlib import Path
 import unittest
 from unittest.mock import patch
 
-from together.crawler.catalog import records, order_pages, set_display_ordinals
+from together.crawler.catalog import (
+    coalesce_pages,
+    records,
+    order_pages,
+    set_display_ordinals,
+)
 from together.crawler.pages import AnnouncementPage
 
 
@@ -31,6 +36,34 @@ class CatalogTests(unittest.TestCase):
         self.assertEqual({page.department for page in ordered[:2]}, {'경영학과(학부)', '경영학과(대학원)'})
         self.assertEqual([page.number for page in ordered], [400, 500, 12])
         self.assertEqual(ordered[-1].display_name, '새 학과')
+
+    def test_same_physical_board_is_read_once_and_keeps_all_subscription_names(self):
+        url = 'https://biz.pusan.ac.kr/biz/8941/subview.do'
+        pages = [
+            AnnouncementPage('경영학과(학부)', url, '', 500),
+            AnnouncementPage('경영학과(대학원)', url, '', 400),
+        ]
+        merged = coalesce_pages(order_pages(pages))
+        self.assertEqual(len(merged), 1)
+        self.assertEqual(merged[0].number, 400)
+        self.assertEqual(
+            merged[0].notification_departments,
+            ['경영학과(학부)', '경영학과(대학원)'],
+        )
+        self.assertEqual(merged[0].source_urls, [url])
+
+        rows = [
+            row for row in records().values()
+            if row.get('canonical_board') == 'k2web:artimage:915'
+        ]
+        pages = [
+            AnnouncementPage(row['identity_department'], row['page_url'], '', 100 + index)
+            for index, row in enumerate(rows)
+        ]
+        merged = coalesce_pages(order_pages(pages))
+        self.assertEqual(len(merged), 1)
+        self.assertEqual(len(merged[0].source_urls), 2)
+        self.assertEqual(len(merged[0].notification_departments), 2)
 
     def test_catalog_covers_all_registered_routes_without_invalidating_old_names(self):
         path = Path(__file__).resolve().parents[1] / 'together/crawler/source_catalog.json'
