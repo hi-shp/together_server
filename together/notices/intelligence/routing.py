@@ -143,6 +143,31 @@ def category_hint(
             "method": "paid_exam_staff_intent",
             "reason": "본문의 근무·수당 조건 확인",
         }
+    if (
+        re.search(r"(?:관리|운영)\s*멘토.{0,20}모집", title)
+        and re.search(r"(?:일|하루)\s*\d+\s*시간|근무\s*시간", body)
+        and re.search(r"\d[\d,.]*\s*(?:만)?원.{0,15}(?:수당|급여)|(?:수당|시급|일당|급여).{0,30}\d[\d,.]*\s*(?:만)?원", body)
+        and not re.search(r"장학|봉사", title)
+        and not re.search(r"무급|수당\s*없|시급\s*없|근로장학|봉사시간\s*(?:인정|부여)", body)
+    ):
+        return {
+            "category": "취업 정보",
+            "method": "paid_management_mentor",
+            "reason": "관리 멘토의 근무시간·수당 조건 확인",
+        }
+    if (
+        re.search(r"심화과정|교육과정|수강생|수업", title)
+        and not re.search(r"모집|신청|접수|설명회|특강|강연", title)
+        and re.search(r"등록된\s*학생|수강\s*중인\s*학생|기존\s*수강생", body)
+        and re.search(r"각\s*반\s*게시판|수료\s*(?:요건|기준)|교과\s*과제", body)
+        and re.search(r"보고서|과제", body)
+        and "제출" in body
+    ):
+        return {
+            "category": "해당없음",
+            "method": "enrolled_course_assignment",
+            "reason": "기존 교육과정 학생의 과제·보고서 제출 안내",
+        }
     prediction = classifier.predict(title) if classifier else None
     usable_model = bool(
         prediction
