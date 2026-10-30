@@ -14,7 +14,7 @@ from urllib.parse import urlparse, parse_qs, urlencode
 import time
 import pandas as pd
 from selenium.common.exceptions import NoAlertPresentException
-from selenium.common.exceptions import TimeoutException
+from selenium.common.exceptions import TimeoutException, WebDriverException
 import base64
 import re
 from html import escape
@@ -87,15 +87,21 @@ class WriteNoticeService:
         self.driver.set_page_load_timeout(timeout)
         self.safe_get("https://dev-plato.pusan.ac.kr/")
 
+    def _get_page(self, url):
+        self.driver.get(url)
+        current = getattr(self.driver, "current_url", "")
+        if isinstance(current, str) and current.startswith("chrome-error://"):
+            raise WebDriverException("Browser connection error page")
+
     def safe_get(self, url, login_required=False):
         while True:
             try:
-                self.driver.get(url)
+                self._get_page(url)
                 if login_required and self.driver.find_elements(
                     By.ID, "input-username"
                 ):
                     self.login(self.plato_id, self.plato_pw)
-                    self.driver.get(url)
+                    self._get_page(url)
                 return
             except Exception:
                 event("PLATO", "⭐접속 에러 발생. 브라우저 재시작", level="INFO")
