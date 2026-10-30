@@ -2,9 +2,15 @@
 
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
+from collections import defaultdict
+import threading
+from urllib.parse import urlsplit
 
-from together.crawler.http import get as http_get
+from together.crawler.http import get as http_get, origin_group
 from together.config import HTTP_TIMEOUT
+
+_group_limit_lock = threading.Lock()
+_group_limits = defaultdict(lambda: threading.BoundedSemaphore(2))
 
 
 @dataclass(frozen=True)
@@ -26,15 +32,19 @@ def _eligible(url):
 
 
 def _fetch(url):
-    with http_get(url, verify=False, timeout=HTTP_TIMEOUT) as response:
-        response.raise_for_status()
-        return BoardSnapshot(response.url, response.text)
+    group = origin_group(urlsplit(url).hostname or "")
+    with _group_limit_lock:
+        limit = _group_limits[group]
+    with limit:
+        with http_get(url, verify=False, timeout=HTTP_TIMEOUT) as response:
+            response.raise_for_status()
+            return BoardSnapshot(response.url, response.text)
 
 
 class OrderedBoardPrefetch:
     """최대 window개만 미리 읽고 결과는 원래 인덱스에서만 꺼낸다."""
 
-    def __init__(self, pages, *, workers=3, window=3):
+    def __init__(self, pages, *, workers=5, window=8):
         self.pages = pages
         self.window = max(1, window)
         self.executor = ThreadPoolExecutor(
@@ -68,4 +78,5 @@ class OrderedBoardPrefetch:
 
     def __exit__(self, *_):
         self.close()
+
 

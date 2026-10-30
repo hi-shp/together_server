@@ -1,8 +1,12 @@
 """학생지원시스템의 정상 통합로그인과 읽기 전용 게시판 조회."""
 
 import atexit
+import json
 import os
+from pathlib import Path
 from urllib.parse import parse_qs, urlsplit, urljoin
+
+from together.config import BASE_DIR
 
 MENUS = {"000000000000386": "학생지원시스템 공지사항", "000000000000062": "학생지원시스템 장학 공지사항"}
 _client = None
@@ -41,6 +45,47 @@ class OnestopClient:
         self.browser = None
         self.menu = None
         self.articles = {}
+        self.cookie_path = Path(BASE_DIR) / ".runtime/onestop-cookies.json"
+
+    def _restore_cookies(self, driver):
+        if not self.cookie_path.exists():
+            return False
+        try:
+            values = json.loads(self.cookie_path.read_text(encoding="utf-8"))
+            cookies = []
+            for item in values:
+                domain = str(item.get("domain") or "").lstrip(".")
+                if domain not in ("onestop.pusan.ac.kr", "pusan.ac.kr"):
+                    raise OnestopError("Stored student support cookie scope changed")
+                value = {
+                    key: item[key]
+                    for key in ("name", "value", "domain", "path", "secure", "httpOnly", "sameSite")
+                    if key in item
+                }
+                if item.get("expiry"):
+                    value["expires"] = int(item["expiry"])
+                cookies.append(value)
+            if not cookies:
+                return False
+            driver.execute_cdp_cmd("Network.enable", {})
+            driver.execute_cdp_cmd("Network.setCookies", {"cookies": cookies})
+            return True
+        except Exception:
+            self.cookie_path.unlink(missing_ok=True)
+            return False
+
+    def _save_cookies(self, driver):
+        self.cookie_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        pending = self.cookie_path.with_suffix(".pending")
+        values = [
+            item
+            for item in driver.get_cookies()
+            if str(item.get("domain") or "").lstrip(".")
+            in ("onestop.pusan.ac.kr", "pusan.ac.kr")
+        ]
+        pending.write_text(json.dumps(values), encoding="utf-8")
+        pending.chmod(0o600)
+        pending.replace(self.cookie_path)
 
     def close(self):
         if self.browser is not None:
@@ -64,6 +109,7 @@ class OnestopClient:
             browser._title_maintenance = True
             self.browser = browser
             browser.init_driver()
+            self._restore_cookies(browser.driver)
         d = self.browser.driver
         url = "https://onestop.pusan.ac.kr/page?menuCD=" + code
         d.get(url)
@@ -84,6 +130,7 @@ class OnestopClient:
                 WebDriverWait(d,35).until(lambda d: urlsplit(d.current_url).hostname == "onestop.pusan.ac.kr")
             d.get(url)
             WebDriverWait(d,25).until(lambda d: d.execute_script('return typeof scwin !== "undefined" && !!scwin.loginUser.userId'))
+        self._save_cookies(d)
         if d.execute_script("return scwin.menuCd") != code:
             raise OnestopError("Student support menu changed")
         self.menu = code

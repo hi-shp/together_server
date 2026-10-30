@@ -1,9 +1,40 @@
 import unittest
+from pathlib import Path
+import stat
+import tempfile
 from unittest.mock import MagicMock, patch
 from together.crawler.onestop import OnestopClient, OnestopError, menu_for, safe_rows
 
 
 class OnestopTests(unittest.TestCase):
+    def test_session_cookies_are_reused_privately_and_scoped_to_pusan(self):
+        with tempfile.TemporaryDirectory() as directory:
+            client = OnestopClient()
+            client.cookie_path = Path(directory) / "cookies.json"
+            driver = MagicMock()
+            driver.get_cookies.return_value = [
+                {
+                    "name": "session",
+                    "value": "private-test-value",
+                    "domain": ".pusan.ac.kr",
+                    "path": "/",
+                    "secure": True,
+                },
+                {
+                    "name": "foreign",
+                    "value": "ignored",
+                    "domain": ".example.invalid",
+                    "path": "/",
+                },
+            ]
+            client._save_cookies(driver)
+            self.assertEqual(
+                stat.S_IMODE(client.cookie_path.stat().st_mode), 0o600
+            )
+            self.assertTrue(client._restore_cookies(driver))
+            restored = driver.execute_cdp_cmd.call_args.args[1]["cookies"]
+            self.assertEqual([item["name"] for item in restored], ["session"])
+
     def test_only_registered_school_menus(self):
         self.assertEqual(menu_for("https://onestop.pusan.ac.kr/page?menuCD=000000000000386"), "000000000000386")
         self.assertIsNone(menu_for("https://evil.example/page?menuCD=000000000000386"))
