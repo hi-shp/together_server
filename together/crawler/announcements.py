@@ -80,14 +80,21 @@ def _get_board_response(url):
             time.sleep(2)
 
 
-def get_anns_url(announcementPage, n):
+def get_anns_url(announcementPage, n, prefetched=None):
     from together.crawler.onestop import menu_for, collect
     if menu_for(announcementPage.page_url):
         return collect(announcementPage, n, event, record_board_result)
     is_university = "CMS/Board/PopupBoard.do" in announcementPage.page_url
     try:
         # 기존 사이트와의 호환성을 위해 인증서 검증 설정을 유지한다.
-        response = _get_board_response(announcementPage.page_url)
+        if prefetched is None:
+            response = _get_board_response(announcementPage.page_url)
+        else:
+            try:
+                response = prefetched.result()
+            except requests.exceptions.RequestException:
+                # 사전조회 실패는 원래 순서에서 기존 재시도 경로로 처리한다.
+                response = _get_board_response(announcementPage.page_url)
         soup = BeautifulSoup(response.text, "html.parser")
         from together.crawler.article_id_boards import configured_board, entries
         card_scope = configured_board(announcementPage.page_url)

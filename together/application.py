@@ -16,6 +16,7 @@ from together.notices.history import (
     save_only_title,
 )
 from together.crawler.pages import PageUrlManager
+from together.crawler.prefetch import OrderedBoardPrefetch
 from together.notices.history import recent_title
 import json
 import pandas as pd
@@ -219,6 +220,7 @@ def run_cycle(writenoticeService, prepared=None):
     event("시작", f"게시판 {len(page_url_manager.announcement_pages)}개 준비 완료")
     n = 1
     previous_board_had_notices = False
+    prefetch = OrderedBoardPrefetch(page_url_manager.announcement_pages)
     for announcement_page in page_url_manager.announcement_pages:
         if previous_board_had_notices:
             print("", flush=True)
@@ -238,7 +240,11 @@ def run_cycle(writenoticeService, prepared=None):
             board_count=len(page_url_manager.announcement_pages),
             console=False,
         )
-        ann_urls, latest_announcement_number = get_anns_url(announcement_page, getattr(announcement_page, "display_ordinal", n))
+        ann_urls, latest_announcement_number = get_anns_url(
+            announcement_page,
+            getattr(announcement_page, "display_ordinal", n),
+            prefetched=prefetch.take(n - 1),
+        )
         previous_board_had_notices = bool(ann_urls)
         update_state(BASE_DIR, boards=board_summary())
         department = announcement_page.department
@@ -453,6 +459,8 @@ def run_cycle(writenoticeService, prepared=None):
             update_csv_with_announcement_numbers(updates, os.getenv("PAGE_NAME"))
             gc.collect()
             updates = {}
+
+    prefetch.close()
 
     now = datetime.now()
     clear_notice()

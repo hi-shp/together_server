@@ -46,6 +46,11 @@ from together.config import BASE_DIR
 from together.operations.events import event
 from together.plato.content import message_content
 from together.plato.notifications import PlatoNotificationTransport
+from together.plato.http_client import (
+    HttpPostUnsupported,
+    HttpSubmissionUnknown,
+    PlatoHttpClient,
+)
 from together.plato.content import email_content
 from together.storage.email_outbox import EmailOutbox
 
@@ -61,20 +66,37 @@ class WriteNoticeService:
         self.plato_pw = os.getenv("PLATO_PW")
 
         self.driver = None
+        self._http = None
         self._workspace = None
         try:
-            started = time.monotonic()
-            self.init_driver()
-            self._startup_progress("브라우저 시작 완료", started)
-            started = time.monotonic()
-            self.safe_get("https://dev-plato.pusan.ac.kr/")
-            self._startup_progress("PLATO 접속 완료", started)
-            started = time.monotonic()
-            self.login(self.plato_id, self.plato_pw)
-            self._startup_progress("PLATO 로그인 완료", started)
+            if os.getenv("PLATO_HTTP_MODE", "enabled") == "enabled":
+                started = time.monotonic()
+                try:
+                    self._http = PlatoHttpClient.login()
+                    self._startup_progress("PLATO HTTP 로그인 완료", started)
+                except Exception as exc:
+                    event(
+                        "PLATO",
+                        f"HTTP 로그인 대체 경로 사용: {type(exc).__name__}",
+                        level="WARN",
+                        console=False,
+                    )
+            if self._http is None:
+                self._start_browser_login()
         except BaseException:
             self.close()
             raise
+
+    def _start_browser_login(self):
+        started = time.monotonic()
+        self.init_driver()
+        self._startup_progress("브라우저 시작 완료", started)
+        started = time.monotonic()
+        self.safe_get("https://dev-plato.pusan.ac.kr/")
+        self._startup_progress("PLATO 접속 완료", started)
+        started = time.monotonic()
+        self.login(self.plato_id, self.plato_pw)
+        self._startup_progress("PLATO 로그인 완료", started)
 
     def _startup_progress(self, message, started=None):
         if os.getenv("TOGETHER_STARTUP_PROGRESS") == "1":
@@ -84,6 +106,7 @@ class WriteNoticeService:
             event("시작", message + suffix)
 
     def login_ready(self, timeout=30):
+        self.ensure_driver()
         self.driver.set_page_load_timeout(timeout)
         self.safe_get("https://dev-plato.pusan.ac.kr/")
 
@@ -94,7 +117,30 @@ class WriteNoticeService:
         if any(isinstance(value, str) and value.startswith("chrome-error://") for value in (current, document)):
             raise WebDriverException("Browser connection error page")
 
+    def ensure_driver(self):
+        if self.driver is not None:
+            return
+        started = time.monotonic()
+        self.init_driver()
+        if self._http is not None:
+            cookies = []
+            for cookie in self._http.session.cookies:
+                value = {
+                    "name": cookie.name,
+                    "value": cookie.value,
+                    "domain": cookie.domain or "dev-plato.pusan.ac.kr",
+                    "path": cookie.path or "/",
+                    "secure": bool(cookie.secure),
+                }
+                if cookie.expires:
+                    value["expires"] = int(cookie.expires)
+                cookies.append(value)
+            self.driver.execute_cdp_cmd("Network.enable", {})
+            self.driver.execute_cdp_cmd("Network.setCookies", {"cookies": cookies})
+        self._startup_progress("필요 작업용 브라우저 시작 완료", started)
+
     def safe_get(self, url, login_required=False):
+        self.ensure_driver()
         while True:
             try:
                 self._get_page(url)
@@ -152,11 +198,7 @@ class WriteNoticeService:
             self.close()
             raise
 
-    def close(self):
-        transport = getattr(self, "_notification_client", None)
-        if transport is not None:
-            transport.close()
-            self._notification_client = None
+    def _close_driver(self):
         service = getattr(self, "_service", None)
         children = driver_children(service)
         try:
@@ -166,7 +208,6 @@ class WriteNoticeService:
             event("PLATO", f"Browser quit: {type(exc).__name__}", level="INFO")
         finally:
             self.driver = None
-            service = getattr(self, "_service", None)
             if service is not None:
                 try:
                     service.stop()
@@ -176,11 +217,25 @@ class WriteNoticeService:
             cleanup_workspace(self._workspace)
             self._workspace = None
 
+    def close(self):
+        transport = getattr(self, "_notification_client", None)
+        if transport is not None:
+            transport.close()
+            self._notification_client = None
+        self._close_driver()
+        client = getattr(self, "_http", None)
+        if client is not None:
+            client.close()
+            self._http = None
+
     def restart_driver(self):
-        self.close()
-        self.init_driver()
+        self._close_driver()
+        self.ensure_driver()
 
     def login(self, id: str, pw: str):
+        # HTTP 세션의 쿠키를 주입한 지연 시작 브라우저는 이미 로그인돼 있다.
+        if not self.driver.find_elements(By.ID, "input-username"):
+            return
         username_input = self.driver.find_element(By.ID, "input-username")
         username_input.send_keys(id)
 
@@ -191,6 +246,8 @@ class WriteNoticeService:
         submit.click()
 
     def move_to_course(self, course_url: str):
+        if getattr(self, "_http", None) is not None and self.driver is None:
+            return
         self.safe_get(course_url, login_required=True)
 
     def move_to_notice_board(self, notice_board_name: str):
@@ -230,6 +287,21 @@ class WriteNoticeService:
             self.driver.quit()
 
     def download_survey(self):
+        if getattr(self, "_http", None) is not None:
+            try:
+                return self._http.download_survey(
+                    os.path.join(os.path.expanduser("~"), "Downloads")
+                )
+            except Exception as exc:
+                event(
+                    "PLATO",
+                    f"설문 HTTP 조회 대체 경로 사용: {type(exc).__name__}",
+                    level="WARN",
+                    console=False,
+                )
+        return self._download_survey_ui()
+
+    def _download_survey_ui(self):
         self.safe_get(
             "https://dev-plato.pusan.ac.kr/mod/feedback/view.php?id=2007210&lang=ko",
             login_required=True,
@@ -296,8 +368,10 @@ class WriteNoticeService:
 
     def _notification(self):
         if getattr(self, "_notification_client", None) is None:
-            self._notification_client = PlatoNotificationTransport(
-                self.driver, BASE_DIR
+            self._notification_client = (
+                PlatoNotificationTransport.from_session(self._http.session, BASE_DIR)
+                if getattr(self, "_http", None) is not None
+                else PlatoNotificationTransport(self.driver, BASE_DIR)
             )
         return self._notification_client
 
@@ -707,10 +781,8 @@ class WriteNoticeService:
     def write_notices(
         self, course_url: str, announcements: List[Announcement], department
     ):
-        self.safe_get(course_url, login_required=True)
         receipts = []
         for announcement in announcements:
-            self.move_to_notice_board(announcement.notice_board_name)
             receipt = self.write_notice_in_board(
                 announcement.title,
                 announcement.url,
@@ -721,7 +793,8 @@ class WriteNoticeService:
             )
             receipts.append(receipt)
 
-            self.safe_get(course_url, login_required=True)
+            if self.driver is not None:
+                self.safe_get(course_url, login_required=True)
         return receipts
 
     def write_notice_in_board(
@@ -763,6 +836,61 @@ class WriteNoticeService:
                     self, previous, content_with_styles, files, BASE_DIR
                 )
 
+        receipt = {
+            "source_url": url,
+            "subject": subject,
+            "board": notice_board_name,
+            "state": "submitting",
+        }
+        files_for_upload = files if notice_board_name != "기타 공지사항" else []
+        use_http_post = (
+            getattr(self, "_http", None) is not None
+            and not files_for_upload
+            and os.getenv("PLATO_HTTP_POST_MODE", "enabled") == "enabled"
+        )
+        if use_http_post:
+            if validation:
+                remember_receipt(BASE_DIR, receipt)
+            try:
+                response = self._http.create_notice(
+                    notice_board_name, subject, content_with_styles
+                )
+            except HttpPostUnsupported:
+                # 저장 요청 전의 양식 차이는 같은 공지를 브라우저로 처리할 수 있다.
+                pass
+            except HttpSubmissionUnknown:
+                # 저장 요청 이후 결과가 불명확하면 중복 게시를 막기 위해 재시도하지 않는다.
+                raise
+            else:
+                with response:
+                    validate_article_url(response.url)
+                    published = BeautifulSoup(response.text, "html.parser")
+                    published_text = " ".join(
+                        published.get_text(" ", strip=True).split()
+                    )
+                    source_links = {
+                        link.get("href") for link in published.select("a[href]")
+                    }
+                    if subject not in published_text or url not in source_links:
+                        raise HttpSubmissionUnknown(
+                            "Published article content could not be verified"
+                        )
+                    receipt.update(article_url=response.url, state="verified")
+                    if validation:
+                        remember_receipt(BASE_DIR, receipt)
+                    return receipt
+
+        # 첨부 글 또는 HTTP 양식이 다른 글만 이 지점에서 브라우저를 시작한다.
+        if getattr(self, "_http", None) is not None:
+            self._notice_board_url = self._http.board_url(notice_board_name)
+            self.safe_get(self._notice_board_url, login_required=True)
+        else:
+            self.safe_get(
+                "https://dev-plato.pusan.ac.kr/course/view.php?id=157301",
+                login_required=True,
+            )
+            self.move_to_notice_board(notice_board_name)
+
         # 공지가 많을 때 화면 밖으로 밀린 쓰기 버튼을 찾는다.
         write_button = self._write_button()
 
@@ -798,12 +926,6 @@ class WriteNoticeService:
                     level="INFO",
                 )
 
-        receipt = {
-            "source_url": url,
-            "subject": subject,
-            "board": notice_board_name,
-            "state": "submitting",
-        }
         if validation:
             remember_receipt(BASE_DIR, receipt)
         self.click_with_js('input[type="submit"].btn-primary')
@@ -853,27 +975,32 @@ class WriteNoticeService:
         ]
 
         from together.plato.star_cleanup import collect_old_stars, remove_star
-        session = requests.Session()
+        shared_http = getattr(self, "_http", None)
+        session = shared_http.session if shared_http is not None else requests.Session()
+        owns_session = shared_http is None
         failures = []
         previous_mode = getattr(self, "_title_maintenance", False)
         self._title_maintenance = True
-        self.restart_driver()
         try:
-            self.login_ready()
-            self.login(self.plato_id, self.plato_pw)
-            for cookie in self.driver.get_cookies():
-                session.cookies.set(cookie["name"], cookie["value"], domain="dev-plato.pusan.ac.kr", path=cookie.get("path", "/"))
-            session.headers["User-Agent"] = self.driver.execute_script("return navigator.userAgent")
+            if owns_session:
+                self.login_ready()
+                self.login(self.plato_id, self.plato_pw)
+                for cookie in self.driver.get_cookies():
+                    session.cookies.set(cookie["name"], cookie["value"], domain="dev-plato.pusan.ac.kr", path=cookie.get("path", "/"))
+                session.headers["User-Agent"] = self.driver.execute_script("return navigator.userAgent")
             for board_name in board_names:
                 event("PLATO", f"\n현재 작업 중인 게시판: {board_name}", level="INFO")
                 board_url = course_url
                 try:
-                    self.safe_get(course_url, login_required=True)
-                    session.cookies.clear()
-                    for cookie in self.driver.get_cookies():
-                        session.cookies.set(cookie["name"], cookie["value"], domain="dev-plato.pusan.ac.kr", path=cookie.get("path", "/"))
-                    link = self.driver.find_element(By.XPATH, f'//a[span[contains(@class, "instancename") and contains(text(), "{board_name}")]]')
-                    board_url = link.get_attribute("href")
+                    if shared_http is not None:
+                        board_url = shared_http.board_url(board_name)
+                    else:
+                        self.safe_get(course_url, login_required=True)
+                        session.cookies.clear()
+                        for cookie in self.driver.get_cookies():
+                            session.cookies.set(cookie["name"], cookie["value"], domain="dev-plato.pusan.ac.kr", path=cookie.get("path", "/"))
+                        link = self.driver.find_element(By.XPATH, f'//a[span[contains(@class, "instancename") and contains(text(), "{board_name}")]]')
+                        board_url = link.get_attribute("href")
                     urls, pages = collect_old_stars(session, board_url, today_date)
                     event("정리", f"별표 검색 {len(pages)}페이지 전체 확인", count=len(urls), source_url=board_url, console=False)
                 except Exception as exc:
@@ -891,15 +1018,17 @@ class WriteNoticeService:
                 if not any(item["board"] == board_name for item in failures):
                     event("PLATO", "모든 게시판 수정 완료" if board_name == "취업 정보" and not failures else f"{board_name} 게시판 수정 완료 → 다음 게시판으로 이동", level="INFO")
         finally:
-            session.close()
+            if owns_session:
+                session.close()
             self._title_maintenance = previous_mode
             pending = BASE_DIR / ".runtime/star-cleanup/pending.json"
             pending.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
             pending.write_text(json.dumps({"items": failures}, ensure_ascii=False), encoding="utf-8")
             pending.chmod(0o600)
-            self.restart_driver()
-            self.login_ready()
-            self.login(self.plato_id, self.plato_pw)
+            if owns_session:
+                self.restart_driver()
+                self.login_ready()
+                self.login(self.plato_id, self.plato_pw)
         return failures
 
     def update_page_url(self, base_url: str, page: int) -> str:
@@ -919,17 +1048,35 @@ class WriteNoticeService:
         self.click_with_js('input[type="submit"].btn-primary')
 
     def update_participants(self):
+        if getattr(self, "_http", None) is not None:
+            try:
+                highest_number = self._http.participant_count()
+                if self._http.displayed_participant_count() != highest_number:
+                    self._update_participants_ui(highest_number)
+                    self._http.course_html(fresh=True)
+                return "{:,}".format(highest_number)
+            except Exception as exc:
+                event(
+                    "PLATO",
+                    f"참여 인원 HTTP 조회 대체 경로 사용: {type(exc).__name__}",
+                    level="WARN",
+                    console=False,
+                )
+        return self._update_participants_ui()
 
-        self.safe_get("https://dev-plato.pusan.ac.kr/user/users.php?id=157301", login_required=True)
+    def _update_participants_ui(self, highest_number=None):
 
-        html = self.driver.page_source
-        soup = BeautifulSoup(html, "html.parser")
+        if highest_number is None:
+            self.safe_get("https://dev-plato.pusan.ac.kr/user/users.php?id=157301", login_required=True)
 
-        first_cell = soup.find("td", class_="cell c1 number text-center column-number")
-        if first_cell:
-            highest_number = int(first_cell.text.strip())
-        else:
-            return
+            html = self.driver.page_source
+            soup = BeautifulSoup(html, "html.parser")
+
+            first_cell = soup.find("td", class_="cell c1 number text-center column-number")
+            if first_cell:
+                highest_number = int(first_cell.text.strip())
+            else:
+                return
 
         formatted_number = "{:,}".format(highest_number)
 
