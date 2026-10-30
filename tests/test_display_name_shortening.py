@@ -87,11 +87,11 @@ class DisplayNameShorteningTests(unittest.TestCase):
             self.assertNotIn("장학정보", row["display_name"])
             self.assertNotIn("게시판", row["display_name"])
             self.assertNotIn("?", row["display_name"])
-        names = {row["order"]: row["display_name"] for row in rows}
-        self.assertEqual(names[126], "지질환경과학과(공지)")
-        self.assertEqual(names[127], "지질환경과학과(자유)")
-        self.assertEqual(names[407], "나노반도체공정장비계약학과(공지)")
-        self.assertEqual(names[409], "나노반도체공정장비계약학과(장비 공지)")
+        names = {row["identity_department"]: row["display_name"] for row in rows}
+        self.assertEqual(names["지질환경과학과"], "지질환경과학과(공지)")
+        self.assertEqual(names["지질환경과학과(자유)"], "지질환경과학과(자유)")
+        self.assertEqual(names["나노반도체공정장비계약학과"], "나노반도체공정장비계약학과(공지)")
+        self.assertEqual(names["나노반도체공정장비계약학과(장비이용안내)"], "나노반도체공정장비계약학과(장비 공지)")
 
 
 if __name__ == "__main__":

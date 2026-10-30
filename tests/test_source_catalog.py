@@ -42,7 +42,13 @@ class CatalogTests(unittest.TestCase):
             self.assertTrue(row['display_name'].strip())
             self.assertTrue(row['identity_department'].strip())
             self.assertTrue(row['name_source'].startswith('https://'))
-        self.assertEqual(rows[:2][0]['identity_department'], '대학 공지')
+            self.assertTrue(row['sort_group'].strip())
+            self.assertTrue(row['affiliation'].strip())
+            self.assertNotEqual(row['sort_group'], '28 기타 학과·전공')
+        self.assertEqual(
+            [row['identity_department'] for row in rows[:4]],
+            ['대학 공지', '대학 공지', '학생지원시스템(공지사항)', '학생지원시스템(장학 공지사항)'],
+        )
 
     def test_university_state_rows_remain_separate_but_onestop_displays_two_and_three(self):
         rows = list(records().values())[:5]
