@@ -4,6 +4,7 @@ import ast
 from datetime import datetime
 import json
 from pathlib import Path
+import re
 import sqlite3
 import tempfile
 import types
@@ -125,6 +126,8 @@ class ContextTests(unittest.TestCase):
             "ApiAccounting": MagicMock(return_value=accounting),
             "duplicate_review": duplicate_review,
             "duplicate_review_reason": duplicate_review_reason,
+            "department_conditions_differ": department_conditions_differ,
+            "re": re,
         }
         exec(
             compile(ast.Module(body=[fn], type_ignores=[]), str(source), "exec"), scope
@@ -148,7 +151,7 @@ class ContextTests(unittest.TestCase):
         source=Path(__file__).resolve().parents[1]/'together/integrations/openai_client.py'
         fn=next(n for n in ast.parse(source.read_text(encoding='utf-8')).body if isinstance(n,ast.FunctionDef) and n.name=='check_title_similarity')
         decision=MagicMock()
-        scope={'requires_department_evidence':requires_department_evidence,'normalize_title':normalize_title,'occurrence_conflict':lambda a,b:None,'duplicate_request':duplicate_request,'department_conditions_differ':department_conditions_differ,'_decision':decision,'DUPLICATE_MODEL':'test','BASE_DIR':'test','ApiAccounting':MagicMock(),'duplicate_review':duplicate_review,'duplicate_review_reason':duplicate_review_reason}
+        scope={'requires_department_evidence':requires_department_evidence,'normalize_title':normalize_title,'occurrence_conflict':lambda a,b:None,'duplicate_request':duplicate_request,'department_conditions_differ':department_conditions_differ,'_decision':decision,'DUPLICATE_MODEL':'test','BASE_DIR':'test','ApiAccounting':MagicMock(),'duplicate_review':duplicate_review,'duplicate_review_reason':duplicate_review_reason,'re':re}
         exec(compile(ast.Module(body=[fn],type_ignores=[]),str(source),'exec'),scope)
         return scope['check_title_similarity'],decision
 
@@ -204,6 +207,44 @@ class ContextTests(unittest.TestCase):
     def test_common_internship_without_both_bodies_does_not_merge(self):
         check, decision = self.protected_checker()
         title = "2026학년도 겨울계절학기 현장실습학기제 학생 모집 및 수강신청 안내"
+        self.assertEqual(check(title, [title]), "중복 아님")
+        decision.assert_not_called()
+
+    def test_common_exchange_notice_uses_both_bodies_instead_of_skipping_departments(self):
+        check, decision = self.protected_checker()
+        title = "2026학년도 겨울계절수업 교류 수학 안내 [한양대, 서울시립대, 고려대]"
+        body = (
+            "한양대학교 서울시립대학교 고려대학교 겨울계절수업 교류 수학을 안내합니다. "
+            "추천기한과 수업기간 및 수학신청자 정보 입력 절차는 다음과 같습니다. "
+        ) * 4
+        context = {
+            "new_notice": {
+                "source_url": "https://department-a.invalid/notice",
+                "department": "실내환경디자인학과",
+                "body_excerpt": body,
+            },
+            "recent_notices": [
+                {
+                    "title": title,
+                    "source_url": "https://department-b.invalid/notice",
+                    "department": "물리학과(학부)",
+                    "body_excerpt": body,
+                }
+            ],
+        }
+        decision.return_value = {
+            "relation": "same_event",
+            "matched_index": 0,
+            "reason": "같은 대학·추천기한·수업기간과 신청 절차",
+        }
+        self.assertEqual(
+            check(title, [title], context_provider=lambda _: context), "중복"
+        )
+        decision.assert_called_once()
+
+    def test_common_exchange_notice_without_both_bodies_remains_separate(self):
+        check, decision = self.protected_checker()
+        title = "2026학년도 겨울계절수업 교류 수학 안내"
         self.assertEqual(check(title, [title]), "중복 아님")
         decision.assert_not_called()
 

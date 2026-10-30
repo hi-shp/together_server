@@ -1,5 +1,6 @@
 import json
 import os
+import re
 from together.operations.events import duplicate_review, duplicate_review_reason
 
 from openai import OpenAI
@@ -64,6 +65,13 @@ def answer_gpt(user_content):
 
 def check_title_similarity(new_title, recent_titles, *, context_provider=None):
     shared_program = lambda title: "현장실습학기제" in normalize_title(title).replace(" ", "")
+    shared_exchange = lambda title: bool(
+        re.search(
+            r"계절(?:학기|수업).*교류\s*수학",
+            normalize_title(title),
+        )
+    )
+    shared_notice = lambda title: shared_program(title) or shared_exchange(title)
     # 학과별 모집은 모델이 동일 제목을 중복으로 판단하더라도 근거 없이 누락하지 않는다.
     if requires_department_evidence(new_title):
         context = context_provider(recent_titles[:3]) if context_provider else None
@@ -76,14 +84,17 @@ def check_title_similarity(new_title, recent_titles, *, context_provider=None):
             ):
                 duplicate_review.set("같은 원문·제목 재확인")
                 return "중복"
-        if not shared_program(new_title):
+        if not shared_notice(new_title):
             duplicate_review.set("학과별 모집·대상 확인 필요")
             return "중복 아님"
     candidates = [
         title
         for title in recent_titles[:3]
         if not occurrence_conflict(new_title, title)
-        and (not requires_department_evidence(title) or (shared_program(new_title) and shared_program(title)))
+        and (
+            not requires_department_evidence(title)
+            or (shared_notice(new_title) and shared_notice(title))
+        )
     ]
     if not candidates:
         duplicate_review.set("연도·회차·학과 조건에 맞는 후보 없음")
@@ -100,7 +111,7 @@ def check_title_similarity(new_title, recent_titles, *, context_provider=None):
     }
     for position, candidate in enumerate(candidates):
         context = context_provider([candidate]) if context_provider else None
-        if shared_program(new_title) and (
+        if shared_notice(new_title) and (
             not context
             or len(context.get("new_notice", {}).get("body_excerpt", "").strip()) < 80
             or not any(len(row.get("body_excerpt", "").strip()) >= 80 for row in context.get("recent_notices", []))
@@ -108,7 +119,7 @@ def check_title_similarity(new_title, recent_titles, *, context_provider=None):
             final_relation = "needs_context"
             reviews.append(f"{position}번 후보: 학과별 조건을 대조할 본문 부족")
             continue
-        if shared_program(new_title) and department_conditions_differ(context):
+        if shared_notice(new_title) and department_conditions_differ(context):
             final_relation = "related_update"
             reviews.append(f"{position}번 후보: 학과별 제출·학점 조건 추가")
             continue
