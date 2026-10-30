@@ -3,7 +3,7 @@ import io, json, tempfile, types, unittest, os
 from pathlib import Path
 from unittest.mock import patch
 from together import supervisor
-from together.operations.cycle_review import record_failed_cycle
+from together.operations.cycle_review import record_failed_cycle, record_complete_cycle
 
 
 class StopFixture(Exception):
@@ -107,3 +107,20 @@ class ContinuousVerification(unittest.TestCase):
             run.assert_not_called()
             state = json.loads((root / ".runtime/health/runner.json").read_text())
             self.assertEqual(state["status"], "night_pause")
+
+
+class CompleteBoardCoverage(unittest.TestCase):
+    def test_partial_collection_breaks_streak_without_stopping_runner(self):
+        state = {"successful_cycles": [{"finished_at": 1}, {"finished_at": 2}]}
+        partial = {"exit_code": 0, "boards": {"checked": 1014, "failed": 1}}
+        self.assertFalse(record_complete_cycle(state, partial, 1014))
+        self.assertEqual(state["successful_cycles"], [])
+        self.assertEqual(len(state["interrupted_successful_cycles"]), 2)
+        for stamp in (4, 5, 6):
+            self.assertTrue(record_complete_cycle(state, {"finished_at": stamp, "exit_code": 0, "boards": {"checked": 1014, "failed": 0, "unavailable": 3}}, 1014))
+        self.assertEqual([row["finished_at"] for row in state["successful_cycles"]], [4, 5, 6])
+
+    def test_missing_tail_of_board_list_is_not_a_complete_cycle(self):
+        state = {"successful_cycles": []}
+        self.assertFalse(record_complete_cycle(state, {"exit_code": 0, "boards": {"checked": 254, "failed": 0}}, 1014))
+        self.assertEqual(state["successful_cycles"], [])

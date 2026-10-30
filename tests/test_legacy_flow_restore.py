@@ -34,6 +34,26 @@ class RestoredFlow(unittest.TestCase):
         state.assert_called_once_with(False)
         self.assertTrue(any(call.kwargs.get('level')=='WARN' for call in log.call_args_list))
 
+    def test_stopped_site_preserves_cursor_and_recovers_on_next_check(self):
+        from together.crawler import announcements
+        page = types.SimpleNamespace(page_url='https://example.pusan.ac.kr/example/1/subview.do', department='연구실', number=42)
+        stopped = types.SimpleNamespace(text='<title>관리모드 &gt; 알림메세지</title><p>중지된 사이트입니다.</p>', url=page.page_url)
+        reopened = types.SimpleNamespace(text='<table><tbody><tr><td class="_artclTdNum">43</td><td class="_artclTdTitle"><a class="artclLinkView" href="/bbs/example/1/123/artclView.do">중지된 사이트입니다. 안내 변경</a></td></tr></tbody></table>', url=page.page_url)
+        previous = Path.cwd()
+        with tempfile.TemporaryDirectory() as directory:
+            try:
+                os.chdir(directory)
+                Path('yesterday.txt').write_text('\n\n', encoding='utf-8')
+                with patch.object(announcements, '_get_board_response', side_effect=[stopped, reopened]), patch.object(announcements, 'record_board_result') as state, patch.object(announcements, 'event') as log:
+                    self.assertEqual(announcements.get_anns_url(page, 1), ([], 42))
+                    urls, number = announcements.get_anns_url(page, 1)
+                self.assertEqual(number, 43)
+                self.assertEqual(urls, ['https://example.pusan.ac.kr/bbs/example/1/123/artclView.do'])
+                self.assertEqual([call.args[0] for call in state.call_args_list], [None, True])
+                self.assertFalse(any(call.kwargs.get('level') == 'WARN' for call in log.call_args_list))
+            finally:
+                os.chdir(previous)
+
     def test_auxiliary_cms_uses_article_identity_and_keeps_pinned_notices(self):
         from together.crawler.auxiliary_cms import collect
         from bs4 import BeautifulSoup

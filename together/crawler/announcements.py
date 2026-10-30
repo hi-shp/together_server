@@ -111,7 +111,7 @@ def get_anns_url(announcementPage, n):
 
     # 정적 HTML은 한 번만 받아 파싱한다.
     table_element = soup.find("tbody")
-    if table_element is None and any(message in soup.get_text(" ", strip=True) for message in ("메뉴이(가) 존재 하지 않습니다", "사용중지된 싱글 모듈입니다")):
+    if table_element is None and any(message in soup.get_text(" ", strip=True) for message in ("메뉴이(가) 존재 하지 않습니다", "사용중지된 싱글 모듈입니다", "중지된 사이트입니다.")):
         record_board_result(None)
         event("수집", f"{n}. {announcementPage.department} / 학교 사이트에서 운영 중단: {announcementPage.page_url}", plain=True, outcome="source_unavailable", source_url=announcementPage.page_url)
         return [], announcementPage.number
