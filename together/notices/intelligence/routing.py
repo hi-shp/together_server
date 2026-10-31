@@ -93,6 +93,18 @@ def category_hint(
             "reason": "행정·결과 안내",
         }
     if (
+        re.search(r"학술\s*(?:회의|대회)", title)
+        and re.search(r"논문|패널|발표", title)
+        and re.search(r"모집|공모|call\s+for\s+papers", title, re.I)
+        and re.search(r"발표\s*논문|개인\s*발표|패널\s*(?:구성|모집)|발표자", body)
+        and not re.search(r"공모전|경진대회|경연|상금|시상|대상\s*수상", title + " " + body)
+    ):
+        return {
+            "category": "교육/특강/프로그램",
+            "method": "academic_presentation_recruitment",
+            "reason": "학술회의 발표·패널 참여 모집 확인",
+        }
+    if (
         re.search(r"장학생.*(?:선정|선발)", title)
         and re.search(r"장학생\s*명단|선발\s*결과|최종\s*선발", body)
         and not re.search(r"신청\s*기간|접수\s*기간|지원\s*방법|신청\s*방법", body)

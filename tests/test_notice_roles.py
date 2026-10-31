@@ -3,6 +3,19 @@ from together.notices.intelligence.routing import category_hint
 
 
 class RoleClassification(unittest.TestCase):
+    def test_conference_call_for_papers_is_participation_not_a_contest(self):
+        title = "[논문 및 패널 공모] 2026 한국정치학회 연례학술회의 Call for Papers 안내"
+        body = "학술회의 발표논문 및 패널을 모집합니다. 개인발표 및 패널, 회원 대상, 발표논문 제출기한 안내."
+        self.assertEqual(category_hint(title, {}, body=body)["category"], "교육/특강/프로그램")
+        for other_title, other_body in [
+            (title, ""),
+            (title + " 논문 경진대회", body + " 우수작 상금 시상"),
+            ("KCI 학술지 논문 공모", body),
+            ("학술회의 논문 공모 선발 결과 공고", body),
+        ]:
+            with self.subTest(title=other_title):
+                self.assertNotEqual(category_hint(other_title, {}, body=other_body)["category"], "교육/특강/프로그램")
+
     def test_actual_recruitment_roles(self):
         cases = [
             (
