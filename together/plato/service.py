@@ -977,7 +977,7 @@ class WriteNoticeService:
             "취업 정보",
         ]
 
-        from together.plato.star_cleanup import collect_old_stars, remove_star
+        from together.plato.star_cleanup import collect_old_stars, remove_star, unverified_star_edits
         shared_http = getattr(self, "_http", None)
         session = shared_http if shared_http is not None else requests.Session()
         owns_session = shared_http is None
@@ -1020,6 +1020,7 @@ class WriteNoticeService:
                         link = self.driver.find_element(By.XPATH, f'//a[span[contains(@class, "instancename") and contains(text(), "{board_name}")]]')
                         board_url = link.get_attribute("href")
                     urls, pages = collect_old_stars(session, board_url, today_date)
+                    urls = list(dict.fromkeys(unverified_star_edits(BASE_DIR, board_url) + urls))
                     event("정리", f"별표 검색 {len(pages)}페이지 전체 확인", count=len(urls), source_url=board_url, console=False)
                 except Exception as exc:
                     failures.append({"board": board_name, "url": board_url, "error": type(exc).__name__})

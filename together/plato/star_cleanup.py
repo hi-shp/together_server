@@ -65,6 +65,29 @@ def collect_old_stars(session, board_url, today):
     return list(posts.values()), sorted(visited)
 
 
+def unverified_star_edits(base_dir, board_url):
+    paths = [path for path in (Path(base_dir) / ".runtime/star-cleanup").glob("*.json") if path.stem.isdigit()]
+    if not paths:
+        return []
+    board_id = parse_qs(urlsplit(board_url).query)["id"][0]
+    urls = []
+    for path in paths:
+        proof = json.loads(path.read_text(encoding="utf-8"))
+        if proof.get("verified"):
+            continue
+        ident = validate_article_url(proof["article_url"])
+        if str(ident["board_id"]) == board_id:
+            urls.append(proof["article_url"])
+    return urls
+
+
+def save_proof(target, data):
+    temporary = target.with_suffix(".pending")
+    temporary.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+    temporary.chmod(0o600)
+    temporary.replace(target)
+
+
 def remove_star(service, article_url, base_dir, *, recovered_subject=None, recovery_evidence=None):
     editor = PlatoPostEditor(service, Path(base_dir) / ".runtime/intelligence/edit-backups")
     editor._open_edit(article_url)
@@ -77,7 +100,15 @@ def remove_star(service, article_url, base_dir, *, recovered_subject=None, recov
             "notice": editor._notice_state(),
         }
 
-    before = read_fields()
+    current = read_fields()
+    root = Path(base_dir) / ".runtime/star-cleanup"
+    root.mkdir(parents=True, exist_ok=True, mode=0o700)
+    target = root / (validate_article_url(article_url)["post_id"] + ".json")
+    proof = json.loads(target.read_text(encoding="utf-8")) if target.exists() else {}
+    recovering = bool(proof and not proof.get("verified"))
+    if recovering and validate_article_url(proof["article_url"]) != validate_article_url(article_url):
+        raise PostEditError("Interrupted star edit target mismatch")
+    before = proof["before"] if recovering else current
     if not before["subject"].startswith("⭐"):
         return None
     subject = before["subject"][1:].strip()
@@ -88,20 +119,26 @@ def remove_star(service, article_url, base_dir, *, recovered_subject=None, recov
         subject = display_title(recovered_subject)
         if not subject or subject.startswith("⭐"):
             raise PostEditError("Reviewed title is invalid")
-    root = Path(base_dir) / ".runtime/star-cleanup"
-    root.mkdir(parents=True, exist_ok=True, mode=0o700)
-    target = root / (validate_article_url(article_url)["post_id"] + ".json")
-    target.write_text(json.dumps({"article_url": article_url, "before": before}, ensure_ascii=False), encoding="utf-8")
-    target.chmod(0o600)
-    field = service.driver.find_element(By.NAME, "subject")
-    service.driver.execute_script("arguments[0].value=arguments[1];for(const t of ['input','change'])arguments[0].dispatchEvent(new Event(t,{bubbles:true}));", field, subject)
-    service.driver.find_element(By.NAME, "submitbutton").click()
-    try:
-        WebDriverWait(service.driver, 45).until(EC.staleness_of(field))
-    except Exception:
-        pass
-    editor._open_edit(article_url)
-    after = read_fields()
+    if recovering and (
+        current["subject"] not in (before["subject"], subject)
+        or html_signature(current["body_html"]) != html_signature(before["body_html"])
+        or current["files"] != before["files"] or current["notice"] != before["notice"]
+    ):
+        raise PostEditError("Interrupted star edit differs from backup")
+    already_saved = recovering and current["subject"] == subject
+    if already_saved:
+        after = current
+    else:
+        save_proof(target, {"article_url": article_url, "before": before})
+        field = service.driver.find_element(By.NAME, "subject")
+        service.driver.execute_script("arguments[0].value=arguments[1];for(const t of ['input','change'])arguments[0].dispatchEvent(new Event(t,{bubbles:true}));", field, subject)
+        service.driver.find_element(By.NAME, "submitbutton").click()
+        try:
+            WebDriverWait(service.driver, 45).until(EC.staleness_of(field))
+        except Exception:
+            pass
+        editor._open_edit(article_url)
+        after = read_fields()
     if (after["subject"] != subject or html_signature(before["body_html"]) != html_signature(after["body_html"]) or before["files"] != after["files"] or before["notice"] != after["notice"]):
         raise PostEditError("Star-only edit needs verification")
     from together.notices.intelligence.enrichment import PublishedNoticeStore
@@ -116,6 +153,5 @@ def remove_star(service, article_url, base_dir, *, recovered_subject=None, recov
             if snapshot_signature(snapshot) == record["signature"]:
                 snapshot["subject"] = subject
                 store.put(dict(record, signature=snapshot_signature(snapshot)))
-    target.write_text(json.dumps({"article_url": article_url, "before": before, "after": after, "verified": True, "title_recovery_evidence": recovery_evidence if before["subject"][1:].strip() == "" else None}, ensure_ascii=False), encoding="utf-8")
-    target.chmod(0o600)
+    save_proof(target, {"article_url": article_url, "before": before, "after": after, "verified": True, "reconciled_without_resubmit": already_saved, "title_recovery_evidence": recovery_evidence if before["subject"][1:].strip() == "" else None})
     return subject
