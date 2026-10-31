@@ -147,11 +147,12 @@ class PlatoHttpClient:
         return int(match.group(1).replace(",", "")) if match else None
 
     def board_url(self, board_name):
-        soup = BeautifulSoup(self.course_html(), "html.parser")
-        for link in soup.select("a[href]"):
-            instance = link.select_one("span.instancename")
-            if instance and board_name in instance.get_text(" ", strip=True):
-                return urljoin(COURSE, link["href"])
+        for attempt in range(2):
+            soup = BeautifulSoup(self.course_html(fresh=bool(attempt)), "html.parser")
+            for link in soup.select("a[href]"):
+                instance = link.select_one("span.instancename")
+                if instance and board_name in instance.get_text(" ", strip=True):
+                    return urljoin(COURSE, link["href"])
         raise ValueError(f"Notice board unavailable: {board_name}")
 
     @staticmethod
@@ -171,7 +172,7 @@ class PlatoHttpClient:
             values[node["name"]] = node.get_text()
         return values
 
-    def create_notice(self, board_name, subject, content_html):
+    def create_notice(self, board_name, subject, content_html, *, before_submit=None):
         board_url = self.board_url(board_name)
         with self.get(board_url, timeout=(5, 30)) as board:
             soup = BeautifulSoup(board.text, "html.parser")
@@ -207,6 +208,8 @@ class PlatoHttpClient:
             if submit is not None:
                 data["submitbutton"] = submit.get("value", "")
             action = urljoin(editor.url, form.get("action", ""))
+        if before_submit is not None:
+            before_submit()
         response = self.post_once(
             action,
             data=data,

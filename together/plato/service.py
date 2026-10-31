@@ -830,7 +830,7 @@ class WriteNoticeService:
         validation = os.getenv("POST_VALIDATION_MODE", "off") == "enabled"
         if validation:
             previous = known_receipt(BASE_DIR, url)
-            if previous:
+            if previous and previous.get("state") != "not_submitted":
                 if previous.get("state") == "verified":
                     return dict(previous, reused=True)
                 return verify_publication(
@@ -850,11 +850,10 @@ class WriteNoticeService:
             and os.getenv("PLATO_HTTP_POST_MODE", "enabled") == "enabled"
         )
         if use_http_post:
-            if validation:
-                remember_receipt(BASE_DIR, receipt)
             try:
                 response = self._http.create_notice(
-                    notice_board_name, subject, content_with_styles
+                    notice_board_name, subject, content_with_styles,
+                    before_submit=(lambda: remember_receipt(BASE_DIR, receipt)) if validation else None,
                 )
             except HttpPostUnsupported:
                 # 저장 요청 전의 양식 차이는 같은 공지를 브라우저로 처리할 수 있다.
@@ -865,6 +864,9 @@ class WriteNoticeService:
             else:
                 with response:
                     validate_article_url(response.url)
+                    receipt.update(article_url=response.url, state="created")
+                    if validation:
+                        remember_receipt(BASE_DIR, receipt)
                     published = BeautifulSoup(response.text, "html.parser")
                     published_text = " ".join(
                         published.get_text(" ", strip=True).split()
@@ -977,7 +979,7 @@ class WriteNoticeService:
 
         from together.plato.star_cleanup import collect_old_stars, remove_star
         shared_http = getattr(self, "_http", None)
-        session = shared_http.session if shared_http is not None else requests.Session()
+        session = shared_http if shared_http is not None else requests.Session()
         owns_session = shared_http is None
         failures = []
         previous_mode = getattr(self, "_title_maintenance", False)

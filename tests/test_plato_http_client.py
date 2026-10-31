@@ -7,7 +7,7 @@ from unittest.mock import patch
 import pandas as pd
 import requests
 
-from together.plato.http_client import HttpSubmissionUnknown, PlatoHttpClient
+from together.plato.http_client import COURSE, HttpSubmissionUnknown, PlatoHttpClient
 from together.plato.service import WriteNoticeService
 
 
@@ -50,6 +50,14 @@ class Session:
 
 
 class PlatoHttpClientTests(unittest.TestCase):
+    def test_preflight_failure_does_not_record_a_submission(self):
+        session = Session([Response(COURSE, '<p>missing board</p>') for _ in range(2)])
+        before = __import__('unittest.mock',fromlist=['Mock']).Mock()
+        with self.assertRaises(ValueError):
+            PlatoHttpClient(session).create_notice('missing', 'title', 'body', before_submit=before)
+        before.assert_not_called()
+        self.assertFalse(any(c[0]=='POST' for c in session.calls))
+
     def test_login_variants_and_post_are_not_mistaken_for_success(self):
         from together.plato.login_page import is_login_page
         for url, html in [
@@ -274,7 +282,7 @@ class PlatoHttpClientTests(unittest.TestCase):
             def __init__(self):
                 self.calls = []
 
-            def create_notice(self, board, subject, body):
+            def create_notice(self, board, subject, body, **kwargs):
                 self.calls.append((board, subject, body))
                 return article
 
