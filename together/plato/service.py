@@ -982,6 +982,21 @@ class WriteNoticeService:
         session = shared_http if shared_http is not None else requests.Session()
         owns_session = shared_http is None
         failures = []
+        completed_boards = set()
+        pending = BASE_DIR / ".runtime/star-cleanup/pending.json"
+        pending.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+
+        def save_pending(items):
+            temporary = pending.with_suffix(".pending")
+            temporary.write_text(json.dumps({"items": items}, ensure_ascii=False), encoding="utf-8")
+            temporary.chmod(0o600)
+            temporary.replace(pending)
+
+        # Persist before remote work, including for termination without finally.
+        save_pending([
+            {"board": name, "url": course_url, "error": "cleanup_in_progress"}
+            for name in board_names
+        ])
         previous_mode = getattr(self, "_title_maintenance", False)
         self._title_maintenance = True
         try:
@@ -1020,14 +1035,19 @@ class WriteNoticeService:
                         event("PLATO", f"오류 발생: {type(exc).__name__}", level="WARN")
                 if not any(item["board"] == board_name for item in failures):
                     event("PLATO", "모든 게시판 수정 완료" if board_name == "취업 정보" and not failures else f"{board_name} 게시판 수정 완료 → 다음 게시판으로 이동", level="INFO")
+                completed_boards.add(board_name)
         finally:
             if owns_session:
                 session.close()
             self._title_maintenance = previous_mode
-            pending = BASE_DIR / ".runtime/star-cleanup/pending.json"
-            pending.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-            pending.write_text(json.dumps({"items": failures}, ensure_ascii=False), encoding="utf-8")
-            pending.chmod(0o600)
+            # A restart during cleanup must retain all unfinished boards.
+            failed_boards = {item["board"] for item in failures}
+            failures.extend(
+                {"board": name, "url": course_url, "error": "cleanup_interrupted"}
+                for name in board_names
+                if name not in completed_boards and name not in failed_boards
+            )
+            save_pending(failures)
             if owns_session:
                 self.restart_driver()
                 self.login_ready()
