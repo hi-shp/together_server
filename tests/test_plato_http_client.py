@@ -50,6 +50,21 @@ class Session:
 
 
 class PlatoHttpClientTests(unittest.TestCase):
+    def test_login_variants_and_post_are_not_mistaken_for_success(self):
+        from together.plato.login_page import is_login_page
+        for url, html in [
+            ('https://dev-plato.pusan.ac.kr/login.php', ''),
+            ('https://dev-plato.pusan.ac.kr/login/index.php', ''),
+            ('https://dev-plato.pusan.ac.kr/', "<form><input name='username'><input name='password'></form>"),
+            ('https://dev-plato.pusan.ac.kr/', '<input id="input-username">'),
+        ]:
+            self.assertTrue(is_login_page(url, html))
+        self.assertFalse(is_login_page('https://dev-plato.pusan.ac.kr/course/view.php', '<a href="/login/logout.php">Logout</a>'))
+        session = Session([Response('https://dev-plato.pusan.ac.kr/login.php')])
+        with self.assertRaises(HttpSubmissionUnknown):
+            PlatoHttpClient(session).post_once('https://dev-plato.pusan.ac.kr/mod/ubboard/write.php')
+        self.assertEqual(len(session.calls), 1)
+
     def test_cached_login_cookie_is_private_scoped_and_reusable(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "cookies.json"
@@ -85,8 +100,8 @@ class PlatoHttpClientTests(unittest.TestCase):
             path = Path(directory) / "cookies.json"
             expired = requests.Session()
             expired.get = lambda *args, **kwargs: Response(
-                "https://dev-plato.pusan.ac.kr/login/index.php",
-                '<input id="input-username">',
+                "https://dev-plato.pusan.ac.kr/login.php",
+                '<form><input name="username"><input name="password"></form>',
             )
             fresh = requests.Session()
             fresh.cookies.set(

@@ -20,6 +20,7 @@ import re
 from html import escape
 from threading import Thread
 from together.config import notify
+from together.plato.login_page import USERNAME_SELECTOR, PASSWORD_SELECTOR
 from together.plato.browser_runtime import (
     new_workspace,
     cleanup_workspace,
@@ -145,7 +146,7 @@ class WriteNoticeService:
             try:
                 self._get_page(url)
                 if login_required and self.driver.find_elements(
-                    By.ID, "input-username"
+                    By.CSS_SELECTOR, USERNAME_SELECTOR
                 ):
                     self.login(self.plato_id, self.plato_pw)
                     self._get_page(url)
@@ -234,12 +235,12 @@ class WriteNoticeService:
 
     def login(self, id: str, pw: str):
         # HTTP 세션의 쿠키를 주입한 지연 시작 브라우저는 이미 로그인돼 있다.
-        if not self.driver.find_elements(By.ID, "input-username"):
+        if not self.driver.find_elements(By.CSS_SELECTOR, USERNAME_SELECTOR):
             return
-        username_input = self.driver.find_element(By.ID, "input-username")
+        username_input = self.driver.find_element(By.CSS_SELECTOR, USERNAME_SELECTOR)
         username_input.send_keys(id)
 
-        password_input = self.driver.find_element(By.ID, "input-password")
+        password_input = self.driver.find_element(By.CSS_SELECTOR, PASSWORD_SELECTOR)
         password_input.send_keys(pw)
 
         submit = self.driver.find_element(By.NAME, "loginbutton")
@@ -1076,7 +1077,7 @@ class WriteNoticeService:
             if first_cell:
                 highest_number = int(first_cell.text.strip())
             else:
-                return
+                raise ValueError("Participant count unavailable after browser login")
 
         formatted_number = "{:,}".format(highest_number)
 

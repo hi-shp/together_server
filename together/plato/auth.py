@@ -3,6 +3,7 @@
 import os
 from urllib.parse import urlsplit
 import requests
+from .login_page import USERNAME_SELECTOR, PASSWORD_SELECTOR
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
@@ -51,13 +52,13 @@ def login_session():
         driver.set_page_load_timeout(45)
         driver.get("https://" + HOST + "/")
         WebDriverWait(driver, 30).until(
-            EC.presence_of_element_located((By.ID, "input-username"))
+            EC.presence_of_element_located((By.CSS_SELECTOR, USERNAME_SELECTOR))
         ).send_keys(os.environ["PLATO_ID"])
-        driver.find_element(By.ID, "input-password").send_keys(os.environ["PLATO_PW"])
+        driver.find_element(By.CSS_SELECTOR, PASSWORD_SELECTOR).send_keys(os.environ["PLATO_PW"])
         driver.find_element(By.NAME, "loginbutton").click()
         WebDriverWait(driver, 40).until(
             lambda browser: urlsplit(browser.current_url).netloc == HOST
-            and not browser.find_elements(By.ID, "input-username")
+            and not browser.find_elements(By.CSS_SELECTOR, USERNAME_SELECTOR)
         )
         for cookie in driver.get_cookies():
             session.cookies.set(

@@ -112,11 +112,13 @@ def run_cycle(log_path, max_seconds=0, idle_seconds=0):
         shutil.rmtree(workspace)
 
 
-def verification_mode(base_dir):
+def verification_mode(base_dir, now=None):
     try:
         value = json.loads(
             (Path(base_dir) / ".runtime/verification-mode.json").read_text()
         )
+        if "date" in value:
+            return value.get("continuous") is True and value["date"] == (now or datetime.now()).strftime("%Y-%m-%d")
         return value.get("continuous") is True
     except (OSError, ValueError, AttributeError):
         return False
@@ -138,7 +140,7 @@ def run_main():
         while True:
             cleanup_old_logs(log_dir)
             now = datetime.now()
-            continuous = verification_mode(BASE_DIR)
+            continuous = verification_mode(BASE_DIR, now)
             if now.hour < 6 and not continuous:
                 print(
                     "현재 시간이 밤 12시 ~ 오전 6시이므로 6시간 동안 대기합니다.",

@@ -11,6 +11,15 @@ class StopFixture(Exception):
 
 
 class ContinuousVerification(unittest.TestCase):
+    def test_dated_night_override_expires_next_day(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / '.runtime').mkdir()
+            (root / '.runtime/verification-mode.json').write_text(json.dumps({'continuous':True,'date':'2026-11-01'}))
+            self.assertTrue(supervisor.verification_mode(root, datetime(2026,11,1,3)))
+            self.assertFalse(supervisor.verification_mode(root, datetime(2026,11,2,3)))
+            self.assertFalse(supervisor.verification_mode(root, datetime(2026,10,31,3)))
+
     def test_failure_monitor_records_retry_without_stopping_runner(self):
         state = {"successful_cycles": [{"finished_at": 1}], "failed_cycles": []}
         runner = {"status": "waiting", "last_exit": 1, "updated_at": 2}

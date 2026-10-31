@@ -15,6 +15,7 @@ import requests
 from together.plato.auth import http_login_session
 from together.plato.notifications import NotificationAuthenticationError
 from together.config import BASE_DIR
+from together.plato.login_page import is_login_page
 
 
 ROOT = "https://dev-plato.pusan.ac.kr/"
@@ -97,7 +98,7 @@ class PlatoHttpClient:
             try:
                 response = self.session.get(url, **kwargs)
                 response.raise_for_status()
-                if "/login/" in response.url or 'id="input-username"' in response.text:
+                if is_login_page(response.url, response.text):
                     response.close()
                     if attempt == 0 and self.cookie_path is not None:
                         self.session.close()
@@ -119,7 +120,7 @@ class PlatoHttpClient:
             raise HttpSubmissionUnknown("PLATO post result is unknown") from exc
         try:
             response.raise_for_status()
-            if "/login/" in response.url or 'id="input-username"' in response.text:
+            if is_login_page(response.url, response.text):
                 raise HttpSubmissionUnknown("PLATO session expired during post")
             return response
         except BaseException:
