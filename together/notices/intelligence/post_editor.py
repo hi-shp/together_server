@@ -133,10 +133,14 @@ def snapshot_signature(snapshot):
 class PlatoPostEditor:
     def __init__(self, service, backup_root):
         self.service = service
-        self.driver = service.driver
         self.backup_root = Path(backup_root)
         self.backup_root.mkdir(parents=True, exist_ok=True, mode=0o700)
         os.chmod(self.backup_root, 0o700)
+
+    @property
+    def driver(self):
+        # safe_get이 브라우저를 지연 시작하거나 재접속으로 교체할 수 있다.
+        return self.service.driver
 
     def _wait_ready(self):
         WebDriverWait(self.driver, 30).until(

@@ -47,6 +47,28 @@ def snapshot(subject="원래 제목", body="<p>원래 본문</p>", files=None):
 
 
 class PostEditorProtection(unittest.TestCase):
+    def test_read_uses_browser_started_by_navigation_and_replaced_on_reconnect(self):
+        with tempfile.TemporaryDirectory() as temp:
+            service = types.SimpleNamespace(driver=None)
+            browser = MagicMock()
+            browser.find_elements.return_value = []
+            browser.find_element.return_value.get_attribute.return_value = "본문"
+            service.safe_get = MagicMock(side_effect=lambda *a, **k: setattr(service, "driver", browser))
+            editor = PlatoPostEditor(service, temp)
+            self.assertIsNone(service.driver)
+            with (
+                patch("together.notices.intelligence.post_editor.WebDriverWait") as wait,
+                patch.object(editor, "_attachment_links", return_value=[]),
+                patch.object(editor, "_open_edit"),
+                patch.object(editor, "_file_names", return_value=[]),
+            ):
+                result = editor.read(URL)
+                wait.assert_called_once_with(browser, 30)
+                self.assertEqual(result["subject"], "본문")
+            replacement = MagicMock()
+            service.driver = replacement
+            self.assertIs(editor.driver, replacement)
+
     def test_external_and_malformed_targets_are_rejected(self):
         for url in (
             "http://dev-plato.pusan.ac.kr/mod/ubboard/article.php?id=1&bwid=2",
