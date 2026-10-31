@@ -106,6 +106,8 @@ def evaluate(metrics, previous=None):
             "api_account_changed",
             "API 키가 바뀌어 보관한 계정 잔액을 적용할 수 없습니다. 새 계정 정보를 확인해 주세요.",
         )
+    if budget.get("balance_source") == "training_ledger_unavailable":
+        add("api_training_ledger_unavailable", "학습 비용 장부를 읽지 못해 API 잔액 추정을 보류했습니다.")
     if (
         budget.get("estimated_remaining_usd") is not None
         and budget["estimated_remaining_usd"] < 0.25
@@ -146,7 +148,22 @@ def budget_status(base_dir, api):
             "SELECT day,SUM(cost) FROM usage WHERE at>? AND task LIKE 'crawler:%' GROUP BY day",
             (time.time() - 7 * 86400,),
         ).fetchall()
-    remaining = max(0, value["balance_usd"] - total)
+    training_charged = training_reserved = 0
+    ledger_paths = value.get("training_ledger_paths", [])
+    try:
+        for ledger in {Path(name).resolve() for name in ledger_paths}:
+            # Read-only: a missing ledger must not become a new empty database.
+            with sqlite3.connect(ledger.as_uri() + "?mode=ro", uri=True) as db:
+                charged, reserved = db.execute(
+                    "SELECT COALESCE(SUM(charged),0), "
+                    "COALESCE(SUM(CASE WHEN charged IS NULL THEN reserved ELSE 0 END),0) "
+                    "FROM requests WHERE at>=?", (snapshot,),
+                ).fetchone()
+            training_charged += charged / 1e6
+            training_reserved += reserved / 1e6
+    except (OSError, ValueError, TypeError, sqlite3.Error):
+        return {"balance_source": "training_ledger_unavailable", "estimated_remaining_usd": None}
+    remaining = max(0, value["balance_usd"] - total - training_charged - training_reserved)
     daily = (
         sum(row[1] or 0 for row in production) / len(production)
         if len(production) >= 3
@@ -159,6 +176,9 @@ def budget_status(base_dir, api):
         "snapshot_at": value["observed_at"],
         "estimated_remaining_usd": round(remaining, 2),
         "other_account_usage_included": False,
+        "tracked_training_charged_usd": round(training_charged, 6),
+        "unconfirmed_training_reserved_usd": round(training_reserved, 6),
+        "training_ledgers_included": len(set(ledger_paths)),
         "daily_production_estimate_usd": daily,
         "forecast_days": remaining / daily if daily else None,
         "expires_in_days": (expires - time.time()) / 86400,
