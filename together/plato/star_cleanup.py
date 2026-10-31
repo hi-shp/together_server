@@ -88,6 +88,21 @@ def save_proof(target, data):
     temporary.replace(target)
 
 
+def star_body_signature(value):
+    # 학교 편집/표시 화면이 붙였다 제거하는 표 클래스만 비교에서 제외한다.
+    # 표 구조, 셀, 스타일, 이미지와 링크 등 나머지 HTML은 그대로 대조한다.
+    soup = BeautifulSoup(value or "", "html.parser")
+    theme_classes = {"table", "table-bordered", "table-coursemos"}
+    for node in soup.find_all("table"):
+        classes = node.get("class", [])
+        if theme_classes.issubset(classes):
+            classes = [name for name in classes if name not in theme_classes]
+            node["class"] = classes
+        if node.get("class") == []:
+            del node["class"]
+    return html_signature(str(soup))
+
+
 def remove_star(service, article_url, base_dir, *, recovered_subject=None, recovery_evidence=None):
     editor = PlatoPostEditor(service, Path(base_dir) / ".runtime/intelligence/edit-backups")
     editor._open_edit(article_url)
@@ -121,7 +136,7 @@ def remove_star(service, article_url, base_dir, *, recovered_subject=None, recov
             raise PostEditError("Reviewed title is invalid")
     if recovering and (
         current["subject"] not in (before["subject"], subject)
-        or html_signature(current["body_html"]) != html_signature(before["body_html"])
+        or star_body_signature(current["body_html"]) != star_body_signature(before["body_html"])
         or current["files"] != before["files"] or current["notice"] != before["notice"]
     ):
         raise PostEditError("Interrupted star edit differs from backup")
@@ -139,7 +154,7 @@ def remove_star(service, article_url, base_dir, *, recovered_subject=None, recov
             pass
         editor._open_edit(article_url)
         after = read_fields()
-    if (after["subject"] != subject or html_signature(before["body_html"]) != html_signature(after["body_html"]) or before["files"] != after["files"] or before["notice"] != after["notice"]):
+    if (after["subject"] != subject or star_body_signature(before["body_html"]) != star_body_signature(after["body_html"]) or before["files"] != after["files"] or before["notice"] != after["notice"]):
         raise PostEditError("Star-only edit needs verification")
     from together.notices.intelligence.enrichment import PublishedNoticeStore
     store = PublishedNoticeStore(base_dir)
@@ -152,6 +167,7 @@ def remove_star(service, article_url, base_dir, *, recovered_subject=None, recov
             snapshot = dict(before, files=[{"name": name, "sha256": value} for name, value in hashes.items()])
             if snapshot_signature(snapshot) == record["signature"]:
                 snapshot["subject"] = subject
+                snapshot["body_html"] = after["body_html"]
                 store.put(dict(record, signature=snapshot_signature(snapshot)))
     save_proof(target, {"article_url": article_url, "before": before, "after": after, "verified": True, "reconciled_without_resubmit": already_saved, "title_recovery_evidence": recovery_evidence if before["subject"][1:].strip() == "" else None})
     return subject

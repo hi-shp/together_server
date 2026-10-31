@@ -5,10 +5,20 @@ import unittest
 from unittest.mock import MagicMock, patch
 
 from together.plato import service as module
-from together.plato.star_cleanup import remove_star, unverified_star_edits
+from together.plato.star_cleanup import remove_star, unverified_star_edits, star_body_signature
 
 
 class StarCleanupResume(unittest.TestCase):
+    def test_school_table_classes_only_are_ignored(self):
+        body = '<table style="width:100%"><tbody><tr><td><a href="https://example.org/a">Original</a><img src="a.png"></td></tr></tbody></table>'
+        themed = body.replace('<table ', '<table class="table table-bordered table-coursemos" ')
+        self.assertEqual(star_body_signature(body), star_body_signature(themed))
+        self.assertEqual(star_body_signature(body), star_body_signature(body.replace('<table ', '<table class="" ')))
+        self.assertNotEqual(star_body_signature(body), star_body_signature(body.replace('<table ', '<table class="table-bordered" ')))
+        for changed in (themed.replace('Original', 'Changed'), themed.replace('100%', '50%'), themed.replace('a.png', 'b.png'), themed.replace('https://example.org/a', 'https://example.org/b'), themed.replace('<td>', '<td colspan="2">'), themed.replace('table-coursemos', 'table-coursemos custom')):
+            with self.subTest(changed=changed):
+                self.assertNotEqual(star_body_signature(body), star_body_signature(changed))
+
     def test_saved_edit_is_reconciled_without_resubmit_and_changes_are_not_overwritten(self):
         url = 'https://dev-plato.pusan.ac.kr/mod/ubboard/article.php?id=123&bwid=456'
         for changed in (False, True):
