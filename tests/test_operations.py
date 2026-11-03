@@ -506,7 +506,7 @@ class ApiUsageTests(unittest.TestCase):
             )
             self.assertEqual(budget_status(temp, {})["balance_source"], "key_changed")
 
-    def test_real_tokens_cost_and_daily_limit(self):
+    def test_real_tokens_cost_is_recorded_without_a_daily_limit(self):
         with (
             tempfile.TemporaryDirectory() as temp,
             patch.dict(os.environ, {"GPT_DAILY_BUDGET_USD": "0.0001"}),
@@ -526,8 +526,7 @@ class ApiUsageTests(unittest.TestCase):
             self.assertAlmostEqual(
                 accounting.summary()["days"][0]["estimated_usd"], 0.0006375
             )
-            with self.assertRaises(DailyApiBudgetExceeded):
-                accounting.check_budget()
+            self.assertIsNone(accounting.check_budget())
 
     def test_identical_requests_are_cached_with_candidate_order(self):
         with tempfile.TemporaryDirectory() as temp:

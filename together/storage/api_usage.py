@@ -57,14 +57,9 @@ class ApiAccounting:
         return json.loads(row[0]) if row else None
 
     def check_budget(self):
-        day = datetime.now(ZoneInfo("Asia/Seoul")).date().isoformat()
-        with self.connection() as db:
-            used = db.execute(
-                "SELECT COALESCE(SUM(cost),0) FROM usage WHERE day=?", (day,)
-            ).fetchone()[0]
-        limit = float(os.getenv("GPT_DAILY_BUDGET_USD", "0.25"))
-        if limit > 0 and used + 0.005 > limit:
-            raise DailyApiBudgetExceeded("Daily API budget reached")
+        # 운영자 요청: 일일 한도로 공지 수집·게시를 중단하지 않는다.
+        # 과거 설정이 남아 있어도 적용하지 않으며 사용량 원장은 계속 기록한다.
+        return None
 
     def record(self, model, request, response=None, error=None):
         task = (

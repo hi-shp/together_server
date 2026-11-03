@@ -47,6 +47,7 @@ from together.notices.intelligence.quality import (
     display_title,
 )
 from together.storage.attachments import archive_files
+from together.storage.pending_notices import PendingNotices
 from together.operations.state import update_state, board_summary
 from together.operations.events import event, start_cycle, set_notice, clear_notice
 
@@ -220,8 +221,12 @@ def run_cycle(writenoticeService, prepared=None):
     event("시작", f"게시판 {len(page_url_manager.announcement_pages)}개 준비 완료")
     n = 1
     previous_board_had_notices = False
+    pending_notices = PendingNotices(BASE_DIR)
     prefetch = OrderedBoardPrefetch(page_url_manager.announcement_pages)
     for announcement_page in page_url_manager.announcement_pages:
+        pending_board = announcement_page.source_url
+        unfinished = pending_notices.for_board(pending_board)
+        announcement_page.on_discovered = lambda url, board=pending_board, department=announcement_page.department: pending_notices.add(board, url, department)
         if previous_board_had_notices:
             print("", flush=True)
         clear_notice()
@@ -245,6 +250,9 @@ def run_cycle(writenoticeService, prepared=None):
             getattr(announcement_page, "display_ordinal", n),
             prefetched=prefetch.take(n - 1),
         )
+        for discovered_url in ann_urls:
+            pending_notices.add(pending_board, discovered_url, announcement_page.department)
+        ann_urls = pending_notices.merge(unfinished, ann_urls)
         previous_board_had_notices = bool(ann_urls)
         update_state(BASE_DIR, boards=board_summary())
         department = announcement_page.department
@@ -301,6 +309,7 @@ def run_cycle(writenoticeService, prepared=None):
                         level="WARN",
                         outcome="quarantined",
                     )
+                    pending_notices.finish(pending_board, url, 'quarantined')
                     continue
 
             observe_notice(partial_ann, department)
@@ -414,12 +423,15 @@ def run_cycle(writenoticeService, prepared=None):
             if "CMS/Board/PopupBoard" in url:
                 if "도서관 운영 일정 및 열람실별 이용 안내" in partial_ann.title:
                     event("알림", "쪽지/이메일 패스", outcome="excluded", plain=True)
+                    pending_notices.finish(pending_board, url, 'legacy_notification_exclusion')
                     continue
 
-                if partial_ann.title in recent_titles:
+                if partial_ann.title in recent_titles and not pending_notices.notifications_started(pending_board, url):
                     event("알림", "중복 패스", outcome="deduplicated", plain=True)
+                    pending_notices.finish(pending_board, url, 'legacy_recent_title_skip')
                     continue
 
+            pending_notices.mark_notifications(pending_board, url)
             if partial_ann.title not in recent_titles:
                 save_only_title(partial_ann.title)
 
@@ -442,6 +454,7 @@ def run_cycle(writenoticeService, prepared=None):
             if receipt:
                 receipt["notifications_registered"] = True
                 remember_receipt(BASE_DIR, receipt)
+            pending_notices.finish(pending_board, url)
             event(
                 "공지",
                 f"처리 완료 ({time.monotonic()-notice_started:.1f}초)",

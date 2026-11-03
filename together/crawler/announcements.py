@@ -301,6 +301,9 @@ def get_anns_url(announcementPage, n, prefetched=None):
                                                     plain=True,
                                                 )
                                             else:
+                                                discovered = getattr(announcementPage, 'on_discovered', None)
+                                                if discovered:
+                                                    discovered(url)
                                                 urls.append(url)
                                                 idx += 1
                                                 if num_idx == 0:
