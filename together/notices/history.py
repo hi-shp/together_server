@@ -130,6 +130,7 @@ def is_recent_title_duplicate(
     identity_title=None,
     announcement=None,
     department="",
+    recovery_recheck=False,
 ):
     duplicate_review.set("")
     duplicate_review_reason.set("")
@@ -148,6 +149,8 @@ def is_recent_title_duplicate(
     recent_entries = recent_titles[:1000]
     mode = os.getenv("NOTICE_DUPLICATE_MODE") or "hybrid"
     original_title = identity_title or new_title
+    if recovery_recheck:
+        recent_entries = [(date, title) for date, title in recent_entries if normalize_title(title) != normalize_title(original_title)]
     if mode != "legacy":
         recent_entries = [
             (date, title)

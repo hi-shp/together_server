@@ -75,6 +75,16 @@ class PendingNotices:
                 if self.matches(row, board, url):
                     row['notifications_started'] = True
 
+    def mark_recovery(self, board, url, reviewed_candidate):
+        with self.transaction() as state:
+            for row in state['pending']:
+                if self.matches(row, board, url):
+                    row['reviewed_candidate'] = reviewed_candidate
+                    row['notifications_started'] = True
+
+    def recovery_candidate(self, board, url):
+        return next((row.get('reviewed_candidate') for row in self.for_board(board) if self.matches(row, board, url)), None)
+
     def finish(self, board, url, outcome='completed'):
         with self.transaction() as state:
             removed = [row for row in state['pending'] if self.matches(row, board, url)]

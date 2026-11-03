@@ -118,6 +118,7 @@ def remember_review(combined, result):
     _reviews[key] = {
         "notice_type": result.get("notice_type", "unknown"),
         "reason": str(result.get("reason", ""))[:400],
+        "local_fallback": bool(result.get('_local_fallback')),
     }
     if len(_reviews) > 128:
         _reviews.pop(next(iter(_reviews)))

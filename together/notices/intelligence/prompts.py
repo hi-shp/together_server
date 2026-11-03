@@ -139,7 +139,8 @@ def duplicate_request(new_title, recent_titles, context=None):
     }
     payload = {"new_notice": new_title, "candidate_titles": recent_titles}
     if context:
-        payload["new_notice"] = context.get("new_notice", new_title)
+        payload["new_notice"] = dict(context.get("new_notice") or {})
+        payload["new_notice"]["title"] = new_title
         previous = context.get("recent_notices", [])
         payload["candidates"] = [
             {**(previous[index] if index < len(previous) else {}),

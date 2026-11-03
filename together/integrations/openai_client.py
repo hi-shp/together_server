@@ -1,6 +1,7 @@
 import json
 import os
 import re
+import time
 from together.operations.events import duplicate_review, duplicate_review_reason
 
 from openai import OpenAI
@@ -13,6 +14,8 @@ from together.notices.intelligence.text import (
     normalize_title,
 )
 from together.storage.api_usage import ApiAccounting
+from together.storage.fallback_reviews import FallbackReviews
+from together.operations.events import notice_context, event
 from together.notices.intelligence.context import department_conditions_differ
 from together.notices.intelligence.quality import remember_review
 
@@ -22,29 +25,60 @@ from together.notices.intelligence.policy import CATEGORIES
 client = OpenAI(api_key=os.getenv("GPT_API_KEY"), timeout=30, max_retries=1)
 CATEGORY_MODEL = os.getenv("GPT_CATEGORY_MODEL") or "gpt-5.4-mini-2026-03-17"
 DUPLICATE_MODEL = os.getenv("GPT_DUPLICATE_MODEL") or "gpt-5.4-mini-2026-03-17"
+_retry_api_at = 0
 
 
-def _decision(model, request):
+def _validate(result, request):
+    if not isinstance(result, dict):
+        raise ValueError("Invalid classification response")
+    task = request['response_format']['json_schema']['name']
+    if task == 'notice_category':
+        if result.get('category') not in (*CATEGORIES, '판단보류') or result.get('notice_type') not in ('notice', 'uncertain', 'personal_or_ad'):
+            raise ValueError('Unknown category response')
+    elif task == 'duplicate_decision':
+        relation = result.get('relation')
+        payload = json.loads(request['messages'][-1]['content'])
+        index = result.get('matched_index')
+        if relation not in ('same_event', 'different_event', 'related_update', 'needs_context') or type(index) is not int:
+            raise ValueError('Unknown duplicate response')
+        if relation == 'same_event' and not 0 <= index < len(payload['candidate_titles']):
+            raise ValueError('Invalid duplicate match index')
+    return result
+
+
+def _decision(model, request, *, require_remote=False):
+    global _retry_api_at
     accounting = ApiAccounting(BASE_DIR)
     cached = accounting.cached(model, request)
     if cached is not None:
         return cached
+    response = None
+    deferred = False
     try:
-        accounting.check_budget()
+        if not require_remote and time.monotonic() < _retry_api_at:
+            deferred = True
+            raise ConnectionError('API recovery probe deferred; crawler continues locally')
         response = client.chat.completions.create(
             model=model, max_completion_tokens=500, reasoning_effort="none", **request
         )
+        content = response.choices[0].message.content
+        if not content or response.choices[0].finish_reason != 'stop':
+            raise ValueError('Incomplete classification response')
+        result = _validate(json.loads(content), request)
+        accounting.record(model, request, response=response)
+        _retry_api_at = 0
+        return result
     except Exception as exc:
-        accounting.record(model, request, error=exc)
-        raise
-    accounting.record(model, request, response=response)
-    content = response.choices[0].message.content
-    if not content:
-        raise ValueError("Empty classification response")
-    result = json.loads(content)
-    if not isinstance(result, dict):
-        raise ValueError("Invalid classification response")
-    return result
+        if not deferred:
+            accounting.record(model, request, response=response, error=exc)
+        _retry_api_at = time.monotonic() + 120
+        if require_remote:
+            raise
+        from together.notices.intelligence.offline import local_decision
+        result = local_decision(request, BASE_DIR)
+        key = FallbackReviews(BASE_DIR).record(model, request, result, notice_context(), exc)
+        event('API', '로컬 대체 판단 · 복구 후 재검토 대기', level='WARN', error=type(exc).__name__, notice_id=key[:10])
+        return result
 
 
 def answer_gpt(user_content):
@@ -101,6 +135,7 @@ def check_title_similarity(new_title, recent_titles, *, context_provider=None):
         return "중복 아님"
     used_context = False
     used_model = False
+    used_local = False
     reviews = []
     final_relation = "different_event"
     labels = {
@@ -127,6 +162,7 @@ def check_title_similarity(new_title, recent_titles, *, context_provider=None):
         request = duplicate_request(new_title, [candidate], context)
         used_model = True
         result = _decision(DUPLICATE_MODEL, request)
+        used_local = used_local or bool(result.get('_local_fallback'))
         relation = result.get("relation")
         if relation not in labels:
             raise ValueError("Unknown duplicate relation")
@@ -144,7 +180,7 @@ def check_title_similarity(new_title, recent_titles, *, context_provider=None):
             final_relation = relation
     duplicate_review_reason.set(" / ".join(reviews))
     duplicate_review.set(
-        ("본문 조건 대조·" if not used_model else "GPT 본문 검토·" if used_context else "GPT 후보 검토·")
+        ("로컬 대체·" if used_local else "본문 조건 대조·" if not used_model else "GPT 본문 검토·" if used_context else "GPT 후보 검토·")
         + labels[final_relation]
     )
     return "중복" if final_relation == "same_event" else "중복 아님"

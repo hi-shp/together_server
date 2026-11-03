@@ -112,11 +112,13 @@ def categorize_announcement(title, content_text):
         combined_text = f"{title}\n{content_text}"
         truncated_content = truncate_text(combined_text, 1000)
         category = answer_gpt(truncated_content)
-        method = "gpt_context_review"
+        method = "local_api_fallback" if review_for(truncated_content).get('local_fallback') else "gpt_context_review"
     observe_category(title, category, method)
     prediction = hint.get("prediction") or {}
     explanation = (
-        "GPT 본문 검토"
+        "로컬 대체·API 오류"
+        if method == "local_api_fallback"
+        else "GPT 본문 검토"
         if method == "gpt_context_review"
         else hint.get("reason") or "제목 규칙·로컬 모델 대조"
     )
@@ -219,6 +221,8 @@ def run_cycle(writenoticeService, prepared=None):
     )
     page_url_manager = PageUrlManager()
     event("시작", f"게시판 {len(page_url_manager.announcement_pages)}개 준비 완료")
+    from together.notices.intelligence.recovery import review_pending
+    review_pending(writenoticeService, BASE_DIR)
     n = 1
     previous_board_had_notices = False
     pending_notices = PendingNotices(BASE_DIR)
@@ -321,6 +325,7 @@ def run_cycle(writenoticeService, prepared=None):
                 ),
                 announcement=partial_ann,
                 department=department,
+                recovery_recheck=bool(pending_notices.recovery_candidate(pending_board, url)),
             )
 
             if enrichment_target or duplicate_check != "중복":

@@ -376,10 +376,12 @@ class GPTContractTests(unittest.TestCase):
         return module
 
     def response(self, adapter, value):
+        if value.get('category'):
+            value.setdefault('notice_type', 'notice')
         adapter.client.chat.completions.create.return_value = types.SimpleNamespace(
             choices=[
                 types.SimpleNamespace(
-                    message=types.SimpleNamespace(content=json.dumps(value))
+                    message=types.SimpleNamespace(content=json.dumps(value)), finish_reason='stop'
                 )
             ]
         )
@@ -398,8 +400,10 @@ class GPTContractTests(unittest.TestCase):
     def test_unknown_category_is_rejected(self):
         adapter = self.load_adapter()
         self.response(adapter, {"category": "임의 카테고리"})
-        with self.assertRaises(ValueError):
-            adapter.answer_gpt("제목")
+        with tempfile.TemporaryDirectory() as root, patch.object(adapter, 'BASE_DIR', Path(root)), patch.object(adapter, 'event'):
+            self.assertEqual(adapter.answer_gpt("제목"), '해당없음')
+            from together.storage.fallback_reviews import FallbackReviews
+            self.assertEqual(FallbackReviews(root).summary(), {'pending': 1})
 
     def test_context_abstention_keeps_legacy_other_board_contract(self):
         adapter = self.load_adapter()
@@ -411,8 +415,8 @@ class GPTContractTests(unittest.TestCase):
     def test_duplicate_requires_a_valid_match_index(self):
         adapter = self.load_adapter()
         self.response(adapter, {"relation": "same_event", "matched_index": -1})
-        with self.assertRaises(ValueError):
-            adapter.check_title_similarity("2026 해양 캠프", ["2026 해양 캠프 모집"])
+        with tempfile.TemporaryDirectory() as root, patch.object(adapter, 'BASE_DIR', Path(root)), patch.object(adapter, 'event'):
+            self.assertEqual(adapter.check_title_similarity("2026 해양 캠프", ["2026 해양 캠프 모집"]), '중복 아님')
 
     def test_new_year_never_calls_api_for_old_occurrence(self):
         adapter = self.load_adapter()

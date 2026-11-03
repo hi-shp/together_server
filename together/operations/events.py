@@ -92,6 +92,10 @@ def clear_notice():
     _context.set({k: v for k, v in _context.get().items() if k == "cycle_id"})
 
 
+def notice_context():
+    return dict(_context.get())
+
+
 def set_notice(url, department="", title=""):
     context = {k: v for k, v in _context.get().items() if k == "cycle_id"}
     context.update(
