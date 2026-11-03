@@ -48,6 +48,8 @@ def local_decision(request, base_dir):
         left, right = new['title'], old['title']
         if occurrence_conflict(left, right) or (phase(left) != phase(right) and 'result' in (phase(left), phase(right))):
             continue
+        if compare_notices(Notice(left), Notice(right))['relation'] == 'related_update':
+            continue
         context = {'new_notice': new, 'recent_notices': [old]}
         if department_conditions_differ(context):
             continue

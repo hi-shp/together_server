@@ -81,6 +81,11 @@ class OfflineRecoveryTests(unittest.TestCase):
         self.assertFalse(_same_material(a, dict(a, files=[])))
         self.assertFalse(_same_material(a, dict(a, notice=True)))
 
+    def test_changed_deadline_is_not_hidden_by_same_body_during_outage(self):
+        with tempfile.TemporaryDirectory() as root:
+            request=duplicate_request('2026 창업 캠프 모집(~11/12)', ['2026 창업 캠프 모집(~11/05)'], {'new_notice':{'body_excerpt':'동일한 모집 안내 본문 '*30},'recent_notices':[{'body_excerpt':'동일한 모집 안내 본문 '*30}]})
+            self.assertNotEqual(local_decision(request,root)['relation'],'same_event')
+
     def test_uncertain_copy_is_not_posted_twice(self):
         from together.notices.intelligence import recovery
         with tempfile.TemporaryDirectory() as root:

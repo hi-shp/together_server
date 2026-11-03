@@ -32,3 +32,9 @@ def get(url, **kwargs):
     if ready > now:
         time.sleep(ready - now)
     return _session.get(url, **kwargs)
+
+
+def get_fresh(url, **kwargs):
+    """목록 껍데기 응답 재확인에만 쿠키·연결을 분리한다."""
+    with requests.Session() as session:
+        return session.get(url, **kwargs)

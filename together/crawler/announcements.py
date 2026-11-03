@@ -62,10 +62,10 @@ def filter_bmp_characters(text):
     return clean_text(text)
 
 
-def _get_board_response(url):
+def _get_board_response(url, *, isolated=False):
     for attempt in range(2):
         try:
-            response = http_get(url, verify=False, timeout=HTTP_TIMEOUT)
+            response = (public_http.get_fresh if isolated else http_get)(url, verify=False, timeout=HTTP_TIMEOUT)
             response.raise_for_status()
             return response
         except (requests.Timeout, requests.ConnectionError):
@@ -108,6 +108,18 @@ def get_anns_url(announcementPage, n, prefetched=None):
             event("수집", "목록 형식 재확인", source_url=announcementPage.page_url, console=False)
             response = _get_board_response(announcementPage.page_url)
             soup = BeautifulSoup(response.text, "html.parser")
+            if (
+                soup.find('tbody') is None
+                and not (card_scope and entries(soup, response.url, card_scope) is not None)
+                and not any(message in soup.get_text(' ', strip=True) for message in closed)
+            ):
+                from together.crawler.response_evidence import preserve_missing_list
+                try:
+                    preserve_missing_list(BASE_DIR, announcementPage.page_url, response)
+                except (OSError, ValueError, TypeError, KeyError) as exc:
+                    event('수집', '목록 응답 증거 저장 실패', error=type(exc).__name__, source_url=announcementPage.page_url, console=False)
+                response = _get_board_response(announcementPage.page_url, isolated=True)
+                soup = BeautifulSoup(response.text, 'html.parser')
     except requests.exceptions.RequestException as e:
         record_board_result(False)
         event(
