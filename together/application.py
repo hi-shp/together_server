@@ -29,6 +29,7 @@ from functools import lru_cache
 from datetime import datetime
 from together.crawler.university import NoticeUpdater
 from together.notices.intelligence.publication import known_receipt, remember_receipt
+from together.notices.intelligence.representative import verify_representative, RepresentativeUnconfirmed
 from together.notices.intelligence.routing import category_hint, configured_classifier
 from together.notices.intelligence.shadow import (
     observe_notice,
@@ -318,15 +319,24 @@ def run_cycle(writenoticeService, prepared=None):
 
             observe_notice(partial_ann, department)
             enrichment_target = find_target(partial_ann, department, BASE_DIR)
-            duplicate_check = is_recent_title_duplicate(
-                partial_ann.title,
-                identity_title=getattr(
-                    partial_ann, "original_title", partial_ann.title
-                ),
-                announcement=partial_ann,
-                department=department,
-                recovery_recheck=bool(pending_notices.recovery_candidate(pending_board, url)),
-            )
+            try:
+                duplicate_check = is_recent_title_duplicate(
+                    partial_ann.title,
+                    identity_title=getattr(
+                        partial_ann, "original_title", partial_ann.title
+                    ),
+                    announcement=partial_ann,
+                    department=department,
+                    recovery_recheck=bool(pending_notices.recovery_candidate(pending_board, url)),
+                    representative_check=lambda evidence:verify_representative(
+                        writenoticeService,dict(evidence,current_source_url=url),BASE_DIR,
+                        [name for name in CATEGORIES if name!='해당없음']+['기타 공지사항'],
+                        current_notice={'title':getattr(partial_ann,'original_title',partial_ann.title)}),
+                )
+            except RepresentativeUnconfirmed:
+                # 원문은 pending에 남는다. 제목 기록·알림 완료 처리를 앞당기지 않는다.
+                event('게시','대표 게시글 확인 대기 · 원문 보존 후 다음 순회 재검토',level='WARN',outcome='representative_pending')
+                continue
 
             if enrichment_target or duplicate_check != "중복":
                 if enrichment_target:

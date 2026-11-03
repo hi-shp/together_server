@@ -1,6 +1,7 @@
 """판단 당시 보관한 원문에서 중복 검토에 필요한 본문을 읽는다."""
 
 from datetime import timedelta
+import json
 from pathlib import Path
 import re
 import sqlite3
@@ -38,13 +39,14 @@ def duplicate_context(announcement, department, candidates, dates, base_dir):
         with sqlite3.connect(
             "file:" + str(path) + "?mode=ro", uri=True, timeout=0.2
         ) as db:
+            has_metadata = 'metadata_json' in {v[1] for v in db.execute('PRAGMA table_info(notices)')}
             for title in candidates:
                 stamp = dates.get(title)
                 if stamp is None:
                     previous.append({"title": title})
                     continue
                 row = db.execute(
-                    "SELECT source_url,department,body_excerpt FROM notices WHERE title=? AND observed_at<=? ORDER BY observed_at DESC,id DESC LIMIT 1",
+                    "SELECT source_url,department,body_excerpt" + (',metadata_json' if has_metadata else '') + " FROM notices WHERE title=? AND observed_at<=? ORDER BY observed_at DESC,id DESC LIMIT 1",
                     (
                         title,
                         (stamp + timedelta(seconds=5)).isoformat(timespec="seconds"),
@@ -60,16 +62,26 @@ def duplicate_context(announcement, department, candidates, dates, base_dir):
                     if row
                     else {"title": title}
                 )
+                if row and has_metadata:
+                    try:
+                        metadata = json.loads(row[3] or '{}')
+                    except (ValueError,TypeError):
+                        metadata = {}
+                    previous[-1].update(publication_time=metadata.get('publication_time'),
+                                        publication_time_is_explicit=bool(metadata.get('publication_time_is_explicit')))
     except (sqlite3.Error, OSError):
         return None
     if not any(len(row.get("body_excerpt", "").strip()) >= 80 for row in previous):
         return None
+    metadata = getattr(announcement,'metadata',{}) or {}
     return {
         "new_notice": {
             "title": getattr(announcement, "original_title", announcement.title),
             "department": department,
             "source_url": announcement.url,
             "body_excerpt": excerpt(body),
+            "publication_time": metadata.get('publication_time'),
+            "publication_time_is_explicit": bool(metadata.get('publication_time_is_explicit')),
         },
         "recent_notices": previous,
     }

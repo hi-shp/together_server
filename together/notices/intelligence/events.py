@@ -7,6 +7,7 @@ import re
 from urllib.parse import urlsplit, urlunsplit
 
 from .text import clean_display_title, exact_key, identity, normalize_title
+from .focus import focus_conflict
 
 
 @dataclass
@@ -55,6 +56,9 @@ def _rounds(values, unit):
 
 
 def compare_notices(left, right):
+    important_conflict = focus_conflict(left.title,right.title,left.body_text,right.body_text)
+    if important_conflict:
+        return {'relation':'different_occurrence','reason':important_conflict,'similarity':None}
     a, b = identity(left.title), identity(right.title)
     reasons = []
     for name in ("years", "semesters", "seasons"):

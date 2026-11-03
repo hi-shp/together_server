@@ -18,6 +18,7 @@ import uuid
 from together.config import BASE_DIR
 
 _context = ContextVar("crawler_log_context", default={})
+duplicate_match = ContextVar('duplicate_matched_representative',default=None)
 _warned = False
 MAX_FILE = 8 * 1024**2
 BACKUPS = 31

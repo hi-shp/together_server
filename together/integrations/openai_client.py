@@ -98,6 +98,8 @@ def answer_gpt(user_content):
 
 
 def check_title_similarity(new_title, recent_titles, *, context_provider=None):
+    from together.notices.intelligence.focus import focus_conflict
+    from together.operations.events import duplicate_match
     shared_program = lambda title: "현장실습학기제" in normalize_title(title).replace(" ", "")
     shared_exchange = lambda title: bool(
         re.search(
@@ -117,6 +119,7 @@ def check_title_similarity(new_title, recent_titles, *, context_provider=None):
                 for row in context.get("recent_notices", [])
             ):
                 duplicate_review.set("같은 원문·제목 재확인")
+                duplicate_match.set({'title':new_title,'source_url':source})
                 return "중복"
         if not shared_notice(new_title):
             duplicate_review.set("학과별 모집·대상 확인 필요")
@@ -125,6 +128,7 @@ def check_title_similarity(new_title, recent_titles, *, context_provider=None):
         title
         for title in recent_titles[:3]
         if not occurrence_conflict(new_title, title)
+        and not focus_conflict(new_title,title)
         and (
             not requires_department_evidence(title)
             or (shared_notice(new_title) and shared_notice(title))
@@ -174,6 +178,8 @@ def check_title_similarity(new_title, recent_titles, *, context_provider=None):
         ApiAccounting(BASE_DIR).store(DUPLICATE_MODEL, request, result)
         reviews.append(f"{position}번 후보: {result.get('reason', '')}")
         if relation == "same_event":
+            old=(context.get('recent_notices') or [{}])[0] if context else {}
+            duplicate_match.set({'title':candidate,'source_url':old.get('source_url','')})
             final_relation = relation
             break
         if relation in ("related_update", "needs_context"):

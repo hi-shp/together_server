@@ -10,8 +10,10 @@ from collections import defaultdict, deque
 from together.notices.intelligence.text import occurrence_conflict, normalize_title, requires_department_evidence, clean_display_title, identity
 from together.notices.intelligence.events import Notice, compare_notices
 from together.config import BASE_DIR
-from together.notices.intelligence.context import duplicate_context
+from together.notices.intelligence.context import duplicate_context,excerpt
+from together.notices.intelligence.focus import exchange_focus, focus_conflict
 from together.operations.events import event, duplicate_review, duplicate_review_reason
+from together.operations.events import duplicate_match
 
 _TITLE_TIMESTAMP = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}")
 
@@ -61,6 +63,7 @@ def candidate_title_similarities(new_title, titles, mode="hybrid"):
     generic = {"pnu", "ai", "sw", "it", "bk21", "sns", "csr", "pbl"}
     identifiers = lambda text: {x.casefold() for x in re.findall(r"[A-Za-z][A-Za-z0-9]{2,}", text)} - generic
     current_ids = identifiers(new_title)
+    current_focus = exchange_focus(new_title)
     rounds = set(identity(new_title)["rounds"])
     scored = []
     for index, (original, value) in enumerate(zip(titles, cleaned)):
@@ -69,6 +72,12 @@ def candidate_title_similarities(new_title, titles, mode="hybrid"):
         score = calculate_similarity(query, value)
         if current_ids & identifiers(original) and rounds & set(identity(original)["rounds"]):
             score += 0.35
+        previous_focus = exchange_focus(original)
+        if (current_focus and previous_focus and current_focus['occurrence_complete']
+                and previous_focus['occurrence_complete']
+                and current_focus['occurrence_key'] == previous_focus['occurrence_key']):
+            # 학교·학기·과정이 같은 후보를 먼저 검토한다. 중복 확정은 하지 않는다.
+            score += 0.5
         scored.append((score, -index, value))
     return [(score, title) for score, _, title in heapq.nlargest(3, scored)]
 
@@ -131,9 +140,14 @@ def is_recent_title_duplicate(
     announcement=None,
     department="",
     recovery_recheck=False,
+    representative_check=None,
 ):
     duplicate_review.set("")
     duplicate_review_reason.set("")
+    duplicate_match.set(None)
+    mode = os.getenv("NOTICE_DUPLICATE_MODE") or "hybrid"
+    # 예전 모드의 10일 범위는 유지하며 현재 방식은 학과 전달 지연을 2주까지 본다.
+    lookback_days = 10 if mode == 'legacy' else 14
     recent_titles = []
     if os.path.exists(filename):
         with open(filename, "r", encoding="utf-8") as file:
@@ -141,13 +155,12 @@ def is_recent_title_duplicate(
             for line in lines:
                 saved_datetime, saved_title = line.strip().split("$", 1)
                 saved_date = _parse_title_timestamp(saved_datetime)
-                if saved_date > datetime.now() - timedelta(days=10):
+                if saved_date > datetime.now() - timedelta(days=lookback_days):
                     recent_titles.append((saved_date, saved_title))
 
-    # 최근 10일 이내 제목 중 최대 1,000개를 비교한다.
+    # 현재 방식은 최근 14일, 예전 방식은 10일 제목 중 최대 1,000개를 비교한다.
     recent_titles.sort(reverse=True, key=lambda x: x[0])
     recent_entries = recent_titles[:1000]
-    mode = os.getenv("NOTICE_DUPLICATE_MODE") or "hybrid"
     original_title = identity_title or new_title
     if recovery_recheck:
         recent_entries = [(date, title) for date, title in recent_entries if normalize_title(title) != normalize_title(original_title)]
@@ -156,6 +169,7 @@ def is_recent_title_duplicate(
             (date, title)
             for date, title in recent_entries
             if not occurrence_conflict(original_title, title)
+            and not focus_conflict(original_title, title)
         ]
     recent_titles = [title for _, title in recent_entries]
 
@@ -177,7 +191,30 @@ def is_recent_title_duplicate(
     candidate_labels = [title for _, title in title_similarities[:3]]
 
     def decision(result, method, similarity=None):
+        nonlocal candidate_labels
         method = duplicate_review.get() or method
+        if result=='중복' and representative_check is not None:
+            from together.notices.intelligence.representative import RepresentativeUnconfirmed
+            evidence=duplicate_match.get() or {'title':candidate_labels[0] if candidate_labels else ''}
+            proof=representative_check(evidence)
+            if proof.get('status')=='recheck':
+                actual=proof['_actual_candidates']
+                current={'title':original_title,'source_url':getattr(announcement,'url',''),
+                         'department':department,'body_excerpt':excerpt(getattr(announcement,'content_text',''))}
+                def actual_context(titles):
+                    previous=[next(v for v in actual if v['title']==title) for title in titles]
+                    return {'new_notice':current,'recent_notices':[dict(v,body_excerpt=excerpt(v.get('body_excerpt',''))) for v in previous]}
+                candidate_labels=[v['title'] for v in actual]
+                result=check_title_similarity(original_title,candidate_labels,context_provider=actual_context)
+                method=duplicate_review.get() or '실제 게시 원문 후보 재검토'
+                if result=='중복':
+                    proof=representative_check(duplicate_match.get() or {})
+                else:
+                    proof={'status':'verified'}  # 중복 확정이 철회돼 새 글 보존 경로로 진행한다.
+            if proof.get('status')=='missing':
+                result,method='중복 아님','대표 게시글 없음·새 공지 보존'
+            elif proof.get('status')!='verified':
+                raise RepresentativeUnconfirmed('Actual representative needs reconciliation before duplicate suppression')
         raw_similarity = max((calculate_similarity(normalize_title(new_title), normalize_title(value)) for value in candidate_labels), default=0.0) if candidate_labels else None
         shown_similarity = similarity if mode == "legacy" else raw_similarity
         event(
@@ -223,6 +260,7 @@ def is_recent_title_duplicate(
     for date, title in candidates:
         result = compare_notices(current, Notice(title, date.isoformat()))
         if result["relation"] == "same_event" and not requires_department_evidence(original_title):
+            duplicate_match.set({'title':title,'observed_at':date.isoformat()})
             return decision("중복", "행사·연도·회차 대조", highest_similarity)
     context = None
     if announcement is not None:
