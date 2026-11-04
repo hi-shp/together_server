@@ -1,6 +1,6 @@
 """이메일의 독립 처리, 재시작과 기존 완료 문구를 확인한다."""
 
-import contextlib, io, os, tempfile, unittest
+import contextlib, io, os, tempfile, unittest, time
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 from together.storage.email_outbox import EmailOutbox
@@ -171,6 +171,51 @@ class TransientRetryTests(unittest.TestCase):
                 self.assertEqual(
                     db.execute("SELECT state FROM jobs").fetchone()[0], "pending"
                 )
+
+
+class LongUnknownOrderingTests(unittest.TestCase):
+    def setup_queue(self, root, state, age, ready):
+        outbox = EmailOutbox(root)
+        first = outbox.enqueue(payload())
+        second = outbox.enqueue(dict(payload(), event_key='second', title='second'))
+        with outbox.connection() as db:
+            db.execute('UPDATE jobs SET state=?,created=?,ready=? WHERE id=?',
+                       (state,time.time()-age,ready,first['id']))
+        return outbox,first,second
+
+    def test_old_unknown_does_not_block_next_email_between_receipt_checks(self):
+        with tempfile.TemporaryDirectory() as root:
+            box,first,second=self.setup_queue(root,'unknown',3600,time.time()+60)
+            job=box.claim(ordered=True)
+            self.assertEqual(job['id'],second['id'])
+            self.assertEqual(job['preceding_unconfirmed_skipped'],1)
+            with box.connection() as db:
+                self.assertEqual(db.execute('SELECT state FROM jobs WHERE id=?',(first['id'],)).fetchone()[0],'unknown')
+
+    def test_due_old_unknown_still_checks_receipt_without_resending(self):
+        with tempfile.TemporaryDirectory() as root:
+            box,first,second=self.setup_queue(root,'unknown',3600,0)
+            job=box.claim(ordered=True);self.assertEqual(job['id'],first['id'])
+            transport=MagicMock();transport.recover_event.return_value=False
+            self.assertFalse(process_job(box,job,transport));transport.send.assert_not_called()
+            self.assertEqual(box.claim(ordered=True)['id'],second['id'])
+
+    def test_recent_unknown_preserves_normal_order(self):
+        with tempfile.TemporaryDirectory() as root:
+            box,first,second=self.setup_queue(root,'unknown',300,time.time()+60)
+            self.assertIsNone(box.claim(ordered=True))
+
+    def test_active_post_is_never_overtaken_even_when_old(self):
+        with tempfile.TemporaryDirectory() as root:
+            box,first,second=self.setup_queue(root,'sending',7200,0)
+            self.assertIsNone(box.claim(ordered=True))
+
+    def test_old_blocked_error_preserved_while_following_job_proceeds(self):
+        with tempfile.TemporaryDirectory() as root:
+            box,first,second=self.setup_queue(root,'blocked',3600,0)
+            self.assertEqual(box.claim(ordered=True)['id'],second['id'])
+            with box.connection() as db:
+                self.assertEqual(db.execute('SELECT state FROM jobs WHERE id=?',(first['id'],)).fetchone()[0],'blocked')
 
 
 class SqliteRecoveryTests(unittest.TestCase):

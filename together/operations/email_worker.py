@@ -190,6 +190,10 @@ def main():
                         return
                     stop.wait(2)
                     continue
+                if job.get('preceding_unconfirmed_skipped'):
+                    event('이메일', '장기 미확정 요청 보존·뒤 요청 순차 진행',
+                          console=False, outcome='continued_after_unconfirmed',
+                          preceding_count=job['preceding_unconfirmed_skipped'])
                 if args.once:
                     send(job, snapshot)
                     return

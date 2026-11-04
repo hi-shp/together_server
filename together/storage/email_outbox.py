@@ -64,9 +64,22 @@ class EmailOutbox:
     def claim(self, ordered=False):
         with self.connection() as db:
             db.execute("BEGIN IMMEDIATE")
+            skipped = 0
             if ordered:
-                row = db.execute("SELECT * FROM jobs WHERE state!='sent' ORDER BY created,rowid LIMIT 1").fetchone()
-                if row is None or row["state"] not in ("pending", "unknown") or row["ready"] > time.time():
+                row = None
+                now = time.time()
+                for candidate in db.execute("SELECT * FROM jobs WHERE state!='sent' ORDER BY created,rowid"):
+                    # 오래 미확정인 요청은 보존하고 확인 주기 사이에는 뒤 메일을
+                    # 진행한다. unknown은 기존 복구 경로에서 이력만 조회한다.
+                    # 전송 중(sending) 요청은 경과 시간과 무관하게 건너뛰지 않는다.
+                    old = now - candidate['created'] >= 30 * 60
+                    if old and (candidate['state'] == 'blocked' or
+                                (candidate['state'] == 'unknown' and candidate['ready'] > now)):
+                        skipped += 1
+                        continue
+                    row = candidate
+                    break
+                if row is None or row["state"] not in ("pending", "unknown") or row["ready"] > now:
                     return None
             else:
                 row = db.execute(
@@ -81,6 +94,7 @@ class EmailOutbox:
             )
             value = dict(row)
             value["payload"] = json.loads(row["payload"])
+            value['preceding_unconfirmed_skipped'] = skipped
             return value
 
     def complete(self, job, count):
