@@ -265,6 +265,7 @@ def run_cycle(writenoticeService, prepared=None):
             announcement_page, "notification_departments", [department]
         )
         n += 1
+        source_fetch_failed = False
         for url in ann_urls:
             print("", flush=True)
             notice_category.set(None)
@@ -291,7 +292,15 @@ def run_cycle(writenoticeService, prepared=None):
                 or partial_ann.title == "제목 없음"
                 or partial_ann.content_text == "내용 없음"
             ):
-                raise RuntimeError(f"공지 추출 실패; 공지 번호 유지: {url}")
+                pending_notices.mark_source_failure(pending_board, url, 'article_unreadable')
+                if not source_fetch_failed:
+                    from together.operations.state import record_detail_failure
+                    record_detail_failure()
+                source_fetch_failed = True
+                update_state(BASE_DIR, boards=board_summary())
+                event('수집', f'공지 추출 보류; 미완료 기록·게시판 번호 유지: {url}',
+                      level='WARN', outcome='source_pending', source_url=url)
+                continue
 
             set_notice(url, department, partial_ann.title)
             event(
@@ -479,7 +488,7 @@ def run_cycle(writenoticeService, prepared=None):
             )
 
         # 해당 게시판 처리가 끝난 뒤 마지막 공지 번호를 저장한다.
-        if latest_announcement_number > announcement_page.number:
+        if not source_fetch_failed and latest_announcement_number > announcement_page.number:
             for source_url in getattr(
                 announcement_page, "source_urls", [announcement_page.source_url]
             ):

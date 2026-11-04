@@ -118,4 +118,32 @@ class PendingRecovery(unittest.TestCase):
                 os.chdir(old_cwd)
 
 
+    def test_missing_source_keeps_pending_and_allows_later_board(self):
+        old_cwd = Path.cwd()
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            try:
+                os.chdir(root)
+                (root/'downloads').mkdir()
+                (root/'titles.txt').write_text('',encoding='utf-8')
+                (root/'sorted_labeled_data.csv').write_text('',encoding='utf-8')
+                first=types.SimpleNamespace(page_url=BOARD,source_url=BOARD,department='첫 학과',number=10)
+                second=types.SimpleNamespace(page_url='https://later.pusan.ac.kr/list',source_url='https://later.pusan.ac.kr/list',department='다음 학과',number=20)
+                manager=types.SimpleNamespace(announcement_pages=[first,second]);service=MagicMock()
+                fetch=MagicMock(side_effect=[([SOURCE],11),([],20)])
+                partial=types.SimpleNamespace(title='제목 없음',content_text='내용 없음')
+                patches={'BASE_DIR':root,'PageUrlManager':lambda:manager,'OrderedBoardPrefetch':lambda pages:types.SimpleNamespace(take=lambda n:None,close=lambda:None),'get_anns_url':fetch,'crawl_ann_partial':lambda *a:partial,'notify':lambda *a,**k:None,'event':lambda *a,**k:None,'update_state':lambda *a,**k:None,'update_csv_with_announcement_numbers':MagicMock()}
+                with patch.dict(os.environ,{'PAGE_NAME':'pages.csv'}),patch('os.path.expanduser',return_value=str(root)),patch('time.sleep'),patch('together.operations.state.record_detail_failure') as detail_failed,contextlib.ExitStack() as stack,contextlib.redirect_stdout(io.StringIO()):
+                    for name,value in patches.items():stack.enter_context(patch.object(application,name,value))
+                    application.run_cycle(service,('2026-11-04',types.SimpleNamespace(update_university_notices=lambda:None),manager))
+                self.assertEqual(fetch.call_count,2)
+                patches['update_csv_with_announcement_numbers'].assert_not_called()
+                service.write_notices.assert_not_called();service.send_message.assert_not_called();service.send_email.assert_not_called()
+                detail_failed.assert_called_once()
+                pending=PendingNotices(root).for_board(BOARD)
+                self.assertEqual(len(pending),1);self.assertEqual(pending[0]['source_review'],'article_unreadable')
+                self.assertFalse(pending[0]['notifications_started'])
+            finally:os.chdir(old_cwd)
+
+
 if __name__ == '__main__':unittest.main()
