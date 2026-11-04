@@ -69,6 +69,15 @@ class PendingNotices:
     def notifications_started(self, board, url):
         return any(self.matches(row, board, url) and row.get('notifications_started') for row in self.for_board(board))
 
+    def mark_source_failure(self, board, url, reason):
+        # 원문이 사라졌거나 잠시 읽히지 않아도 완료/발송으로 바꾸지 않는다.
+        with self.transaction() as state:
+            for row in state['pending']:
+                if self.matches(row, board, url):
+                    row['source_review'] = reason
+                    row['source_last_failed_at'] = time.time()
+                    row['source_failures'] = row.get('source_failures', 0) + 1
+
     def mark_notifications(self, board, url):
         with self.transaction() as state:
             for row in state['pending']:

@@ -15,6 +15,12 @@ def record_board_result(ok):
         _boards["failed"] += int(not ok)
 
 
+def record_detail_failure():
+    # 목록 검사는 이미 checked에 포함됐다. 상세 실패로 검사 수를 늘리지 않는다.
+    _boards['failed'] += 1
+    _boards['detail_failed'] = _boards.get('detail_failed', 0) + 1
+
+
 def board_summary():
     return dict(_boards)
 

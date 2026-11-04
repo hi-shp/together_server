@@ -180,8 +180,7 @@ class CrawlerSafety(unittest.TestCase):
             patch.object(main, "update_csv_with_announcement_numbers") as update,
             patch.object(main.os.path, "expanduser", return_value=self.temp.name),
         ):
-            with self.assertRaises(RuntimeError):
-                main.run_cycle(service)
+            main.run_cycle(service)
         service.write_notices.assert_not_called()
         service.send_message.assert_not_called()
         update.assert_not_called()

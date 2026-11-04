@@ -26,6 +26,17 @@ class CatalogTests(unittest.TestCase):
             self.assertNotIn('\n', page.display_name)
             self.assertNotIn('  ', page.display_name)
 
+    def test_moved_school_boards_preserve_saved_number_and_subscription_identity(self):
+        from together.crawler.pages import URL_OVERRIDES
+        for host, old, new, number in [('larc','72331','18236',6), ('primate','71680','18295',0), ('shinlab','71292','18249',69), ('bioenergy','28644','18105',55), ('marketing','27901','18266',44)]:
+            old_url=f'https://{host}.pusan.ac.kr/{host}/{old}/subview.do'
+            row=next(r for r in records().values() if r['page_url']==old_url)
+            page=AnnouncementPage(row['identity_department'],old_url,'',number)
+            self.assertEqual(page.page_url,f'https://{host}.pusan.ac.kr/{host}/{new}/subview.do')
+            self.assertEqual(page.source_url,old_url)
+            self.assertEqual(page.department,row['identity_department'])
+            self.assertEqual(page.number,number)
+
     def test_existing_same_address_subscription_rows_and_unknown_rows_are_retained(self):
         url = 'https://biz.pusan.ac.kr/biz/8941/subview.do'
         pages = [AnnouncementPage('경영학과(학부)', url, '', 400),
