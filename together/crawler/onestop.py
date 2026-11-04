@@ -201,13 +201,26 @@ class OnestopClient:
             title = soup.select_one(".board-view-title h4")
             content = soup.select_one(".board-view-cont")
             if title is None or content is None:
+                from together.notices.intelligence.collection import preserve_unknown_article
+                preserve_unknown_article(soup, url, BASE_DIR)
                 raise OnestopError("Student support article content is missing")
             for node in content.select("script,iframe,form"):
                 node.decompose()
             for node in content.select("img[src],a[href]"):
                 attr = "src" if node.name == "img" else "href"
                 node[attr] = urljoin(response.url, node[attr])
-            metadata = extract_metadata(soup, url)
+            metadata = extract_metadata(soup, response.url, requested_url=url)
+            # 정상 로그인으로 받은 목록의 등록일만 사용한다. 게시종료일은 별도다.
+            sequence = parse_qs(urlsplit(url).query).get('seq', [''])[0]
+            row = self.articles.get((code, int(sequence))) if sequence.isdigit() else None
+            if row:
+                from together.notices.intelligence.metadata import _date
+                inserted = _date(row.get('INS_DT'))
+                if inserted and not metadata.get('publication_time_is_explicit'):
+                    metadata.update(publication_time=inserted, publication_time_is_explicit=True,
+                                    publication_time_source='authenticated_list_INS_DT')
+                metadata['onestop_list_evidence'] = {key:row.get(key) for key in (
+                    'POSTING_SEQ_NO','INS_DT','POSTING_START_DT','POSTING_CLOSE_DT','NOTICE_FG')}
             metadata["inline_image_count"] = len(content.select("img"))
             metadata["attachment_scan_complete"] = soup.select_one(".board-view-files") is not None
             files = []

@@ -307,6 +307,8 @@ def run_cycle(writenoticeService, prepared=None):
                 result = assess(partial_ann)
                 partial_ann.title = result["title"]
                 if not result["ok"]:
+                    from together.notices.intelligence.collection import observe_collection
+                    observe_collection(partial_ann, department, BASE_DIR, phase='quarantined')
                     quarantine(partial_ann, result, BASE_DIR)
                     event(
                         "검증",
@@ -370,6 +372,8 @@ def run_cycle(writenoticeService, prepared=None):
                 if validation:
                     full_ann.title = display_title(full_ann.title)
                 archive_files(full_ann, BASE_DIR)
+                from together.notices.intelligence.collection import observe_collection
+                observe_collection(full_ann, department, BASE_DIR, phase="complete")
 
                 if category == "해당없음" or category not in CATEGORIES:
                     full_ann.notice_board_name = "기타 공지사항"
@@ -393,6 +397,7 @@ def run_cycle(writenoticeService, prepared=None):
                         if validation:
                             full_ann.title = display_title(full_ann.title)
                         archive_files(full_ann, BASE_DIR)
+                        observe_collection(full_ann, department, BASE_DIR, phase="complete")
                         full_ann.notice_board_name = (
                             category
                             if category in CATEGORIES and category != "해당없음"

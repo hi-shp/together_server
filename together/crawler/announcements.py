@@ -491,6 +491,10 @@ def crawl_ann_partial(url: str) -> Announcement:
     if not content_text_element:
         content_text_element = soup.find("div", class_="txt")
 
+    if title_element is None or content_text_element is None:
+        from together.notices.intelligence.collection import preserve_unknown_article
+        preserve_unknown_article(soup, response.url, BASE_DIR)
+
     content_text = (
         filter_bmp_characters(content_text_element.get_text(strip=True))
         if content_text_element
@@ -504,7 +508,7 @@ def crawl_ann_partial(url: str) -> Announcement:
         content_html=str(content_text_element) if content_text_element else "",
         content_text=content_text,
         files=[],
-        metadata=extract_metadata(soup, response.url),
+        metadata=extract_metadata(soup, response.url, requested_url=url),
     )
 
 
@@ -649,5 +653,5 @@ def crawl_ann(url: str, category: str) -> Announcement:
         content_html=content_html,
         content_text=content_text,
         files=files,
-        metadata=extract_metadata(soup, response.url),
+        metadata=extract_metadata(soup, response.url, requested_url=url),
     )

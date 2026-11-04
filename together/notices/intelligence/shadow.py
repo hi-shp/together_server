@@ -153,6 +153,9 @@ def _record(method, *args):
 
 
 def observe_notice(announcement, department):
+    from .collection import observe_collection
+    from together.config import BASE_DIR
+    observe_collection(announcement, department, BASE_DIR)
     _record("notice", announcement, department)
 
 

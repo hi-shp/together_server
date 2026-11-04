@@ -14,6 +14,7 @@ from together.notices.intelligence.text import (
     normalize_title,
 )
 from together.storage.api_usage import ApiAccounting
+from together.storage.decision_samples import observe_decision
 from together.storage.fallback_reviews import FallbackReviews
 from together.operations.events import notice_context, event
 from together.notices.intelligence.context import department_conditions_differ
@@ -51,6 +52,7 @@ def _decision(model, request, *, require_remote=False):
     accounting = ApiAccounting(BASE_DIR)
     cached = accounting.cached(model, request)
     if cached is not None:
+        observe_decision(BASE_DIR,model,request,cached,'cache',notice_context())
         return cached
     response = None
     deferred = False
@@ -66,6 +68,7 @@ def _decision(model, request, *, require_remote=False):
             raise ValueError('Incomplete classification response')
         result = _validate(json.loads(content), request)
         accounting.record(model, request, response=response)
+        observe_decision(BASE_DIR,model,request,result,'api',notice_context(),response)
         _retry_api_at = 0
         return result
     except Exception as exc:
@@ -76,6 +79,7 @@ def _decision(model, request, *, require_remote=False):
             raise
         from together.notices.intelligence.offline import local_decision
         result = local_decision(request, BASE_DIR)
+        observe_decision(BASE_DIR,model,request,result,'local_fallback',notice_context())
         key = FallbackReviews(BASE_DIR).record(model, request, result, notice_context(), exc)
         event('API', '로컬 대체 판단 · 복구 후 재검토 대기', level='WARN', error=type(exc).__name__, notice_id=key[:10])
         return result
