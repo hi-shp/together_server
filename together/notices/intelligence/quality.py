@@ -8,10 +8,33 @@ import os
 from pathlib import Path
 import re
 import unicodedata
-from urllib.parse import urlsplit, urljoin
+from urllib.parse import unquote, urlsplit, urljoin
 from bs4 import BeautifulSoup
 
 _reviews = {}
+
+
+def classification_context(announcement):
+    """빈 본문을 검토할 때만 원문에 보이는 파일명·그림 설명을 사용한다."""
+    body = announcement.content_text or ''
+    if body.strip():
+        return body
+    labels = []
+    def add(value):
+        value = ' '.join(str(value or '').split())[:160]
+        if value and value not in labels:
+            labels.append(value)
+    for item in (getattr(announcement, 'metadata', {}) or {}).get('attachment_links', []):
+        if re.search(r'\.(?:pdf|hwpx?|docx?|xlsx?|pptx?|zip)\b', item.get('name', ''), re.I):
+            add(item['name'])
+    for img in BeautifulSoup(getattr(announcement, 'content_html', '') or '', 'html.parser').select('img'):
+        add(img.get('alt')); add(img.get('title'))
+        src = img.get('src', '')
+        if src.startswith(('data:', 'blob:')): continue
+        name = unquote(urlsplit(src).path.rsplit('/', 1)[-1])
+        if re.search(r'[가-힣A-Za-z]{2,}.*\.(?:jpe?g|png|webp|gif)$', name, re.I):
+            add(name)
+    return ('원문 첨부·본문 이미지 표기: ' + ' / '.join(labels[:12]))[:850] if labels else body
 
 
 class PostVerificationError(RuntimeError):
@@ -131,17 +154,6 @@ def review_for(combined):
 def assess(announcement, model_review=None):
     title = display_title(announcement.title)
     reasons = title_problems(title)
-    text = title + " " + (announcement.content_text or "")[:6000]
-    personal = bool(
-        re.search(
-            r"개인\s*중고|중고\s*(?:팝니다|판매)|(?:도박|카지노)\s*사이트\s*가입|무료\s*리딩방|대출\s*상담\s*문의|코인\s*수익\s*보장",
-            text,
-        )
-    )
-    if personal:
-        reasons.append("personal_sale_or_advertisement")
-    if (model_review or {}).get("notice_type") == "personal_or_ad":
-        reasons.append("semantic_personal_or_advertisement")
     body = announcement.content_text or ""
     if body.count("\ufffd") > max(2, len(body) * 0.01):
         reasons.append("body_character_encoding")

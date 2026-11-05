@@ -42,6 +42,7 @@ from together.notices.intelligence.enrichment import (
     apply_enrichment,
 )
 from together.notices.intelligence.quality import (
+    classification_context,
     assess,
     quarantine,
     review_for,
@@ -350,6 +351,7 @@ def run_cycle(writenoticeService, prepared=None):
                 continue
 
             if enrichment_target or duplicate_check != "중복":
+                review_text = classification_context(partial_ann)
                 if enrichment_target:
                     category = (
                         enrichment_target["board"]
@@ -364,16 +366,8 @@ def run_cycle(writenoticeService, prepared=None):
                     )
                 else:
                     category = categorize_announcement(
-                        partial_ann.title, partial_ann.content_text
+                        partial_ann.title, review_text
                     )
-                if validation:
-                    combined = truncate_text(
-                        f"{partial_ann.title}\n{partial_ann.content_text}", 1000
-                    )
-                    result = assess(partial_ann, review_for(combined))
-                    if not result["ok"]:
-                        quarantine(partial_ann, result, BASE_DIR)
-                        continue
                 message = f"{partial_ann.title}\n＞ {category}"
                 if not enrichment_target and category != "해당없음":
                     notify(message)
@@ -400,7 +394,7 @@ def run_cycle(writenoticeService, prepared=None):
                     )
                     if outcome is None and duplicate_check != "중복":
                         category = categorize_announcement(
-                            partial_ann.title, partial_ann.content_text
+                            partial_ann.title, review_text
                         )
                         full_ann = fetch_complete_notice(url, category)
                         if validation:

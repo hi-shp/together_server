@@ -147,18 +147,30 @@ class QualityTests(unittest.TestCase):
         self.assertTrue(title_problems("\u200b\u200d"))
         self.assertTrue(title_problems("제목\ufffd"))
 
-    def test_personal_sale_is_separate_from_legitimate_hospitality_job(self):
+    def test_school_sales_and_job_notices_both_pass_publication(self):
         ann = types.SimpleNamespace(
             title="개인 중고 팝니다", content_text="연락 주세요"
         )
-        self.assertFalse(assess(ann)["ok"])
+        self.assertTrue(assess(ann)["ok"])
         ann.title = "마카오 카지노 호텔 직원 채용"
         ann.content_text = "정규직 직원을 모집합니다."
         self.assertTrue(assess(ann)["ok"])
 
-    def test_existing_semantic_review_is_reused(self):
+    def test_prior_semantic_ad_label_cannot_block_publication(self):
         ann = types.SimpleNamespace(title="방송 후기", content_text="연예인 개인 소식")
-        self.assertFalse(assess(ann, {"notice_type": "personal_or_ad"})["ok"])
+        self.assertTrue(assess(ann, {"notice_type": "personal_or_ad"})["ok"])
+
+    def test_image_only_source_uses_file_labels_only_for_classification(self):
+        from together.notices.intelligence.quality import classification_context
+        ann = types.SimpleNamespace(title="엔도케어약국", content_text="",
+            content_html='<img src="/editorFile/채용공고_1.jpg">',
+            metadata={"attachment_links":[{"name":"약사 모집.pdf"}]})
+        text = classification_context(ann)
+        self.assertIn("채용공고", text)
+        self.assertIn("약사 모집.pdf", text)
+        self.assertEqual(ann.content_text, "")
+        ann.content_text = "실제 본문"
+        self.assertEqual(classification_context(ann), ann.content_text)
 
     def test_rendered_hidden_title_and_missing_body_are_detected(self):
         driver = MagicMock()
