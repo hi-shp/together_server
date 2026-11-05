@@ -306,5 +306,7 @@ def apply_enrichment(service, record, announcement, department, base_dir):
         file_hashes={item["name"]: item["sha256"] for item in result["after"]["files"]},
     )
     PublishedNoticeStore(base_dir).put(record)
+    from together.operations.cycle_activity import tick
+    tick('enriched')
     print("공지 보강 완료: 제목·본문·기존 및 새 첨부파일 검증", flush=True)
     return True

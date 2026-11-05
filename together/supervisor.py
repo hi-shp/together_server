@@ -64,6 +64,7 @@ def run_cycle(log_path, max_seconds=0, idle_seconds=0):
     runtime = scratch_root()
     workspace = Path(tempfile.mkdtemp(prefix="run-", dir=runtime))
     env = os.environ.copy()
+    env['TOGETHER_ACTIVITY_PATH']=str(Path(log_path).with_suffix('.counts'))
     env.update(
         {key: str(workspace) for key in ("TMPDIR", "TMP", "TEMP", "TOGETHER_RUN_DIR")}
     )
@@ -163,7 +164,22 @@ def run_main():
                 next_wake=0,
                 boards={"checked": 0, "failed": 0},
             )
+            from together.operations.cycle_activity import receipts, summarize
+            before=receipts(BASE_DIR)
             code = run_cycle(log_path)
+            counts_path=log_path.with_suffix('.counts')
+            headline=''
+            try:
+                headline=summarize(counts_path,before,receipts(BASE_DIR),code)
+                if headline:
+                    temp=log_path.with_suffix('.with-summary')
+                    with temp.open('wb') as out, log_path.open('rb') as src:
+                        out.write((headline+'\n').encode('utf-8'))
+                        shutil.copyfileobj(src,out)
+                    temp.replace(log_path)
+                counts_path.unlink(missing_ok=True)
+            except (OSError,ValueError):
+                headline='⭐ 이번 사이클 활동 집계 미확인'
             cleanup_old_logs(log_dir)
             failures = failures + 1 if code else 0
             fields = {
@@ -182,7 +198,7 @@ def run_main():
                 count=failures,
             )
             notify(
-                f"`{log_path.name}`",
+                (headline+'\n' if headline else '')+f"`{log_path.name}`",
                 channel="DISCORD_LOG_WEBHOOK_URL",
                 log_path=log_path,
                 error_prefix="디스코드 전송 중 예외 발생: ",

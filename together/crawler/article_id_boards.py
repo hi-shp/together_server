@@ -79,16 +79,15 @@ def collect(page, soup, response_url, expected, ordinal, event, record_board_res
     articles = entries(soup, response_url, expected)
     if articles is None:
         record_board_result(False)
-        event("수집", f"게시판 형식 확인 실패; 번호 유지: {page.page_url}", level="WARN")
+        event("수집", f"{ordinal}. {getattr(page, 'display_name', page.department)} | 게시판 형식 확인 실패; 번호 유지: {page.page_url}", level="WARN")
         return [], page.number
     if not articles and not any(text in soup.get_text(" ", strip=True) for text in ("게시물이(가) 없습니다", "게시물이 없습니다", "there is no a posting")):
         record_board_result(False)
-        event("수집", f"공지 링크 확인 필요; 번호 유지: {page.page_url}", level="WARN")
+        event("수집", f"{ordinal}. {getattr(page, 'display_name', page.department)} | 공지 링크 확인 필요; 번호 유지: {page.page_url}", level="WARN")
         return [], page.number
     record_board_result(True)
     maximum = max([page.number, *articles])
     selected = [articles[key] for key in sorted(articles) if key > page.number]
     count = notice_count(soup, len(articles), lambda last: last_page_size(soup, response_url, expected, last))
-    event("수집", f"{ordinal}. {getattr(page, 'display_name', page.department)} {count}", plain=True)
-    event("수집", f"💡{len(selected)}개의 New Announcment!: {page.page_url}" if selected else f"새로 추가된 공지사항 없음: {page.page_url}", plain=True)
+    event("수집", f"{ordinal}. {getattr(page, 'display_name', page.department)} {count}" + " | " + (f"💡{len(selected)}개의 New Announcment!: {page.page_url}" if selected else f"새로 추가된 공지사항 없음: {page.page_url}"), plain=True)
     return selected, maximum

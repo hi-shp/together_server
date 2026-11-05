@@ -156,9 +156,9 @@ def update_csv_with_announcement_numbers(updates, filename: str):
     df.to_csv(filename, index=False)
 
 
-def fetch_complete_notice(url, category):
+def fetch_complete_notice(url, category, *, source_response=None):
     for _ in range(10):
-        announcement = crawl_ann(url, category)
+        announcement = crawl_ann(url, category, source_response=source_response) if source_response is not None else crawl_ann(url, category)
         if announcement is not None:
             announcement.title = re.sub(r"【.*?】\s*", "", announcement.title)
             if (
@@ -256,8 +256,10 @@ def run_cycle(writenoticeService, prepared=None):
             getattr(announcement_page, "display_ordinal", n),
             prefetched=prefetch.take(n - 1),
         )
+        ann_urls=[u for u in ann_urls if pending_notices.add(pending_board,u,announcement_page.department) is not False]
         for discovered_url in ann_urls:
-            pending_notices.add(pending_board, discovered_url, announcement_page.department)
+            evidence=getattr(announcement_page,'detail_rows',{}).get(discovered_url)
+            if evidence: pending_notices.set_listing_evidence(pending_board,discovered_url,evidence)
         ann_urls = pending_notices.merge(unfinished, ann_urls)
         previous_board_had_notices = bool(ann_urls)
         update_state(BASE_DIR, boards=board_summary())
@@ -275,34 +277,65 @@ def run_cycle(writenoticeService, prepared=None):
             notice_started = time.monotonic()
             gc.collect()
 
-            for _ in range(10):
-                partial_ann = crawl_ann_partial(url)
-                if partial_ann is None:
-                    time.sleep(1)
+            prior=next((r for r in unfinished if r['source_url']==url),{})
+            if prior.get('official_replacement') and pending_notices.follow_relocated(pending_board,url,prior['official_replacement'],department):
+                continue
+            if prior.get('source_next_retry',0)>time.time():
+                if prior.get('source_first_failed_at',time.time())+43200<=time.time() and not known_receipt(BASE_DIR,url) and pending_notices.expire_unreadable(pending_board,url):
+                    event('수집',f'원문 접근 불가 12시간 경과 · 건너뜀: {url}',level='WARN',outcome='source_expired',source_url=url)
                     continue
-                partial_ann.title = re.sub(r"【.*?】\s*", "", partial_ann.title)
-                if (
-                    partial_ann.title != "제목 없음"
-                    and partial_ann.content_text != "내용 없음"
-                ):
-                    break
-                time.sleep(1)
+                if not source_fetch_failed:
+                    from together.operations.state import record_detail_failure
+                    record_detail_failure()
+                source_fetch_failed=True
+                continue
+            source_response=None
+            source_diagnostic={}
+            partial_ann = crawl_ann_partial(url)
+            if partial_ann is not None:partial_ann.title = re.sub(r"【.*?】\s*", "", partial_ann.title)
+            if partial_ann is None or partial_ann.title=='제목 없음' or partial_ann.content_text=='내용 없음':
+                from together.crawler.detail_recovery import probe
+                from together.crawler.onestop import menu_for
+                if not menu_for(url):
+                    evidence=prior.get('listing_evidence') or getattr(announcement_page,'detail_rows',{}).get(url,{})
+                    source_diagnostic=probe(url,announcement_page.page_url,evidence)
+                    recovered=source_diagnostic.pop('response',None)
+                    if recovered is not None:
+                        link=source_diagnostic.get('link',url)
+                        ann=crawl_ann_partial(link,source_response=recovered)
+                        if ann and ann.title!='제목 없음' and ann.content_text!='내용 없음':
+                            if link==url:
+                                partial_ann,source_response=ann,recovered
+                            elif (ann.title.strip()==source_diagnostic.get('expected_title','').strip()
+                                  and not known_receipt(BASE_DIR,url)):
+                                from together.storage.pending_notices import notice_identity
+                                if notice_identity(link)==notice_identity(url):
+                                    partial_ann,source_response=ann,recovered
+                                else:
+                                    pending_notices.follow_relocated(pending_board,url,link,department)
+                                    source_diagnostic['reason']='official_replacement_queued'
 
             if (
                 partial_ann is None
                 or partial_ann.title == "제목 없음"
                 or partial_ann.content_text == "내용 없음"
             ):
-                pending_notices.mark_source_failure(pending_board, url, 'article_unreadable')
+                expired=pending_notices.mark_source_failure(pending_board, url, 'article_unreadable',retry_after=source_diagnostic.get('retry_after',0),detail=source_diagnostic.get('reason'),can_expire=not known_receipt(BASE_DIR,url))
+                if expired:
+                    event('수집',f'원문 접근 불가 12시간 경과 · 건너뜀: {url}',level='WARN',outcome='source_expired',source_url=url)
+                    continue
                 if not source_fetch_failed:
                     from together.operations.state import record_detail_failure
                     record_detail_failure()
                 source_fetch_failed = True
                 update_state(BASE_DIR, boards=board_summary())
                 event('수집', f'공지 추출 보류; 미완료 기록·게시판 번호 유지: {url}',
-                      level='WARN', outcome='source_pending', source_url=url)
+                      level='WARN', outcome='source_pending', source_url=url,
+                      recovery_reason=source_diagnostic.get('reason'),listed=source_diagnostic.get('listed'))
                 continue
 
+            partial_ann.title = re.sub(r"【.*?】\s*", "", partial_ann.title)
+            if prior.get('source_review'):pending_notices.recovered_source(pending_board,url)
             set_notice(url, department, partial_ann.title)
             event(
                 "공지",
@@ -371,7 +404,7 @@ def run_cycle(writenoticeService, prepared=None):
                 message = f"{partial_ann.title}\n＞ {category}"
                 if not enrichment_target and category != "해당없음":
                     notify(message)
-                full_ann = fetch_complete_notice(url, category)
+                full_ann = fetch_complete_notice(url, category,source_response=source_response) if source_response is not None else fetch_complete_notice(url, category)
                 if validation:
                     full_ann.title = display_title(full_ann.title)
                 archive_files(full_ann, BASE_DIR)
@@ -396,7 +429,7 @@ def run_cycle(writenoticeService, prepared=None):
                         category = categorize_announcement(
                             partial_ann.title, review_text
                         )
-                        full_ann = fetch_complete_notice(url, category)
+                        full_ann = fetch_complete_notice(url, category,source_response=source_response) if source_response is not None else fetch_complete_notice(url, category)
                         if validation:
                             full_ann.title = display_title(full_ann.title)
                         archive_files(full_ann, BASE_DIR)

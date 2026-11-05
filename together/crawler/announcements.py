@@ -124,7 +124,7 @@ def get_anns_url(announcementPage, n, prefetched=None):
         record_board_result(False)
         event(
             "수집",
-            f"요청 처리 실패: {type(e).__name__} - {announcementPage.page_url}",
+            f"{n}. {getattr(announcementPage, 'display_name', announcementPage.department)} | 요청 처리 실패: {type(e).__name__} - {announcementPage.page_url}",
             source_url=announcementPage.page_url,
             level="WARN",
             error=type(e).__name__,
@@ -133,7 +133,7 @@ def get_anns_url(announcementPage, n, prefetched=None):
 
     if not is_university and soup.find("tbody") is None and any(message in soup.get_text(" ", strip=True) for message in closed):
         record_board_result(None)
-        event("수집", f"{n}. {getattr(announcementPage, 'display_name', announcementPage.department)} / 학교 사이트에서 운영 중단: {announcementPage.page_url}", plain=True, outcome="source_unavailable", source_url=announcementPage.page_url)
+        event("수집", f"{n}. {getattr(announcementPage, 'display_name', announcementPage.department)} {announcementPage.number} | 학교 사이트에서 운영 중단: {announcementPage.page_url}", plain=True, outcome="source_unavailable", source_url=announcementPage.page_url)
         return [], announcementPage.number
 
     if "/CMS/Board/Board.do" in announcementPage.page_url:
@@ -160,7 +160,11 @@ def get_anns_url(announcementPage, n, prefetched=None):
                 )
                 response = _get_board_response(announcementPage.page_url)
                 soup = BeautifulSoup(response.text, "html.parser")
-            return collect(announcementPage, soup, response.url, expected, n, event, record_board_result)
+            selected, maximum = collect(announcementPage, soup, response.url, expected, n, event, record_board_result)
+            if selected:
+                from .detail_recovery import listing
+                announcementPage.detail_rows = listing(soup,response.url)
+            return selected, maximum
 
     # 정적 HTML은 한 번만 받아 파싱한다.
     table_element = soup.find("tbody")
@@ -191,7 +195,7 @@ def get_anns_url(announcementPage, n, prefetched=None):
             if link is None or not link.get("href", "").strip():
                 event(
                     "수집",
-                    f"공지 링크 누락; 번호 유지: {announcementPage.page_url}",
+                    f"{n}. {getattr(announcementPage, 'display_name', announcementPage.department)} | 공지 링크 누락; 번호 유지: {announcementPage.page_url}",
                     level="INFO",
                 )
                 return [], announcementPage.number
@@ -231,25 +235,8 @@ def get_anns_url(announcementPage, n, prefetched=None):
             announcement_numbers, default=announcementPage.number
         )
         difference = max_announcement_number - announcementPage.number
-        event(
-            "수집",
-            f"{n}. {getattr(announcementPage, 'display_name', announcementPage.department)} {max_announcement_number}",
-            level="INFO",
-            plain=True,
-        )
-
-        if difference > 0:
-            event(
-                "수집",
-                f"💡{difference}개의 New Announcment!: {announcementPage.page_url}",
-                plain=True,
-            )
-        else:
-            event(
-                "수집",
-                f"새로 추가된 공지사항 없음: {announcementPage.page_url}",
-                plain=True,
-            )
+        status = (f"💡{difference}개의 New Announcment!: " if difference > 0 else "새로 추가된 공지사항 없음: ")
+        event("수집", f"{n}. {getattr(announcementPage, 'display_name', announcementPage.department)} {max_announcement_number} | {status}{announcementPage.page_url}", plain=True)
 
         idx = 0
         num_idx = 0
@@ -402,7 +389,7 @@ def get_anns_url(announcementPage, n, prefetched=None):
         ):
             event(
                 "수집",
-                f"공지 링크 추출 실패; 번호 유지: {announcementPage.page_url}",
+                f"{n}. {getattr(announcementPage, 'display_name', announcementPage.department)} | 공지 링크 추출 실패; 번호 유지: {announcementPage.page_url}",
                 level="WARN",
             )
             return [], announcementPage.number
@@ -413,6 +400,9 @@ def get_anns_url(announcementPage, n, prefetched=None):
             source_url=announcementPage.page_url,
             console=False,
         )
+        if urls:
+            from .detail_recovery import listing
+            announcementPage.detail_rows = listing(soup,response.url)
         return urls[::-1], max_announcement_number
     elif (
         not is_university
@@ -423,34 +413,27 @@ def get_anns_url(announcementPage, n, prefetched=None):
             for message in ("게시물이(가) 없습니다", "there is no a posting")
         )
     ):
-        event(
-            "수집",
-            f"{n}. {getattr(announcementPage, 'display_name', announcementPage.department)} {announcementPage.number}",
-            plain=True,
-        )
-        event(
-            "수집",
-            f"새로 추가된 공지사항 없음: {announcementPage.page_url}",
-            plain=True,
-        )
+        event("수집", f"{n}. {getattr(announcementPage, 'display_name', announcementPage.department)} {announcementPage.number} | 새로 추가된 공지사항 없음: {announcementPage.page_url}", plain=True)
         return [], announcementPage.number
     else:
         event(
             "수집",
-            f"공지사항을 찾을 수 없습니다 : {announcementPage.page_url}",
+            f"{n}. {getattr(announcementPage, 'display_name', announcementPage.department)} | 공지사항을 찾을 수 없습니다 : {announcementPage.page_url}",
             level="WARN",
         )
         return [], announcementPage.number
 
 
-def crawl_ann_partial(url: str) -> Announcement:
+def crawl_ann_partial(url: str, *, source_response=None) -> Announcement:
     from together.crawler.onestop import menu_for, client
     if menu_for(url):
         return client().article(url)
     try:
-        response = http_get(url, verify=False, timeout=HTTP_TIMEOUT)
+        response = source_response if source_response is not None else http_get(url, verify=False, timeout=HTTP_TIMEOUT)
         response.raise_for_status()
     except requests.exceptions.RequestException as e:
+        from .detail_recovery import remember_limit
+        remember_limit(url,getattr(e,'response',None))
         event(
             "수집",
             f"요청 처리 실패: {type(e).__name__}",
@@ -459,6 +442,10 @@ def crawl_ann_partial(url: str) -> Announcement:
         )
         return None
 
+    from .detail_recovery import identity
+    actual = getattr(response, 'url', None)
+    if isinstance(actual,str) and identity(url) and identity(actual) and identity(actual)!=identity(url):
+        return None
     soup = BeautifulSoup(response.text, "html.parser")
 
     # 일반 학과, 기계공학부, 신규 양식 순으로 제목을 찾는다.
@@ -512,12 +499,12 @@ def crawl_ann_partial(url: str) -> Announcement:
     )
 
 
-def crawl_ann(url: str, category: str) -> Announcement:
+def crawl_ann(url: str, category: str, *, source_response=None) -> Announcement:
     from together.crawler.onestop import menu_for, client
     if menu_for(url):
         return client().article(url, category)
     try:
-        response = http_get(url, verify=False, timeout=HTTP_TIMEOUT)
+        response = source_response if source_response is not None else http_get(url, verify=False, timeout=HTTP_TIMEOUT)
         response.raise_for_status()
     except requests.exceptions.RequestException as e:
         event(
@@ -528,6 +515,10 @@ def crawl_ann(url: str, category: str) -> Announcement:
         )
         return None
 
+    from .detail_recovery import identity
+    actual = getattr(response, 'url', None)
+    if isinstance(actual,str) and identity(url) and identity(actual) and identity(actual)!=identity(url):
+        return None
     soup = BeautifulSoup(response.text, "html.parser")
     base_url = response.url
 

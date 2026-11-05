@@ -240,12 +240,11 @@ def collect(page, ordinal, event, record_board_result):
     except Exception as exc:
         client().close()
         record_board_result(False)
-        event("수집", f"학생지원시스템 조회 실패: {type(exc).__name__} - {page.page_url}", level="WARN", source_url=page.page_url)
+        event("수집", f"{ordinal}. {getattr(page, 'display_name', page.department)} | 학생지원시스템 조회 실패: {type(exc).__name__} - {page.page_url}", level="WARN", source_url=page.page_url)
         return [], page.number
     record_board_result(True)
     urls = [f"https://onestop.pusan.ac.kr/page?menuCD={code}&mode=DETAIL&seq={row['POSTING_SEQ_NO']}" for row in rows]
-    event("수집", f"{ordinal}. {getattr(page, 'display_name', page.department)} {count}", plain=True)
-    event("수집", f"💡{len(urls)}개의 New Announcment!: {page.page_url}" if urls else f"새로 추가된 공지사항 없음: {page.page_url}", plain=True)
+    event("수집", f"{ordinal}. {getattr(page, 'display_name', page.department)} {count}" + " | " + (f"💡{len(urls)}개의 New Announcment!: {page.page_url}" if urls else f"새로 추가된 공지사항 없음: {page.page_url}"), plain=True)
     return urls, maximum
 
 

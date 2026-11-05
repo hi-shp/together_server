@@ -18,7 +18,7 @@ def collect(page, soup, response_url, ordinal, event, record_board_result):
     table = soup.find("tbody")
     if table is None:
         record_board_result(False)
-        event("수집", f"공지 목록을 확인할 수 없습니다: {page.page_url}", level="WARN")
+        event("수집", f"{ordinal}. {getattr(page, 'display_name', page.department)} | 공지 목록을 확인할 수 없습니다: {page.page_url}", level="WARN")
         return [], page.number
     articles = {}
     for row in table.select("tr"):
@@ -32,11 +32,10 @@ def collect(page, soup, response_url, ordinal, event, record_board_result):
             articles[int(identifier)] = url
     if not articles and not any(text in table.get_text(" ", strip=True) for text in ("게시물이 없습니다", "게시물이(가) 없습니다", "등록된 게시물이 없습니다")):
         record_board_result(False)
-        event("수집", f"공지 링크를 확인할 수 없습니다; 번호 유지: {page.page_url}", level="WARN")
+        event("수집", f"{ordinal}. {getattr(page, 'display_name', page.department)} | 공지 링크를 확인할 수 없습니다; 번호 유지: {page.page_url}", level="WARN")
         return [], page.number
     record_board_result(True)
     maximum = max([page.number, *articles])
     selected = [articles[key] for key in sorted(articles) if key > page.number]
-    event("수집", f"{ordinal}. {getattr(page, 'display_name', page.department)} {notice_count(soup, len(articles))}", plain=True)
-    event("수집", f"💡{len(selected)}개의 New Announcment!: {page.page_url}" if selected else f"새로 추가된 공지사항 없음: {page.page_url}", plain=True)
+    event("수집", f"{ordinal}. {getattr(page, 'display_name', page.department)} {notice_count(soup, len(articles))}" + " | " + (f"💡{len(selected)}개의 New Announcment!: {page.page_url}" if selected else f"새로 추가된 공지사항 없음: {page.page_url}"), plain=True)
     return selected, maximum

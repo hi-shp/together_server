@@ -135,7 +135,8 @@ class PendingRecovery(unittest.TestCase):
                 patches={'BASE_DIR':root,'PageUrlManager':lambda:manager,'OrderedBoardPrefetch':lambda pages:types.SimpleNamespace(take=lambda n:None,close=lambda:None),'get_anns_url':fetch,'crawl_ann_partial':lambda *a:partial,'notify':lambda *a,**k:None,'event':lambda *a,**k:None,'update_state':lambda *a,**k:None,'update_csv_with_announcement_numbers':MagicMock()}
                 with patch.dict(os.environ,{'PAGE_NAME':'pages.csv'}),patch('os.path.expanduser',return_value=str(root)),patch('time.sleep'),patch('together.operations.state.record_detail_failure') as detail_failed,contextlib.ExitStack() as stack,contextlib.redirect_stdout(io.StringIO()):
                     for name,value in patches.items():stack.enter_context(patch.object(application,name,value))
-                    application.run_cycle(service,('2026-11-04',types.SimpleNamespace(update_university_notices=lambda:None),manager))
+                    with patch('together.crawler.detail_recovery.probe',return_value={'reason':'school_access_message'}):
+                        application.run_cycle(service,('2026-11-04',types.SimpleNamespace(update_university_notices=lambda:None),manager))
                 self.assertEqual(fetch.call_count,2)
                 patches['update_csv_with_announcement_numbers'].assert_not_called()
                 service.write_notices.assert_not_called();service.send_message.assert_not_called();service.send_email.assert_not_called()

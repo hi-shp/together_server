@@ -48,8 +48,14 @@ class PendingNotices:
 
     def add(self, board, url, department):
         with self.transaction() as state:
+            if any(self.matches(row,board,url) for row in state.get('expired_sources',[])):
+                return False
             if not any(self.matches(row, board, url) for row in state['pending']):
                 state['pending'].append({'board_url': board, 'source_url': url, 'department': department, 'created_at': time.time(), 'notifications_started': False})
+                if not any(self.matches(r,board,url) for r in state['completed']):
+                    from together.operations.cycle_activity import tick
+                    tick('new')
+            return True
 
     def for_board(self, board):
         with self.transaction() as state:
@@ -69,14 +75,63 @@ class PendingNotices:
     def notifications_started(self, board, url):
         return any(self.matches(row, board, url) and row.get('notifications_started') for row in self.for_board(board))
 
-    def mark_source_failure(self, board, url, reason):
+    def set_listing_evidence(self, board, url, evidence):
+        with self.transaction() as state:
+            for row in state['pending']:
+                if self.matches(row,board,url) and not row.get('listing_evidence'):
+                    row['listing_evidence']={k:evidence.get(k,'') for k in ('title','day','writer_hash','number')}
+
+    def follow_relocated(self, board, url, target, department):
+        with self.transaction() as state:
+            old=next((r for r in state['pending'] if self.matches(r,board,url)),None)
+            if not old or old.get('notifications_started'):return False
+            done=any(self.matches(r,board,target) and r.get('outcome')=='completed' for r in state['completed'])
+            old['official_replacement']=target
+            if done:
+                state['pending'].remove(old)
+                state['completed'].append(dict(old,outcome='verified_replacement_completed',completed_at=time.time()))
+                return True
+            if not any(self.matches(r,board,target) for r in state['pending']):
+                state['pending'].append(dict(board_url=board,source_url=target,department=department,created_at=time.time(),notifications_started=False))
+            return False
+
+    @staticmethod
+    def _expire(state,row,now):
+        if (not row.get('source_first_failed_at') or now-row['source_first_failed_at']<12*3600
+                or any(row.get(k) for k in ('notifications_started','official_replacement','reviewed_candidate'))):
+            return False
+        state['pending'].remove(row)
+        state.setdefault('expired_sources',[]).append(dict(row,outcome='skipped_unreadable_after_12h',closed_at=now))
+        return True
+
+    def expire_unreadable(self,board,url):
+        with self.transaction() as state:
+            return any(self._expire(state,r,time.time()) for r in state['pending'] if self.matches(r,board,url))
+
+    def recovered_source(self,board,url):
+        with self.transaction() as state:
+            for r in state['pending']:
+                if self.matches(r,board,url):
+                    for k in ('source_first_failed_at','source_last_failed_at','source_next_retry','source_failures','source_review','source_diagnostic'):
+                        r.pop(k,None)
+
+    def mark_source_failure(self, board, url, reason, *, retry_after=0, detail=None, can_expire=False):
         # 원문이 사라졌거나 잠시 읽히지 않아도 완료/발송으로 바꾸지 않는다.
         with self.transaction() as state:
             for row in state['pending']:
                 if self.matches(row, board, url):
+                    now=time.time()
+                    first=row.setdefault('source_first_failed_at',row.get('source_last_failed_at',now))
                     row['source_review'] = reason
                     row['source_last_failed_at'] = time.time()
                     row['source_failures'] = row.get('source_failures', 0) + 1
+                    row['source_next_retry'] = time.time()+max(retry_after,min(3600,60*2**min(row['source_failures']-1,6)))
+                    if detail: row['source_diagnostic']=detail
+                    if can_expire and self._expire(state,row,now):
+                        return True
+                    if now-first<12*3600 and retry_after<=12*3600-(now-first):
+                        row['source_next_retry']=min(row['source_next_retry'],first+12*3600)
+        return False
 
     def mark_notifications(self, board, url):
         with self.transaction() as state:

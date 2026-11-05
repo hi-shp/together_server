@@ -148,6 +148,11 @@ def _save(record):
 
 def event(stage, message, *, level="INFO", console=True, plain=False, **fields):
     global _warned
+    from .cycle_activity import tick
+    if stage=='게시' and fields.get('outcome')=='verified' and message=='게시글 작성 완료':
+        tick('post')
+    if level in ('ERROR','CRITICAL','WARN'):
+        tick('warn' if level=='WARN' else 'error')
     now = datetime.now().astimezone()
     record = {
         "schema": 1,
