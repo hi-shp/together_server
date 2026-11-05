@@ -144,6 +144,22 @@ class PendingRecovery(unittest.TestCase):
                 pending=PendingNotices(root).for_board(BOARD)
                 self.assertEqual(len(pending),1);self.assertEqual(pending[0]['source_review'],'article_unreadable')
                 self.assertFalse(pending[0]['notifications_started'])
+                # Re-list the same inaccessible link after the deadline and once again
+                # after restart. Neither traversal may fetch it, send, or log a warning.
+                with PendingNotices(root).transaction() as journal:
+                    journal['pending'][0]['source_first_failed_at']=1
+                fetch.side_effect=[([SOURCE],11),([],20)]*2
+                patches.update(crawl_ann_partial=MagicMock(),event=MagicMock())
+                for _ in range(2):
+                    with patch.dict(os.environ,{'PAGE_NAME':'pages.csv'}),patch('os.path.expanduser',return_value=str(root)),contextlib.ExitStack() as stack,contextlib.redirect_stdout(io.StringIO()) as console:
+                        for name,value in patches.items():stack.enter_context(patch.object(application,name,value))
+                        application.run_cycle(service,('2026-11-04',types.SimpleNamespace(update_university_notices=lambda:None),manager))
+                    self.assertNotIn('건너뜀',console.getvalue())
+                self.assertFalse([c for c in patches['event'].call_args_list if c.kwargs.get('level')=='WARN'])
+                patches['crawl_ann_partial'].assert_not_called()
+                self.assertFalse(PendingNotices(root).for_board(BOARD))
+                service.write_notices.assert_not_called();service.send_message.assert_not_called();service.send_email.assert_not_called()
+                self.assertTrue(patches['update_csv_with_announcement_numbers'].called)
             finally:os.chdir(old_cwd)
 
 

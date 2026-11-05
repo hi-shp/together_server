@@ -41,6 +41,10 @@ class LegacyPresentationTests(unittest.TestCase):
                 return cls(2026, 10, 27, 14, 30, 0)
 
         output = io.StringIO()
+        def sample_cycle(path):
+            path.write_text("공지 원문 로그\n",encoding="utf-8")
+            path.with_suffix(".counts").write_text("new\n",encoding="ascii")
+            return 0
 
         def check_upload(content, **kwargs):
             self.assertIn("사이클 종료", output.getvalue())
@@ -51,6 +55,9 @@ class LegacyPresentationTests(unittest.TestCase):
             )
             self.assertEqual(kwargs["channel"], "DISCORD_LOG_WEBHOOK_URL")
             self.assertEqual(kwargs["log_path"].name, name)
+            uploaded=kwargs["log_path"].read_text(encoding="utf-8")
+            self.assertTrue(uploaded.startswith("⭐ 새 공지 1건"))
+            self.assertTrue(uploaded.endswith("공지 원문 로그\n"))
             self.assertEqual(kwargs["error_prefix"], fixture["log_error_prefix"])
 
         with (
@@ -60,10 +67,10 @@ class LegacyPresentationTests(unittest.TestCase):
             patch.object(run_main, "datetime", Afternoon),
             patch.object(run_main, "read_state", return_value={}),
             patch.object(run_main, "update_state"),
-            patch.object(run_main, "cleanup_old_logs"),
-            patch.object(run_main, "run_cycle", return_value=0) as cycle,
+            patch.object(run_main, "cleanup_old_logs",side_effect=[None,None,StopIteration()]),
+            patch.object(run_main, "run_cycle", side_effect=sample_cycle) as cycle,
             patch.object(run_main, "notify", side_effect=check_upload) as notify,
-            patch.object(run_main.time, "sleep", side_effect=StopIteration),
+            patch.object(run_main.time, "sleep", side_effect=AssertionError("Unexpected inter-cycle wait")),
             contextlib.redirect_stdout(output),
         ):
             with self.assertRaises(StopIteration):

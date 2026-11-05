@@ -270,6 +270,12 @@ def run_cycle(writenoticeService, prepared=None):
         n += 1
         source_fetch_failed = False
         for url in ann_urls:
+            prior=next((r for r in unfinished if pending_notices.matches(r,pending_board,url)),{})
+            first_failed=prior.get('source_first_failed_at')
+            if (first_failed is not None and time.time()-first_failed>=12*3600
+                    and not known_receipt(BASE_DIR,url) and pending_notices.expire_unreadable(pending_board,url)):
+                # Only the private disposition survives. No fetch, output or warning count.
+                continue
             print("", flush=True)
             notice_category.set(None)
             category = None
@@ -277,13 +283,9 @@ def run_cycle(writenoticeService, prepared=None):
             notice_started = time.monotonic()
             gc.collect()
 
-            prior=next((r for r in unfinished if r['source_url']==url),{})
             if prior.get('official_replacement') and pending_notices.follow_relocated(pending_board,url,prior['official_replacement'],department):
                 continue
             if prior.get('source_next_retry',0)>time.time():
-                if prior.get('source_first_failed_at',time.time())+43200<=time.time() and not known_receipt(BASE_DIR,url) and pending_notices.expire_unreadable(pending_board,url):
-                    event('수집',f'원문 접근 불가 12시간 경과 · 건너뜀: {url}',level='WARN',outcome='source_expired',source_url=url)
-                    continue
                 if not source_fetch_failed:
                     from together.operations.state import record_detail_failure
                     record_detail_failure()
@@ -322,7 +324,6 @@ def run_cycle(writenoticeService, prepared=None):
             ):
                 expired=pending_notices.mark_source_failure(pending_board, url, 'article_unreadable',retry_after=source_diagnostic.get('retry_after',0),detail=source_diagnostic.get('reason'),can_expire=not known_receipt(BASE_DIR,url))
                 if expired:
-                    event('수집',f'원문 접근 불가 12시간 경과 · 건너뜀: {url}',level='WARN',outcome='source_expired',source_url=url)
                     continue
                 if not source_fetch_failed:
                     from together.operations.state import record_detail_failure

@@ -11,8 +11,8 @@ from together.config import HTTP_TIMEOUT
 
 _group_limit_lock = threading.Lock()
 # 부산대학교의 여러 서브도메인이 같은 서버를 함께 쓰므로 무제한 병렬화는
-# 피하되, 두 요청만 허용하던 병목은 세 요청까지 완화한다.
-_group_limits = defaultdict(lambda: threading.BoundedSemaphore(3))
+# 피하고, 같은 서버 묶음은 목록 다섯 개까지만 동시에 읽는다.
+_group_limits = defaultdict(lambda: threading.BoundedSemaphore(5))
 
 
 @dataclass(frozen=True)

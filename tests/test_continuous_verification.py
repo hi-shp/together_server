@@ -44,7 +44,8 @@ class ContinuousVerification(unittest.TestCase):
                 patch.object(supervisor, "run_cycle", side_effect=[1, 1, 0]) as run,
                 patch.object(supervisor, "notify"),
                 patch.object(supervisor, "read_state", return_value={"consecutive_failures": 5}),
-                patch.object(supervisor.time, "sleep", side_effect=[None, None, EndTest()]),
+                patch.object(supervisor,"cleanup_old_logs",side_effect=[None]*6+[EndTest()]),
+                patch.object(supervisor.time, "sleep", side_effect=AssertionError("Unexpected inter-cycle wait")),
             ):
                 with self.assertRaises(EndTest):
                     supervisor.run_main()

@@ -13,6 +13,16 @@ from together.crawler.pages import AnnouncementPage
 
 
 class CatalogTests(unittest.TestCase):
+    def test_physical_education_is_one_department_inside_education_college(self):
+        rows=sorted(records().values(),key=lambda r:r['order'])
+        phys=[r for r in rows if r['organization']=='체육교육과']
+        self.assertEqual(len(phys),6)
+        self.assertTrue(all(r['sort_group']=='18 사범대학' for r in phys))
+        self.assertEqual([r['order'] for r in phys],list(range(phys[0]['order'],phys[0]['order']+6)))
+        self.assertEqual(phys[0]['navigation_path'][0],'체육교육과')
+        groups=[r['sort_group'] for r in rows]
+        positions=[i for i,g in enumerate(groups) if g=='18 사범대학']
+        self.assertEqual(positions,list(range(min(positions),max(positions)+1)))
     def test_official_labels_and_order_do_not_change_cursors_or_subscription_identity(self):
         rows = list(records().values())
         selected = [rows[10], rows[0], rows[1], rows[5]]

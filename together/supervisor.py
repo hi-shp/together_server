@@ -131,7 +131,7 @@ def run_main():
     runtime.mkdir(mode=0o700, exist_ok=True)
     log_dir = BASE_DIR / "logs"
     log_dir.mkdir(exist_ok=True)
-    with open(runtime / "runner.lock", "a") as lock:
+    with open(runtime / "runner.lock", "a") as lock, open(runtime / "cycle-boundary.lock","a") as boundary:
         try:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
@@ -157,6 +157,8 @@ def run_main():
                 time.sleep((wake - now).total_seconds())
                 continue
             log_path = log_dir / f"log_{now:%Y-%m-%d_%H-%M-%S}.txt"
+            # Deployers can hold LOCK_EX between cycles without a fixed sleep.
+            fcntl.flock(boundary,fcntl.LOCK_SH)
             update_state(
                 BASE_DIR,
                 status="running",
@@ -190,20 +192,26 @@ def run_main():
             if not code:
                 fields["last_success"] = time.time()
             update_state(BASE_DIR, **fields)
-            delay = 10
             event(
                 "반복 실행",
-                f"사이클 종료 · 종료 코드 {code} · 연속 실패 {failures}회 · 10초 뒤 재실행",
+                f"사이클 종료 · 종료 코드 {code} · 연속 실패 {failures}회 · 바로 재실행",
                 status=code,
                 count=failures,
             )
-            notify(
-                (headline+'\n' if headline else '')+f"`{log_path.name}`",
+            log_sent=notify(
+                f"`{log_path.name}`",
                 channel="DISCORD_LOG_WEBHOOK_URL",
                 log_path=log_path,
                 error_prefix="디스코드 전송 중 예외 발생: ",
             )
-            time.sleep(delay)
+            completed=read_state(BASE_DIR)
+            completed.update(log_file=log_path.name,log_sent=bool(log_sent),finished_at=time.time())
+            latest=runtime/"health"/"completed-cycle.json"
+            latest.parent.mkdir(mode=0o700,parents=True,exist_ok=True)
+            tmp=latest.with_suffix(".tmp")
+            tmp.write_text(json.dumps(completed),encoding="utf-8")
+            tmp.replace(latest)
+            fcntl.flock(boundary,fcntl.LOCK_UN)
 
 
 def _terminate(signum, frame):
