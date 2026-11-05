@@ -45,6 +45,8 @@ class DetailRecoveryTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as root:
             j=Path(root)/'activity';before={('one','message')}
             self.assertEqual(summarize(j,before,before,0),'')
+            j.write_text('warn\n')
+            self.assertEqual(summarize(j,before,before,0),'⭐ 새 공지 0건 | 게시글 작성 0건 | 이메일 발송 0건 | 쪽지 발송 0건 | 보강 0건 | 오류 0회 | 경고 1회')
             j.write_text('new\npost\nenriched\nwarn\n')
             headline=summarize(j,before,before|{('two','email')},0)
             self.assertTrue(headline.startswith('⭐ 새 공지 1건'))

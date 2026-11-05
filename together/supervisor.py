@@ -194,7 +194,8 @@ def run_main():
             update_state(BASE_DIR, **fields)
             event(
                 "반복 실행",
-                f"사이클 종료 · 종료 코드 {code} · 연속 실패 {failures}회 · 바로 재실행",
+                "재실행",
+                plain=True,
                 status=code,
                 count=failures,
             )

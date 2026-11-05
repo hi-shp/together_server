@@ -47,7 +47,7 @@ class LegacyPresentationTests(unittest.TestCase):
             return 0
 
         def check_upload(content, **kwargs):
-            self.assertIn("사이클 종료", output.getvalue())
+            self.assertIn("재실행", output.getvalue().splitlines())
             name = "log_2026-10-27_14-30-00.txt"
             self.assertEqual(
                 content,
