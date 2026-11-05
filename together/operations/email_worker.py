@@ -23,6 +23,12 @@ def process_job(outbox, job, transport):
         if job["state"] == "unknown":
             recovered = transport.recover_event(payload["event_key"])
             if recovered is False:
+                if time.time()-job["created"] >= 12*3600:
+                    count=transport.final_email_retry(payload)
+                    if count is not None:
+                        outbox.complete(job,count)
+                        event("이메일","12시간 미확정 건 처리 종료 · 재발송 정책 적용",count=count,outcome="final_retry_closed")
+                        return True
                 outbox.defer(job, True, "awaiting_email_receipt")
                 return False
             if recovered is not None:
@@ -59,7 +65,7 @@ def process_job(outbox, job, transport):
     except Exception as exc:
         if isinstance(exc, NotificationAuthenticationError):
             transport.authentication_failed = True
-        outbox.defer(job, isinstance(exc, sqlite3.Error), type(exc).__name__)
+        outbox.defer(job, job["state"]=="unknown" or isinstance(exc, sqlite3.Error), type(exc).__name__)
         event(
             "이메일",
             f"발송 처리 보류: {type(exc).__name__}",
@@ -115,10 +121,10 @@ def main():
                     )
                     transport.history_reader = current["history"]
                     recovered = transport.recover_event(job["payload"]["event_key"])
-                    if recovered is False:
+                    if recovered is False and time.time()-job["created"] < 12*3600:
                         outbox.defer(job, True, "awaiting_email_receipt")
                         return
-                    if recovered is not None:
+                    if recovered is not False and recovered is not None:
                         outbox.complete(job, recovered)
                         set_notice(
                             job["payload"].get("url", job["payload"]["event_key"]),
@@ -140,7 +146,7 @@ def main():
                 ):
                     refresh.set()
             except Exception as exc:
-                outbox.defer(job, isinstance(exc, sqlite3.Error), type(exc).__name__)
+                outbox.defer(job, job["state"]=="unknown" or isinstance(exc, sqlite3.Error), type(exc).__name__)
                 refresh.set()
             finally:
                 if transport:

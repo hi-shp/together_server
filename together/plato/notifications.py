@@ -509,6 +509,50 @@ class PlatoNotificationTransport:
             raise NotificationError("Recipient directory mismatch")
         return hidden, ids, missing
 
+    def final_email_retry(self, payload):
+        """Retry only the unresolved original recipients, at most once per delivery."""
+        event = hashlib.sha256(json.dumps(["email", payload["event_key"]], ensure_ascii=False).encode()).hexdigest()
+        db = self.ledger.connection
+        rows = db.execute("SELECT delivery_id,uid,state FROM delivery_recipients WHERE event=? AND kind='email'", (event,)).fetchall()
+        if not rows: return None
+        groups = {}
+        for key, uid, state in rows:
+            if state != 'sent': groups.setdefault(key, set()).add(uid)
+        for key, batch in groups.items():
+            path = self.attempt_path(key)
+            if not path.exists(): return None
+            original = json.loads(path.read_text(encoding='utf-8'))
+            if time.time() - original['started_at'] < 12 * 3600: return None
+            # Do not resend a late school receipt. A failed history read alone
+            # is not proof that the first attempt never reached the school.
+            if self.recover_email(key): continue
+            db.execute("CREATE TABLE IF NOT EXISTS email_final_retries (delivery_id TEXT PRIMARY KEY, started REAL NOT NULL, outcome TEXT NOT NULL)")
+            row = db.execute("SELECT outcome FROM email_final_retries WHERE delivery_id=?", (key,)).fetchone()
+            if row is None:
+                hidden, ids, _ = self.validated_recipients('email',payload['recipients'])
+                if not batch.issubset(ids) or (payload.get('expected_ids') is not None and set(payload['expected_ids'])!=set(ids)):
+                    raise NotificationError('Final retry recipient set changed')
+                if payload.get('test_only_id') and batch!={str(payload['test_only_id'])}:
+                    raise NotificationError('Final retry self-test recipient mismatch')
+                if {self.student_ids.get(uid) for uid in batch}!=set(original['student_ids']) or normalize(payload['subject'])!=original['subject']:
+                    raise NotificationError('Final retry receipt identity changed')
+                data=list(hidden.items())+[('tousers[]',uid) for uid in ids if uid in batch]+[('subject',payload['subject']),('message[text]',payload['body'])]
+                # Persist the single right to POST before network I/O. After a
+                # crash in this interval we must never risk a third submission.
+                with db:
+                    claimed=db.execute("INSERT OR IGNORE INTO email_final_retries VALUES (?,?,?)",(key,time.time(),'reserved_before_post')).rowcount
+                if claimed:
+                    try:
+                        with self.session.post(BASE+'action.php',data=data,timeout=(5,600),allow_redirects=False,
+                                               headers={'Referer':BASE+'email_send.php?id='+COURSE+'&lang=ko'}) as response:
+                            outcome='http_'+str(response.status_code)
+                    except (requests.RequestException,TimeoutError) as exc:
+                        outcome=type(exc).__name__
+                    with db:db.execute("UPDATE email_final_retries SET outcome=? WHERE delivery_id=?",(outcome,key))
+                    if self.recover_email(key): continue
+            self.ledger.finish(key,'sent',time.time()-original['started_at'],'final_retry_assumed_unverified')
+        return len(rows)
+
     def send(
         self,
         kind,
