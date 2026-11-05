@@ -211,7 +211,9 @@ def is_recent_title_duplicate(
                     proof=representative_check(duplicate_match.get() or {})
                 else:
                     proof={'status':'verified'}  # 중복 확정이 철회돼 새 글 보존 경로로 진행한다.
-            if proof.get('status')=='missing':
+            if proof.get('status')=='first_publication':
+                result,method='중복 아님','게시·저장 이력 없음·첫 공지 우선 게시'
+            elif proof.get('status')=='missing':
                 result,method='중복 아님','대표 게시글 없음·새 공지 보존'
             elif proof.get('status')!='verified':
                 raise RepresentativeUnconfirmed('Actual representative needs reconciliation before duplicate suppression')

@@ -39,6 +39,28 @@ class DuplicateRepresentativeTests(unittest.TestCase):
         self.assertEqual(result['searched_boards'],0)
         self.assertEqual(result['post_or_send_requests'],0)
 
+    def test_linked_department_alias_uses_verified_primary_body_source(self):
+        primary=SOURCE.replace('123','111')
+        body='<div class="ubboard_view"><div class="subject"><h3>'+TITLE+'</h3></div><a href="'+primary+'">본문</a></div>'
+        client=types.SimpleNamespace(get=lambda *a,**k:Response(body),board_url=lambda _:BOARD)
+        record={'article_url':ARTICLE,'sources':[primary,SOURCE],'notice':{'source_url':primary,'title':TITLE}}
+        self.assertEqual(self.run_check(client,[record])['status'],'verified')
+        # Same title without a binding cannot borrow the primary's link.
+        self.assertEqual(self.run_check(client,[dict(record,sources=[primary])])['status'],'pending')
+        record['notice']['source_url']=SOURCE.replace('123','222')
+        self.assertEqual(self.run_check(client,[record])['status'],'pending')
+        self.assertEqual(self.run_check(client,[record,dict(record,article_url=ARTICLE+'9')])['status'],'pending')
+
+    def test_first_post_can_proceed_when_lookup_fails_but_never_reposts_an_uncertain_save(self):
+        from together.notices.intelligence.publication import remember_receipt
+        data={'title':TITLE,'current_source_url':SOURCE}
+        with tempfile.TemporaryDirectory() as tmp:
+            args=(types.SimpleNamespace(),data,tmp,['기타 공지사항'])
+            result=verify_representative(*args,current_notice={'title':TITLE})
+            self.assertEqual(result['status'],'first_publication')
+            remember_receipt(tmp,{'source_url':SOURCE,'state':'submitting','subject':TITLE})
+            self.assertEqual(verify_representative(*args,current_notice={'title':TITLE})['status'],'pending')
+
     def test_every_school_category_search_must_complete_before_missing(self):
         calls=[]
         def get(url,**kw):calls.append(url);return Response('<form id="ubboard_list_form"><table><tbody></tbody></table></form>')

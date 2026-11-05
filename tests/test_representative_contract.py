@@ -22,6 +22,8 @@ class RepresentativeContractTests(unittest.TestCase):
 
     def test_string_history_does_not_allow_zero_representatives(self):
         self.assertEqual(self.check({'status':'missing'}),'중복 아님')
+    def test_unposted_first_notice_goes_to_normal_publish_and_registration(self):
+        self.assertEqual(self.check({'status':'first_publication'}),'중복 아님')
     def test_a_verified_actual_representative_allows_duplicate_suppression(self):
         self.assertEqual(self.check({'status':'verified'}),'중복')
     def test_unknown_school_read_never_becomes_repost_permission(self):

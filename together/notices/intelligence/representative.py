@@ -77,6 +77,25 @@ def _search(client,board,title,source=''):
     return list(found),len(seen)
 
 
+def _first_publication(base_dir, evidence, current):
+    """A failed lookup may not block a first post or authorize a second POST."""
+    from .publication import _load
+    if not current or not current.get('title') or not evidence.get('current_source_url'):
+        return False
+    titles={_subject(t) for t in (current['title'], evidence.get('title','')) if t}
+    sources={notice_identity(u) for u in (evidence['current_source_url'],evidence.get('source_url')) if u}
+    def matches(title, urls):
+        name=_subject(title or '')
+        return any(notice_identity(u) in sources for u in urls if u) or any(
+            name==t or name.endswith(' '+t) for t in titles)
+    # Retain uncertain saves and historical/moved/manual posts for reconciliation.
+    for r in _load(base_dir).values():
+        if matches(r.get('subject'),[r.get('source_url')]):return False
+    for r in PublishedNoticeStore(base_dir).load():
+        if matches(r['notice'].get('title'),[*r.get('sources',[]),r['notice'].get('source_url')]):return False
+    return True
+
+
 def verify_representative(service,evidence,base_dir,boards,*,current_notice=None):
     """verified/missing/pending. 미확인을 미게시로 바꾸거나 재요청하지 않는다."""
     title=evidence.get('title','');source=evidence.get('source_url','')
@@ -84,6 +103,7 @@ def verify_representative(service,evidence,base_dir,boards,*,current_notice=None
             'checked_at':time.time(),'search_pages':0,'searched_boards':0,'post_or_send_requests':0}
     client=getattr(service,'_http',None)
     temporary_client=False
+    remote_candidate_seen=False
     try:
         if client is None and getattr(service,'driver',None) is not None:
             # HTTP 로그인 경로가 실패해도 이미 로그인된 기존 브라우저를 쓸 수 있다.
@@ -101,10 +121,16 @@ def verify_representative(service,evidence,base_dir,boards,*,current_notice=None
         active=[r for r in records if not r.get('moved_to') and not r.get('duplicate_of')]
         matches=[r for r in active if
                  ((source and source in r.get('sources',[])) or _subject(r['notice']['title'])==_subject(title))]
+        # A merged department notice is not appended to the article body.
+        # Only an explicit, unique stored alias can use the representative's link.
+        bound=[r for r in matches if source and source in r.get('sources',[])]
+        if len({r['article_url'] for r in bound})>1:
+            raise RepresentativeUnconfirmed('Conflicting representative source bindings')
         checked=set()
-        for record in matches:
+        for record in bound or matches:
             url=record['article_url'];checked.add(url)
-            oldsource=source or record.get('notice',{}).get('source_url','')
+            primary=record.get('notice',{}).get('source_url','')
+            oldsource=(primary if bound and primary in record['sources'] else source) or primary
             if _article(client,url,title,oldsource,indexed=True):
                 result.update(status='verified',article_url=url,reason='actual_indexed_representative_exists')
                 return result
@@ -134,6 +160,7 @@ def verify_representative(service,evidence,base_dir,boards,*,current_notice=None
             board=client.board_url(board_name)
             links,pages=_search(client,board,title,source)
             result['search_pages']+=pages;result['searched_boards']+=1
+            remote_candidate_seen=remote_candidate_seen or bool(links)
             for url in links:
                 if url in checked: continue
                 checked.add(url)
@@ -143,6 +170,12 @@ def verify_representative(service,evidence,base_dir,boards,*,current_notice=None
         result.update(status='missing',reason='all_school_category_searches_completed_without_representative')
     except Exception as exc:
         result.update(status='pending',reason=type(exc).__name__)
+        if not remote_candidate_seen:
+            try:
+                if _first_publication(base_dir,evidence,current_notice):
+                    result.update(status='first_publication',reason='no_prior_post_or_save_attempt')
+            except (OSError,KeyError,ValueError,TypeError):
+                pass  # Unreadable evidence is not an empty publication ledger.
     finally:
         if temporary_client:client.close()
         root=Path(base_dir)/'.runtime/intelligence/duplicate-representatives'
