@@ -10,16 +10,18 @@ def report(base_dir):
         for task in ['notice_category','duplicate_decision']:
             rows=db.execute('SELECT prediction,teacher,origin FROM observations WHERE task=?',(task,)).fetchall()
             seen=confirmed=equal=fresh=fresh_equal=false_same=missed_same=0
+            fresh_sources=set()
             for p,t,origin in rows:
                 seen+=1
                 if not t:continue
                 p,t=json.loads(p),json.loads(t);field='category' if task=='notice_category' else 'relation'
                 confirmed+=1;match=p['label']==t.get(field);equal+=match
-                if p.get('new_source_after_freeze'):fresh+=1;fresh_equal+=match
+                if p.get('new_source_after_freeze'):
+                    fresh+=1;fresh_equal+=match;fresh_sources.add(p.get('source_hash',''))
                 if task=='duplicate_decision':
                     false_same+=p['label']=='same_event' and t.get(field)!='same_event'
                     missed_same+=p['label']!='same_event' and t.get(field)=='same_event'
-            tasks[task]={'observations':seen,'teacher_verified':confirmed,'agreement':equal,'unconfirmed':seen-confirmed,'new_sources':fresh,'new_source_agreement':fresh_equal,'raw_false_duplicate_candidates':false_same,'raw_missed_duplicates':missed_same}
+            tasks[task]={'observations':seen,'teacher_verified':confirmed,'agreement':equal,'unconfirmed':seen-confirmed,'new_source_observations':fresh,'distinct_new_source_notices':len(fresh_sources-{''}),'new_source_agreement':fresh_equal,'raw_false_duplicate_candidates':false_same,'raw_missed_duplicates':missed_same}
     p=Path(base_dir)/'.runtime/api-usage.sqlite3';daily=[]
     if p.exists():
         with sqlite3.connect('file:'+str(p)+'?mode=ro',uri=True) as db:

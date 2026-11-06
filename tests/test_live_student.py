@@ -71,3 +71,12 @@ class CampaignTests(unittest.TestCase):
   obs=c.begin(duplicate_request('장기 행사',['장기 행사']),{})
   self.assertGreater(obs['prediction']['confidence'],.9)
   self.assertTrue(c.wants_teacher(obs))
+
+ def test_three_candidate_comparisons_count_as_one_new_notice(self):
+  from together.learning.live_report import report
+  for title in ['후보 A','후보 B','후보 C']:
+   obs=self.c.begin(duplicate_request('새 행사',[title]),{'source_url':'https://example.invalid/one-new-notice'})
+   self.c.finish(obs,{'relation':'different_event'},'api')
+  result=report(self.base)['tasks']['duplicate_decision']
+  self.assertEqual(result['new_source_observations'],3)
+  self.assertEqual(result['distinct_new_source_notices'],1)
