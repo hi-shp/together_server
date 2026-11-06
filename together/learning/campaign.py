@@ -101,6 +101,9 @@ class Campaign:
     def wants_teacher(self,observation):
         if self.comparing:return True
         if not observation:return True
+        # A confident score cannot bypass unresolved source/first-notice evidence.
+        if observation.get('task')=='duplicate_decision' and self.local_result(observation).get('relation')=='needs_context':
+            return True
         # Confidence thresholds change frequency, not a daily spend/processing cap.
         thresholds=self.config.get('review_below',{'notice_category':0.35,'duplicate_decision':0.45})
         return observation['prediction']['confidence']<thresholds.get(observation['task'],0.35)

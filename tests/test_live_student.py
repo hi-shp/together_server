@@ -65,3 +65,9 @@ class CampaignTests(unittest.TestCase):
 
  def test_unknown_model_price_does_not_spend_reserved_credit(self):
   self.assertIsNone(self.c.reserve(self.request,"unknown-model"))
+
+ def test_december_uncertain_evidence_is_referred_even_with_high_model_score(self):
+  c=Campaign(self.base,datetime.fromisoformat('2026-12-01T00:00:00+09:00').timestamp())
+  obs=c.begin(duplicate_request('장기 행사',['장기 행사']),{})
+  self.assertGreater(obs['prediction']['confidence'],.9)
+  self.assertTrue(c.wants_teacher(obs))
