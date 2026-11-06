@@ -14,6 +14,19 @@ NORMAL = '<form action="/bbs/gtu/15982/artclList.do"><table><th class="_artclThN
 
 
 class DirectListRecovery(unittest.TestCase):
+    def test_transient_http_failure_is_deferred_but_permanent_http_failure_is_not_hidden(self):
+        page = types.SimpleNamespace(page_url=SOURCE, department='GTU', number=18)
+        for status in (408, 429, 500, 502, 503, 504):
+            with self.subTest(status=status), patch.object(crawler, 'http_get', return_value=Mock(status_code=status)), patch.object(crawler.time, 'sleep'), patch.object(crawler, 'record_board_deferred') as deferred, patch.object(crawler, 'record_board_result') as failed, patch.object(crawler, 'event') as event:
+                self.assertEqual(crawler.get_anns_url(page, 1), ([], 18))
+                deferred.assert_called_once_with(); failed.assert_not_called()
+                self.assertFalse(any(c.kwargs.get('level') in {'WARN', 'ERROR'} for c in event.call_args_list))
+        response = Mock(status_code=404)
+        response.raise_for_status.side_effect = crawler.requests.HTTPError(response=response)
+        with patch.object(crawler, 'http_get', return_value=response), patch.object(crawler, 'record_board_result') as failed, patch.object(crawler, 'record_board_deferred') as deferred, patch.object(crawler, 'event'):
+            self.assertEqual(crawler.get_anns_url(page, 1), ([], 18))
+            failed.assert_called_once_with(False); deferred.assert_not_called()
+
     def test_pending_prefetch_is_bounded_and_not_counted_as_error(self):
         page = types.SimpleNamespace(page_url=SOURCE, department='GTU', number=18)
         future = Mock(); future.result.side_effect = TimeoutError()
@@ -49,7 +62,7 @@ class DirectListRecovery(unittest.TestCase):
         state.assert_called_once_with(True)
         self.assertFalse(any(c.kwargs.get('level') == 'WARN' for c in event.call_args_list))
 
-    def test_persistent_failure_has_one_warning_and_keeps_cursor(self):
+    def test_persistent_failure_is_deferred_without_warning_and_keeps_cursor(self):
         shell = types.SimpleNamespace(text=SHELL, url=SOURCE)
         page = types.SimpleNamespace(page_url=SOURCE, department='GTU', number=18)
         with tempfile.TemporaryDirectory() as root, patch.object(crawler, 'BASE_DIR', Path(root)), patch.object(crawler, '_get_board_response', return_value=shell), patch.object(crawler, 'record_board_deferred') as state, patch.object(crawler, 'event') as event:

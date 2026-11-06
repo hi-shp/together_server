@@ -278,3 +278,12 @@ class ContextTests(unittest.TestCase):
             with patch.object(history,'check_title_similarity',return_value='중복 아님') as review:
                 self.assertEqual(history.is_recent_title_duplicate(title,str(path)),'중복 아님')
             review.assert_not_called()
+
+
+    def test_scholarship_program_title_bypasses_history_and_api(self):
+        from together.notices import history
+        for title in ('2025년 우수학생 국가장학사업 사전신청 안내', '2026학년도 장학 지원 및 추천 안내'):
+            with self.subTest(title=title), patch.object(history, 'check_title_similarity') as review, patch.object(history, 'event') as logged:
+                self.assertEqual(history.is_recent_title_duplicate(title, '/nonexistent/history.txt'), '중복 아님')
+                review.assert_not_called()
+                self.assertIn('중복 허용 (장학금,', logged.call_args.args[1])

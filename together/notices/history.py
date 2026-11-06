@@ -145,7 +145,7 @@ def is_recent_title_duplicate(
     duplicate_review.set("")
     duplicate_review_reason.set("")
     duplicate_match.set(None)
-    if re.search(r'장학금|장학생|근로장학', identity_title or new_title) or '장학' in department:
+    if re.search(r'장학(?!재단)', identity_title or new_title) or '장학' in department:
         event('중복', '중복 체크 결과: 중복 허용 (장학금, 학과별 신청·추천 조건을 보존하기 위해 다른 학과의 같은 공지도 각각 게시)', plain=True, result='중복 허용', method='scholarship_department_policy', reason='학과별 장학 공지를 중복 판단 없이 게시')
         return '중복 아님'
     mode = os.getenv("NOTICE_DUPLICATE_MODE") or "hybrid"

@@ -82,6 +82,9 @@ def _get_board_response(url, *, isolated=False):
             connect = min(HTTP_TIMEOUT[0], remaining / 3)
             read = min(HTTP_TIMEOUT[1], remaining - connect)
             response = (public_http.get_fresh if isolated else http_get)(url, verify=False, timeout=(connect, read))
+            if getattr(response, 'status_code', 200) in {408, 429, 500, 502, 503, 504}:
+                # A transient school response follows the same retry/defer path.
+                raise requests.ConnectionError('Temporary board response', response=response)
             response.raise_for_status()
             return response
         except (requests.Timeout, requests.ConnectionError):
