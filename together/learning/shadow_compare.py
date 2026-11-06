@@ -6,7 +6,9 @@ from zoneinfo import ZoneInfo
 from .student.runtime import Student
 
 def fingerprints(row):
-    notes=[row] if 'left' not in row else [row['left'],row['right']]
+    # A known representative on the right is normal retrieval, not exposure of
+    # the new notice. Only the new/left notice determines prospective overlap.
+    notes=[row] if 'left' not in row else [row['left']]
     result=set()
     for n in notes:
         for kind,value in [('source',n.get('source_url','')),('body',n.get('body','')),('family',n.get('title',''))]:
@@ -58,6 +60,8 @@ def run(base_dir,limit=100):
                         db.execute('INSERT OR IGNORE INTO predictions VALUES (?,?,?,?,?,?,?)',(spec['id'],key,time.time(),json.dumps(prediction,ensure_ascii=False),int(bool(fingerprints(row)&(known|exposed))),time.monotonic()-start,error));db.commit()
                 finally:model.close();del model;gc.collect()
             result=report(root,manifest,db)
+            import resource
+            result['peak_memory_mib']=resource.getrusage(resource.RUSAGE_SELF).ru_maxrss/1024
             target=root/'shadow-report.json';temp=target.with_suffix('.pending');temp.write_text(json.dumps(result,ensure_ascii=False,indent=2));temp.chmod(0o600);temp.replace(target)
             return result
         finally:db.close();training.close()

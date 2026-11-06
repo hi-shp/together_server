@@ -36,3 +36,7 @@ class ShadowTests(unittest.TestCase):
         a=fingerprints({'title':'2026년 2학기 장학','body':'본문'*60,'source_url':'https://a/1'})
         b=fingerprints({'title':'2027년 1학기 장학','body':'본문'*60,'source_url':'https://a/2'})
         self.assertTrue(a&b);self.assertNotEqual(a,b)
+    def test_known_representative_is_not_training_exposure_of_new_notice(self):
+        old={'title':'과거 대표','body':'오래된 본문'*30,'source_url':'https://a/old'}
+        new={'title':'신규 행사','body':'새로운 본문'*30,'source_url':'https://a/new'}
+        self.assertFalse(fingerprints({'left':new,'right':old})&fingerprints(old))
