@@ -7,11 +7,13 @@ from urllib.parse import urljoin, urlparse
 from together.config import HTTP_TIMEOUT
 import re
 import time
+from contextvars import ContextVar
+from concurrent.futures import TimeoutError as FutureTimeout
 import urllib3
 from together.notices.history import recent_title
 from together.notices.intelligence.metadata import extract_metadata
 from together.notices.intelligence.quality import clean_text
-from together.operations.state import record_board_result
+from together.operations.state import record_board_result, record_board_deferred
 from together.operations.events import event
 from together.crawler.files import download_attachment, sanitize_filename
 from together.config import BASE_DIR
@@ -62,10 +64,24 @@ def filter_bmp_characters(text):
     return clean_text(text)
 
 
+_board_deadline = ContextVar('board_response_deadline', default=None)
+
+
+def _remaining_board_time():
+    deadline = _board_deadline.get()
+    remaining = deadline - time.monotonic() if deadline is not None else 60.0
+    if remaining <= 0.05:
+        raise requests.Timeout('Board response window expired')
+    return remaining
+
+
 def _get_board_response(url, *, isolated=False):
     for attempt in range(2):
         try:
-            response = (public_http.get_fresh if isolated else http_get)(url, verify=False, timeout=HTTP_TIMEOUT)
+            remaining = _remaining_board_time()
+            connect = min(HTTP_TIMEOUT[0], remaining / 3)
+            read = min(HTTP_TIMEOUT[1], remaining - connect)
+            response = (public_http.get_fresh if isolated else http_get)(url, verify=False, timeout=(connect, read))
             response.raise_for_status()
             return response
         except (requests.Timeout, requests.ConnectionError):
@@ -74,13 +90,25 @@ def _get_board_response(url, *, isolated=False):
             event(
                 "수집",
                 f"연결 지연, 잠시 후 다시 확인: {url}",
-                level="WARN",
                 source_url=url,
+                console=False,
             )
-            time.sleep(2)
+            time.sleep(min(2, _remaining_board_time()))
 
 
 def get_anns_url(announcementPage, n, prefetched=None):
+    token = _board_deadline.set(time.monotonic() + 60)
+    try:
+        return _collect_anns_url(announcementPage, n, prefetched)
+    except (requests.Timeout, requests.ConnectionError, FutureTimeout, TimeoutError):
+        record_board_deferred()
+        event('수집', f"{n}. {getattr(announcementPage, 'display_name', announcementPage.department)} {announcementPage.number} | 응답 없음 · 다음 사이클 재확인: {announcementPage.page_url}", plain=True, outcome='response_deferred', source_url=announcementPage.page_url)
+        return [], announcementPage.number
+    finally:
+        _board_deadline.reset(token)
+
+
+def _collect_anns_url(announcementPage, n, prefetched=None):
     from together.crawler.onestop import menu_for, collect
     if menu_for(announcementPage.page_url):
         return collect(announcementPage, n, event, record_board_result)
@@ -91,7 +119,7 @@ def get_anns_url(announcementPage, n, prefetched=None):
             response = _get_board_response(announcementPage.page_url)
         else:
             try:
-                response = prefetched.result()
+                response = prefetched.result(timeout=_remaining_board_time())
             except requests.exceptions.RequestException:
                 # 사전조회 실패는 원래 순서에서 기존 재시도 경로로 처리한다.
                 response = _get_board_response(announcementPage.page_url)
@@ -120,6 +148,16 @@ def get_anns_url(announcementPage, n, prefetched=None):
                     event('수집', '목록 응답 증거 저장 실패', error=type(exc).__name__, source_url=announcementPage.page_url, console=False)
                 response = _get_board_response(announcementPage.page_url, isolated=True)
                 soup = BeautifulSoup(response.text, 'html.parser')
+                if soup.find('tbody') is None and not any(message in soup.get_text(' ', strip=True) for message in closed):
+                    from together.crawler.list_recovery import recover_list
+                    recovered = recover_list(announcementPage.page_url, soup, _get_board_response)
+                    if recovered:
+                        response, soup = recovered
+                        event('수집', '직접 목록 조회로 복구', source_url=announcementPage.page_url, console=False)
+    except (requests.Timeout, requests.ConnectionError, FutureTimeout, TimeoutError):
+        record_board_deferred()
+        event('수집', f"{n}. {getattr(announcementPage, 'display_name', announcementPage.department)} {announcementPage.number} | 응답 없음 · 다음 사이클 재확인: {announcementPage.page_url}", plain=True, outcome='response_deferred', source_url=announcementPage.page_url)
+        return [], announcementPage.number
     except requests.exceptions.RequestException as e:
         record_board_result(False)
         event(
@@ -160,6 +198,10 @@ def get_anns_url(announcementPage, n, prefetched=None):
                 )
                 response = _get_board_response(announcementPage.page_url)
                 soup = BeautifulSoup(response.text, "html.parser")
+            if entries(soup, response.url, expected) is None:
+                record_board_deferred()
+                event('수집', f"{n}. {getattr(announcementPage, 'display_name', announcementPage.department)} {announcementPage.number} | 목록 응답 없음 · 다음 사이클 재확인: {announcementPage.page_url}", plain=True, outcome='response_deferred', source_url=announcementPage.page_url)
+                return [], announcementPage.number
             selected, maximum = collect(announcementPage, soup, response.url, expected, n, event, record_board_result)
             if selected:
                 from .detail_recovery import listing
@@ -168,12 +210,15 @@ def get_anns_url(announcementPage, n, prefetched=None):
 
     # 정적 HTML은 한 번만 받아 파싱한다.
     table_element = soup.find("tbody")
-    record_board_result(table_element is not None)
+    if table_element is None:
+        record_board_deferred()
+        event('수집', f"{n}. {getattr(announcementPage, 'display_name', announcementPage.department)} {announcementPage.number} | 목록 응답 없음 · 다음 사이클 재확인: {announcementPage.page_url}", plain=True, outcome='response_deferred', source_url=announcementPage.page_url)
+        return [], announcementPage.number
+    record_board_result(True)
 
     if table_element:
         rows = table_element.find_all("tr")
     else:
-        event("수집", "⚠️ tbody 태그를 찾을 수 없습니다.", level="WARN")
         rows = []
 
     announcement_numbers = []

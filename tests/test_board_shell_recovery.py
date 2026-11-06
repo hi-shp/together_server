@@ -34,10 +34,10 @@ class BoardShellRecovery(unittest.TestCase):
     def test_genuinely_missing_list_keeps_saved_number_and_records_failure(self):
         page=types.SimpleNamespace(page_url='https://example.invalid/list',source_url='https://example.invalid/list',department='기관',number=87)
         shell=types.SimpleNamespace(text='<html><main>목록을 가져올 수 없습니다.</main></html>',url=page.page_url)
-        with tempfile.TemporaryDirectory() as temp,patch.object(announcements,'BASE_DIR',Path(temp)),patch.object(announcements,'_get_board_response',return_value=shell),patch.object(announcements,'record_board_result') as record,patch.object(announcements,'event'):
+        with tempfile.TemporaryDirectory() as temp,patch.object(announcements,'BASE_DIR',Path(temp)),patch.object(announcements,'_get_board_response',return_value=shell),patch.object(announcements,'record_board_deferred') as record,patch.object(announcements,'event'):
             urls,number=announcements.get_anns_url(page,1)
         self.assertEqual((urls,number),([],87))
-        record.assert_called_once_with(False)
+        record.assert_called_once_with()
 
 
 if __name__=='__main__':unittest.main()

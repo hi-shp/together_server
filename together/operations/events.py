@@ -64,6 +64,20 @@ def safe_text(value):
     return value[:2000]
 
 
+def decision_explanation(method, reason='', limit=220):
+    """One readable line, retaining the recorded evidence without another API call."""
+    reason = safe_text(' '.join(str(reason or '').split()))
+    if len(reason) > limit:
+        reason = reason[:limit - 1] + '…'
+    details = {
+        '행사·연도·회차 대조': '제목의 행사명·연도·회차가 일치해 같은 행사 후보로 판단',
+        '최근 비교 대상 없음': '최근 비교 범위에 같은 행사 후보가 없어 새 공지로 처리',
+        '기존 게시글 분류': '실제 대표 게시글에 지정된 분류를 이어받음',
+        '제목 규칙·로컬 모델 대조': '제목·본문의 활동 목적과 분류 규칙을 대조',
+    }
+    return f'{method}: {reason}' if reason else details.get(method, method)
+
+
 def safe_url(value):
     try:
         parts = urlsplit(str(value))

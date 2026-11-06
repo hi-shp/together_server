@@ -145,6 +145,9 @@ def is_recent_title_duplicate(
     duplicate_review.set("")
     duplicate_review_reason.set("")
     duplicate_match.set(None)
+    if re.search(r'장학금|장학생|근로장학', identity_title or new_title) or '장학' in department:
+        event('중복', '중복 체크 결과: 중복 허용 (장학금, 학과별 신청·추천 조건을 보존하기 위해 다른 학과의 같은 공지도 각각 게시)', plain=True, result='중복 허용', method='scholarship_department_policy', reason='학과별 장학 공지를 중복 판단 없이 게시')
+        return '중복 아님'
     mode = os.getenv("NOTICE_DUPLICATE_MODE") or "hybrid"
     # 예전 모드의 10일 범위는 유지하며 현재 방식은 학과 전달 지연을 2주까지 본다.
     lookback_days = 10 if mode == 'legacy' else 14
@@ -219,9 +222,11 @@ def is_recent_title_duplicate(
                 raise RepresentativeUnconfirmed('Actual representative needs reconciliation before duplicate suppression')
         raw_similarity = max((calculate_similarity(normalize_title(new_title), normalize_title(value)) for value in candidate_labels), default=0.0) if candidate_labels else None
         shown_similarity = similarity if mode == "legacy" else raw_similarity
+        from together.operations.events import decision_explanation
+        explanation = decision_explanation(method, duplicate_review_reason.get())
         event(
             "중복",
-            f"중복 체크 결과: {result} ({method}"
+            f"중복 체크 결과: {result} ({explanation}"
             + (f", 제목 유사도 {shown_similarity:.5f}" if shown_similarity is not None else "")
             + ")",
             plain=True,

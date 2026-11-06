@@ -355,7 +355,7 @@ class DuplicateContractTests(unittest.TestCase):
             "대학원 장학금 신청 안내", "대학원 장학금 신청 안내"
         )
         self.assertEqual(result, "중복 아님")
-        self.assertEqual(calls, 1)
+        self.assertEqual(calls, 0)
 
 
 class GPTContractTests(unittest.TestCase):

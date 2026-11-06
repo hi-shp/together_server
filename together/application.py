@@ -124,6 +124,8 @@ def categorize_announcement(title, content_text):
         if method == "gpt_context_review"
         else hint.get("reason") or "제목 규칙·로컬 모델 대조"
     )
+    from together.operations.events import decision_explanation
+    explanation = decision_explanation(explanation, review_for(truncated_content).get('reason') if method in ('gpt_context_review', 'local_api_fallback') else '')
     event(
         "분류",
         f"카테고리 분류 결과: {category} ({explanation})",

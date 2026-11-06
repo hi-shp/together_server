@@ -270,11 +270,11 @@ class ContextTests(unittest.TestCase):
         self.assertFalse(requires_department_evidence('학습전략특강(나만의 AI 학습 조교 설계하기)'))
         self.assertTrue(requires_department_evidence('2027학년도 교육조교 모집 안내'))
 
-    def test_title_heuristic_cannot_bypass_department_scholarship_check(self):
+    def test_scholarship_is_published_per_department_without_model_review(self):
         from together.notices import history
         title='2027년도 한국지도자육성장학재단 장학생 선발 안내'
         with tempfile.TemporaryDirectory() as temp:
             path=Path(temp)/'titles.txt';path.write_text(datetime.now().strftime('%Y-%m-%d %H:%M:%S')+'$'+title+'\n',encoding='utf-8')
             with patch.object(history,'check_title_similarity',return_value='중복 아님') as review:
                 self.assertEqual(history.is_recent_title_duplicate(title,str(path)),'중복 아님')
-            review.assert_called_once()
+            review.assert_not_called()

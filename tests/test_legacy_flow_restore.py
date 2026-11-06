@@ -29,10 +29,10 @@ class RestoredFlow(unittest.TestCase):
     def test_missing_tbody_is_not_misreported_as_empty_board(self):
         from together.crawler import announcements
         page=types.SimpleNamespace(page_url='https://example.pusan.ac.kr/example/1/subview.do', department='새 게시판', number=42)
-        with patch.object(announcements, '_get_board_response', return_value=types.SimpleNamespace(text='<html>Service unavailable</html>')), patch.object(announcements, 'record_board_result') as state, patch.object(announcements, 'event') as log:
+        with patch.object(announcements, '_get_board_response', return_value=types.SimpleNamespace(text='<html>Service unavailable</html>')), patch.object(announcements, 'record_board_deferred') as state, patch.object(announcements, 'event') as log:
             self.assertEqual(announcements.get_anns_url(page, 1), ([], 42))
-        state.assert_called_once_with(False)
-        self.assertTrue(any(call.kwargs.get('level')=='WARN' for call in log.call_args_list))
+        state.assert_called_once_with()
+        self.assertFalse(any(call.kwargs.get('level')=='WARN' for call in log.call_args_list))
 
     def test_stopped_site_preserves_cursor_and_recovers_on_next_check(self):
         from together.crawler import announcements
