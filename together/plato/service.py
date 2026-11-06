@@ -400,10 +400,34 @@ class WriteNoticeService:
                 for _, row in df.iterrows()
             ]
         df = df.drop_duplicates(subset=["이메일 주소"], keep="first")
-        return [
+        recipients = [
             {"name": row["이름"].strip(), "email": row["이메일 주소"].strip()}
             for _, row in df.iterrows()
         ]
+        # 기존 CSV 형식은 보존하고 전체 신청서의 고유 학번을 보조 신원으로 사용한다.
+        full_path = os.path.join(os.path.expanduser("~"), "Downloads", "알림 신청하기.csv")
+        if os.path.exists(full_path):
+            full = pd.read_csv(full_path, dtype=str).fillna("")
+            for person in recipients:
+                rows = full[(full["이름"].str.strip() == person["name"])
+                            & (full["이메일 주소"].str.strip() == person["email"])]
+                students = set(rows["학번"].str.strip()) - {""}
+                if len(students) == 1:
+                    person["student_id"] = next(iter(students))
+        return recipients
+
+    def _no_matching_recipients(self, kind, department, title, url, requested, missing):
+        label = "Plato 쪽지" if kind == "message" else "이메일"
+        result = {"requested": requested, "matched": 0, "missing": missing,
+                  "sent": 0, "deduplicated": 0, "state": "no_matching_recipients"}
+        event(
+            "쪽지" if kind == "message" else "이메일",
+            f"{department}/{label} 발송 대상 확인 불가 "
+            f"(신청 {requested}명·학교 수신자 일치 0명, 발송하지 않음)",
+            plain=True, count=0, status=result["state"], expected=requested,
+            missing=missing, title=title, source_url=url,
+        )
+        return result
 
     def send_message(
         self, title, url, department, recipient_departments=None
@@ -422,6 +446,10 @@ class WriteNoticeService:
             "message", recipients, "", body, f"{department}|{url}|{title}"
         )
         count = result["sent"] + result["deduplicated"]
+        if not count:
+            return self._no_matching_recipients(
+                "message", department, title, url, len(recipients), result.get("missing", 0)
+            )
         event(
             "쪽지",
             f"{department}/Plato 쪽지 전송 완료 ({count}명)",
@@ -453,7 +481,11 @@ class WriteNoticeService:
         subject = f"✔ [{department}] {title}"
         body = email_content(title, url, content, department, BASE_DIR)
         if os.getenv("PLATO_EMAIL_MODE", "direct") == "queue":
-            _, ids, _ = self._notification().validated_recipients("email", recipients)
+            _, ids, missing = self._notification().validated_recipients("email", recipients)
+            if not ids:
+                return self._no_matching_recipients(
+                    "email", department, title, url, len(recipients), len(missing)
+                )
             result = EmailOutbox(BASE_DIR).enqueue(
                 {
                     "title": title,
@@ -485,6 +517,10 @@ class WriteNoticeService:
             "email", recipients, subject, body, f"{department}|{url}|{title}"
         )
         count = result["sent"] + result["deduplicated"]
+        if not count:
+            return self._no_matching_recipients(
+                "email", department, title, url, len(recipients), result.get("missing", 0)
+            )
         event(
             "이메일",
             f"{department}/이메일 전송 완료 ({count}명)",

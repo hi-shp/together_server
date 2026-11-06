@@ -141,7 +141,7 @@ def parse_send_form(html, kind, page_url):
     return hidden, targets
 
 
-def resolve_recipients(targets, recipients, kind):
+def resolve_recipients(targets, recipients, kind, student_ids=None):
     ids = []
     missing = []
     for person in recipients:
@@ -155,6 +155,12 @@ def resolve_recipients(targets, recipients, kind):
             or target["text"] == wanted
             or (kind == "message" and target["text"].startswith(wanted + " "))
         ]
+        # 같은 이름과 이메일을 쓰는 복수 계정은 신청 학번까지 일치할 때만 선택한다.
+        if kind == "email" and len(set(matches)) > 1 and person.get("student_id"):
+            matches = [
+                uid for uid in matches
+                if (student_ids or {}).get(uid) == person["student_id"]
+            ]
         if len(set(matches)) == 1:
             ids.append(matches[0])
         else:
@@ -406,7 +412,12 @@ class PlatoNotificationTransport:
                         ) from None
                     raise
         self.last_form = (hidden, targets)
-        ids, missing = resolve_recipients(targets, recipients, kind)
+        ids, missing = resolve_recipients(targets, recipients, kind, self.student_ids)
+        if kind == "email" and missing and any(p.get("student_id") for p in recipients):
+            if not self.student_ids:
+                self.prepare("message", [])
+                self.last_form = (hidden, targets)
+            ids, missing = resolve_recipients(targets, recipients, kind, self.student_ids)
         if kind == "message":
             for target in targets:
                 match = re.search(r"\((\d{7,12})\)", target["title"] or target["text"])
