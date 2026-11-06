@@ -165,3 +165,9 @@ def policy_config(path=None):
             "CATEGORIES": CATEGORIES,
         }
     )
+
+
+def scholarship_duplicate_allowed(title, department=""):
+    """Keep scholarship opportunities separate for each source department."""
+    import re
+    return bool(re.search(r"장학(?!재단)|드림리더", title or "") or "장학" in (department or ""))

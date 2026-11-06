@@ -21,6 +21,11 @@ def record_detail_failure():
     _boards['detail_failed'] = _boards.get('detail_failed', 0) + 1
 
 
+def record_detail_deferred():
+    # The listing already contributed to checked. Keep unread sources separate.
+    _boards['detail_deferred'] = _boards.get('detail_deferred', 0) + 1
+
+
 def record_board_deferred():
     # 응답 불가는 정상 빈 목록도 오류도 아니다. 다음 사이클에서 다시 확인한다.
     _boards['checked'] += 1

@@ -80,7 +80,8 @@ def retry_delay(value):
         except (ValueError,TypeError,OverflowError):return 0
 
 
-def probe(url,board,expected=None):
+def probe(url,board,expected=None,*,deadline=None):
+    deadline = time.monotonic()+60 if deadline is None else deadline
     expected=expected or {}
     result={'reason':'unreadable_source','retry_after':0}
     if not (school(url) and school(board)):return result
@@ -91,12 +92,17 @@ def probe(url,board,expected=None):
             visited=set()
             while school(u) and u not in visited and len(visited)<10:
                 visited.add(u)
-                res=client.get(u,params=params,headers={'Referer':referer},timeout=(5,20),verify=False,allow_redirects=False)
+                remaining=deadline-time.monotonic()
+                if remaining<=0.05:raise requests.Timeout('Source response window expired')
+                connect=min(5,remaining/3);read=min(20,remaining-connect)
+                res=client.get(u,params=params,headers={'Referer':referer},timeout=(connect,read),verify=False,allow_redirects=False)
                 if res.status_code not in (301,302,303,307,308):break
                 u=urljoin(res.url,res.headers.get('Location',''));params=None;res.close()
             else:raise ValueError('unverified redirect')
             if res.status_code in (429,503):
                 result.update(reason='school_rate_or_service_limit',retry_after=retry_delay(res.headers.get('Retry-After')))
+            elif res.status_code in (408,500,502,504):
+                result['reason']='school_rate_or_service_limit'
             res.raise_for_status()
             return res
         try:

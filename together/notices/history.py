@@ -145,7 +145,8 @@ def is_recent_title_duplicate(
     duplicate_review.set("")
     duplicate_review_reason.set("")
     duplicate_match.set(None)
-    if re.search(r'장학(?!재단)', identity_title or new_title) or '장학' in department:
+    from together.notices.intelligence.policy import scholarship_duplicate_allowed
+    if scholarship_duplicate_allowed(identity_title or new_title, department):
         event('중복', '중복 체크 결과: 중복 허용 (장학금, 학과별 신청·추천 조건을 보존하기 위해 다른 학과의 같은 공지도 각각 게시)', plain=True, result='중복 허용', method='scholarship_department_policy', reason='학과별 장학 공지를 중복 판단 없이 게시')
         return '중복 아님'
     mode = os.getenv("NOTICE_DUPLICATE_MODE") or "hybrid"
@@ -216,8 +217,10 @@ def is_recent_title_duplicate(
                     proof={'status':'verified'}  # 중복 확정이 철회돼 새 글 보존 경로로 진행한다.
             if proof.get('status')=='first_publication':
                 result,method='중복 아님','게시·저장 이력 없음·첫 공지 우선 게시'
+                duplicate_review_reason.set('비슷한 제목은 있으나 실제 게시·저장 이력이 없어 첫 공지를 먼저 게시')
             elif proof.get('status')=='missing':
                 result,method='중복 아님','대표 게시글 없음·새 공지 보존'
+                duplicate_review_reason.set('기존 후보의 실제 게시글이 없어 이번 공지를 새 글로 게시')
             elif proof.get('status')!='verified':
                 raise RepresentativeUnconfirmed('Actual representative needs reconciliation before duplicate suppression')
         raw_similarity = max((calculate_similarity(normalize_title(new_title), normalize_title(value)) for value in candidate_labels), default=0.0) if candidate_labels else None

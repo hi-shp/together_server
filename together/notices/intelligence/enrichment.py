@@ -147,6 +147,9 @@ def enabled():
 
 
 def find_target(announcement, department, base_dir):
+    from together.notices.intelligence.policy import scholarship_duplicate_allowed
+    if scholarship_duplicate_allowed(getattr(announcement, "original_title", announcement.title), department):
+        return None
     if not enabled():
         return None
     try:

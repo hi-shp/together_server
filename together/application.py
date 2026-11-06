@@ -289,8 +289,8 @@ def run_cycle(writenoticeService, prepared=None):
                 continue
             if prior.get('source_next_retry',0)>time.time():
                 if not source_fetch_failed:
-                    from together.operations.state import record_detail_failure
-                    record_detail_failure()
+                    from together.operations.state import record_detail_deferred
+                    record_detail_deferred()
                 source_fetch_failed=True
                 continue
             source_response=None
@@ -302,7 +302,7 @@ def run_cycle(writenoticeService, prepared=None):
                 from together.crawler.onestop import menu_for
                 if not menu_for(url):
                     evidence=prior.get('listing_evidence') or getattr(announcement_page,'detail_rows',{}).get(url,{})
-                    source_diagnostic=probe(url,announcement_page.page_url,evidence)
+                    source_diagnostic=probe(url,announcement_page.page_url,evidence,deadline=notice_started+60)
                     recovered=source_diagnostic.pop('response',None)
                     if recovered is not None:
                         link=source_diagnostic.get('link',url)
@@ -327,13 +327,18 @@ def run_cycle(writenoticeService, prepared=None):
                 expired=pending_notices.mark_source_failure(pending_board, url, 'article_unreadable',retry_after=source_diagnostic.get('retry_after',0),detail=source_diagnostic.get('reason'),can_expire=not known_receipt(BASE_DIR,url))
                 if expired:
                     continue
+                temporary_response = source_diagnostic.get('reason') in {
+                    'Timeout', 'ReadTimeout', 'ConnectTimeout', 'ConnectionError', 'SSLError',
+                    'school_rate_or_service_limit',
+                }
                 if not source_fetch_failed:
-                    from together.operations.state import record_detail_failure
-                    record_detail_failure()
+                    from together.operations.state import record_detail_failure, record_detail_deferred
+                    (record_detail_deferred if temporary_response else record_detail_failure)()
                 source_fetch_failed = True
                 update_state(BASE_DIR, boards=board_summary())
-                event('수집', f'공지 추출 보류; 미완료 기록·게시판 번호 유지: {url}',
-                      level='WARN', outcome='source_pending', source_url=url,
+                event('수집', (f'원문 응답 없음 · 다음 사이클 재확인: {url}' if temporary_response
+                              else f'공지 추출 보류; 미완료 기록·게시판 번호 유지: {url}'),
+                      level='INFO' if temporary_response else 'WARN', outcome='source_pending', source_url=url,
                       recovery_reason=source_diagnostic.get('reason'),listed=source_diagnostic.get('listed'))
                 continue
 
@@ -396,7 +401,7 @@ def run_cycle(writenoticeService, prepared=None):
                     )
                     event(
                         "분류",
-                        f"카테고리 분류 결과: {category} (기존 게시글 분류)",
+                        f"카테고리 분류 결과: {category} (보강 대상인 실제 대표 게시글의 기존 분류를 이어받음)",
                         category=category,
                         plain=True,
                     )

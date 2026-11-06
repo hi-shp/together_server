@@ -472,6 +472,13 @@ def _collect_anns_url(announcementPage, n, prefetched=None):
         return [], announcementPage.number
 
 
+def response_unavailable(exc):
+    return isinstance(exc, (requests.Timeout, requests.ConnectionError, TimeoutError)) or (
+        isinstance(exc, requests.HTTPError)
+        and getattr(getattr(exc, 'response', None), 'status_code', None) in {408, 429, 500, 502, 503, 504}
+    )
+
+
 def crawl_ann_partial(url: str, *, source_response=None) -> Announcement:
     from together.crawler.onestop import menu_for, client
     if menu_for(url):
@@ -484,8 +491,8 @@ def crawl_ann_partial(url: str, *, source_response=None) -> Announcement:
         remember_limit(url,getattr(e,'response',None))
         event(
             "수집",
-            f"요청 처리 실패: {type(e).__name__}",
-            level="WARN",
+            "원문 응답 없음 · 다음 사이클 재확인" if response_unavailable(e) else f"요청 처리 실패: {type(e).__name__}",
+            level="INFO" if response_unavailable(e) else "WARN",
             error=type(e).__name__,
         )
         return None
@@ -557,8 +564,8 @@ def crawl_ann(url: str, category: str, *, source_response=None) -> Announcement:
     except requests.exceptions.RequestException as e:
         event(
             "수집",
-            f"요청 처리 실패: {type(e).__name__}",
-            level="WARN",
+            "원문 응답 없음 · 다음 사이클 재확인" if response_unavailable(e) else f"요청 처리 실패: {type(e).__name__}",
+            level="INFO" if response_unavailable(e) else "WARN",
             error=type(e).__name__,
         )
         return None

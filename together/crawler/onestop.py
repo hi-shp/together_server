@@ -110,26 +110,28 @@ class OnestopClient:
             self.browser = browser
             browser.init_driver()
             self._restore_cookies(browser.driver)
+        from together.crawler.announcements import _remaining_board_time
         d = self.browser.driver
+        d.set_page_load_timeout(min(30, _remaining_board_time()))
         url = "https://onestop.pusan.ac.kr/page?menuCD=" + code
         d.get(url)
-        WebDriverWait(d,25).until(lambda d: d.execute_script('return typeof scwin !== "undefined" && !!scwin.menuInfo'))
+        WebDriverWait(d,min(25,_remaining_board_time())).until(lambda d: d.execute_script('return typeof scwin !== "undefined" && !!scwin.menuInfo'))
         if not d.execute_script("return !!scwin.loginUser.userId"):
             if not os.getenv("PLATO_ID") or not os.getenv("PLATO_PW"):
                 raise OnestopError("Student support credentials are not configured")
             d.execute_script("ssoOpen()")
-            WebDriverWait(d,25).until(lambda d: urlsplit(d.current_url).hostname == "login.pusan.ac.kr")
+            WebDriverWait(d,min(25,_remaining_board_time())).until(lambda d: urlsplit(d.current_url).hostname == "login.pusan.ac.kr")
             d.find_element(By.LINK_TEXT, "아이디 로그인").click()
-            WebDriverWait(d,10).until(lambda d: d.find_element(By.ID, "login_id").is_displayed())
+            WebDriverWait(d,min(10,_remaining_board_time())).until(lambda d: d.find_element(By.ID, "login_id").is_displayed())
             d.find_element(By.ID, "login_id").send_keys(os.environ["PLATO_ID"])
             d.find_element(By.ID, "login_pw").send_keys(os.environ["PLATO_PW"])
             d.find_element(By.ID, "btnLogin").click()
-            WebDriverWait(d,35).until(lambda d: urlsplit(d.current_url).hostname == "onestop.pusan.ac.kr" or d.find_elements(By.LINK_TEXT, "다음에 변경하기"))
+            WebDriverWait(d,min(35,_remaining_board_time())).until(lambda d: urlsplit(d.current_url).hostname == "onestop.pusan.ac.kr" or d.find_elements(By.LINK_TEXT, "다음에 변경하기"))
             if urlsplit(d.current_url).hostname == "login.pusan.ac.kr":
                 d.find_element(By.LINK_TEXT, "다음에 변경하기").click()
-                WebDriverWait(d,35).until(lambda d: urlsplit(d.current_url).hostname == "onestop.pusan.ac.kr")
+                WebDriverWait(d,min(35,_remaining_board_time())).until(lambda d: urlsplit(d.current_url).hostname == "onestop.pusan.ac.kr")
             d.get(url)
-            WebDriverWait(d,25).until(lambda d: d.execute_script('return typeof scwin !== "undefined" && !!scwin.loginUser.userId'))
+            WebDriverWait(d,min(25,_remaining_board_time())).until(lambda d: d.execute_script('return typeof scwin !== "undefined" && !!scwin.loginUser.userId'))
         self._save_cookies(d)
         if d.execute_script("return scwin.menuCd") != code:
             raise OnestopError("Student support menu changed")
@@ -139,7 +141,8 @@ class OnestopClient:
         if self.menu != code or self.browser is None:
             self._open(code)
         d = self.browser.driver
-        d.set_script_timeout(35)
+        from together.crawler.announcements import _remaining_board_time
+        d.set_script_timeout(min(35, _remaining_board_time()))
         reply = d.execute_async_script("""
             const done=arguments[arguments.length-1];
             gfn_ajax_request({url:'/bbs/selectList', reqData:{pageIndex:arguments[0],pageSize:10},
@@ -239,6 +242,13 @@ def collect(page, ordinal, event, record_board_result):
         rows, maximum, count = client().recent(code, page.number)
     except Exception as exc:
         client().close()
+        from together.crawler.announcements import response_unavailable
+        from together.operations.state import record_board_deferred
+        from selenium.common.exceptions import TimeoutException
+        if response_unavailable(exc) or isinstance(exc, TimeoutException):
+            record_board_deferred()
+            event("수집", f"{ordinal}. {getattr(page, 'display_name', page.department)} {page.number} | 응답 없음 · 다음 사이클 재확인: {page.page_url}", plain=True, outcome="response_deferred", source_url=page.page_url)
+            return [], page.number
         record_board_result(False)
         event("수집", f"{ordinal}. {getattr(page, 'display_name', page.department)} | 학생지원시스템 조회 실패: {type(exc).__name__} - {page.page_url}", level="WARN", source_url=page.page_url)
         return [], page.number
