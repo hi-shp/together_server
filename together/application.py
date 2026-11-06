@@ -110,15 +110,19 @@ def categorize_announcement(title, content_text):
         )
     category = hint["category"]
     method = hint["method"]
-    if not category:
+    from together.learning.campaign import enabled as student_comparison_enabled
+    if not category or student_comparison_enabled(BASE_DIR):
         combined_text = f"{title}\n{content_text}"
         truncated_content = truncate_text(combined_text, 1000)
         category = answer_gpt(truncated_content)
-        method = "local_api_fallback" if review_for(truncated_content).get('local_fallback') else "gpt_context_review"
+        review = review_for(truncated_content)
+        method = "local_api_fallback" if review.get('local_fallback') else "local_primary" if review.get('local_primary') else "gpt_context_review"
     observe_category(title, category, method)
     prediction = hint.get("prediction") or {}
     explanation = (
-        "로컬 대체·API 오류"
+        "로컬 학습 모델·본문 검토"
+        if method == "local_primary"
+        else "로컬 대체·API 오류"
         if method == "local_api_fallback"
         else "GPT 본문 검토"
         if method == "gpt_context_review"

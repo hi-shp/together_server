@@ -50,16 +50,47 @@ def _validate(result, request):
 def _decision(model, request, *, require_remote=False):
     global _retry_api_at
     accounting = ApiAccounting(BASE_DIR)
+    campaign = None
+    observation = None
+    reservation = None
+    try:
+        from together.learning.campaign import Campaign
+        campaign = Campaign(BASE_DIR)
+        observation = campaign.begin(request, notice_context()) if campaign.active else None
+    except Exception as exc:
+        event('검증', '로컬 비교 자료 준비 실패', console=False, error=type(exc).__name__)
+    def compared(result, origin):
+        if observation:
+            try:
+                campaign.finish(observation, result, origin)
+            except Exception as exc:
+                event('검증', '로컬 비교 결과 보존 실패', console=False, error=type(exc).__name__)
+        return result
     cached = accounting.cached(model, request)
+    if cached and (cached.get('_local_fallback') or cached.get('_local_primary')):
+        cached = None
     if cached is not None:
         observe_decision(BASE_DIR,model,request,cached,'cache',notice_context())
-        return cached
+        return compared(cached, 'cache')
+    if observation and not require_remote and not campaign.wants_teacher(observation):
+        result = campaign.local_result(observation)
+        observe_decision(BASE_DIR, model, request, result, 'local_primary', notice_context())
+        return compared(result, 'local_primary')
     response = None
     deferred = False
     try:
         if not require_remote and time.monotonic() < _retry_api_at:
             deferred = True
             raise ConnectionError('API recovery probe deferred; crawler continues locally')
+        if campaign and campaign.active:
+            reservation = campaign.reserve(request, model)
+            if reservation is None:
+                if require_remote:
+                    raise RuntimeError('Campaign credit reserve reached; review remains pending')
+                from together.notices.intelligence.offline import local_decision
+                result = campaign.local_result(observation) if observation else local_decision(request, BASE_DIR)
+                observe_decision(BASE_DIR, model, request, result, 'credit_reserve_local', notice_context())
+                return compared(result, 'credit_reserve_local')
         response = client.chat.completions.create(
             model=model, max_completion_tokens=500, reasoning_effort="none", **request
         )
@@ -70,7 +101,7 @@ def _decision(model, request, *, require_remote=False):
         accounting.record(model, request, response=response)
         observe_decision(BASE_DIR,model,request,result,'api',notice_context(),response)
         _retry_api_at = 0
-        return result
+        return compared(result, 'api')
     except Exception as exc:
         if not deferred:
             accounting.record(model, request, response=response, error=exc)
@@ -78,11 +109,19 @@ def _decision(model, request, *, require_remote=False):
         if require_remote:
             raise
         from together.notices.intelligence.offline import local_decision
-        result = local_decision(request, BASE_DIR)
+        result = campaign.local_result(observation) if observation else local_decision(request, BASE_DIR)
+        result.pop('_local_primary', None)
+        result['_local_fallback'] = True
         observe_decision(BASE_DIR,model,request,result,'local_fallback',notice_context())
         key = FallbackReviews(BASE_DIR).record(model, request, result, notice_context(), exc)
         event('API', '로컬 대체 판단 · 복구 후 재검토 대기', level='WARN', error=type(exc).__name__, notice_id=key[:10])
-        return result
+        return compared(result, 'local_fallback')
+    finally:
+        if campaign and reservation:
+            try:
+                campaign.settled(reservation, response)
+            except Exception as exc:
+                event('검증', 'API 비용 확인 기록 보존 실패', console=False, error=type(exc).__name__)
 
 
 def answer_gpt(user_content):
@@ -170,7 +209,7 @@ def check_title_similarity(new_title, recent_titles, *, context_provider=None):
         request = duplicate_request(new_title, [candidate], context)
         used_model = True
         result = _decision(DUPLICATE_MODEL, request)
-        used_local = used_local or bool(result.get('_local_fallback'))
+        used_local = used_local or bool(result.get('_local_fallback') or result.get('_local_primary'))
         relation = result.get("relation")
         if relation not in labels:
             raise ValueError("Unknown duplicate relation")
