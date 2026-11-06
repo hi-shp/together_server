@@ -68,13 +68,12 @@ class CompletionTests(unittest.TestCase):
     def test_unmatched_message_is_not_completed_or_announced(self):
         result = self.service.send_message("title", "https://example.invalid/notice", "dept")
         self.assertEqual(result["state"], "no_matching_recipients")
-        self.assertIn("발송하지 않음", self.event.call_args.args[1])
-        self.assertNotIn("전송 완료", self.event.call_args.args[1])
+        self.event.assert_not_called()
         self.notify.assert_not_called()
 
     def test_unmatched_direct_email_is_not_completed(self):
         self.service.send_email("title", "https://example.invalid/notice", "body", "dept")
-        self.assertNotIn("전송 완료", self.event.call_args.args[1])
+        self.event.assert_not_called()
         self.notify.assert_not_called()
 
     def test_unmatched_queue_email_never_enters_worker(self):
@@ -98,3 +97,27 @@ class CompletionTests(unittest.TestCase):
         self.service.send_email("title", "https://example.invalid/notice", "body", "dept")
         self.event.assert_not_called()
         self.client.send.assert_not_called()
+
+
+class ExclusionTests(unittest.TestCase):
+    def test_confirmed_absence_is_remembered_without_personal_data(self):
+        from together.storage.recipient_exclusions import RecipientExclusions
+        with tempfile.TemporaryDirectory() as temp:
+            store = RecipientExclusions(temp)
+            absent = {"name": "떠난학생", "student_id": "202600009"}
+            targets = [{"id": "1", "title": "재학생 (202600001)", "text": "재학생 (202600001)"}]
+            self.assertEqual(store.remember_absent("message", [absent], targets, {"1": "202600001"}), 1)
+            self.assertEqual(RecipientExclusions(temp).filter("message", [absent]), [])
+            self.assertNotIn(absent["name"].encode(), store.path.read_bytes())
+            self.assertNotIn(absent["student_id"].encode(), store.path.read_bytes())
+
+    def test_ambiguous_and_changed_names_are_not_retired(self):
+        from together.storage.recipient_exclusions import RecipientExclusions
+        with tempfile.TemporaryDirectory() as temp:
+            store = RecipientExclusions(temp)
+            person = {"name": "학생", "student_id": "202600001", "email": "a@example.invalid"}
+            self.assertEqual(store.remember_absent("email", [person], RecipientTests.targets, {}), 0)
+            targets = [{"id": "1", "title": "바뀐이름 (202600001)", "text": "바뀐이름 (202600001)"}]
+            self.assertEqual(store.remember_absent("message", [person], targets, {}), 0)
+            self.assertEqual(store.remember_absent("email", [person], targets, {"1": "202600001"}), 0)
+            self.assertFalse(store.path.exists())

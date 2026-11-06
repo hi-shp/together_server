@@ -518,6 +518,10 @@ class PlatoNotificationTransport:
         os.replace(pending, path)
         if len(missing) >= 10 and len(missing) / max(1, len(recipients)) >= 0.25:
             raise NotificationError("Recipient directory mismatch")
+        from together.storage.recipient_exclusions import RecipientExclusions
+        RecipientExclusions(self.base_dir).remember_absent(
+            kind, recipients, getattr(self, "last_form", ({}, []))[1], self.student_ids
+        )
         return hidden, ids, missing
 
     def final_email_retry(self, payload):

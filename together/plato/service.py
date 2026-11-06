@@ -54,6 +54,7 @@ from together.plato.http_client import (
 )
 from together.plato.content import email_content
 from together.storage.email_outbox import EmailOutbox
+from together.storage.recipient_exclusions import RecipientExclusions
 
 
 class WriteNoticeService:
@@ -395,10 +396,10 @@ class WriteNoticeService:
         ]
         if kind == "message":
             df = df.drop_duplicates(subset=["학번"], keep="first")
-            return [
+            return RecipientExclusions(BASE_DIR).filter(kind, [
                 {"name": row["이름"].strip(), "student_id": row["학번"].strip()}
                 for _, row in df.iterrows()
-            ]
+            ])
         df = df.drop_duplicates(subset=["이메일 주소"], keep="first")
         recipients = [
             {"name": row["이름"].strip(), "email": row["이메일 주소"].strip()}
@@ -414,19 +415,12 @@ class WriteNoticeService:
                 students = set(rows["학번"].str.strip()) - {""}
                 if len(students) == 1:
                     person["student_id"] = next(iter(students))
-        return recipients
+        return RecipientExclusions(BASE_DIR).filter(kind, recipients)
 
     def _no_matching_recipients(self, kind, department, title, url, requested, missing):
-        label = "Plato 쪽지" if kind == "message" else "이메일"
         result = {"requested": requested, "matched": 0, "missing": missing,
                   "sent": 0, "deduplicated": 0, "state": "no_matching_recipients"}
-        event(
-            "쪽지" if kind == "message" else "이메일",
-            f"{department}/{label} 발송 대상 확인 불가 "
-            f"(신청 {requested}명·학교 수신자 일치 0명, 발송하지 않음)",
-            plain=True, count=0, status=result["state"], expected=requested,
-            missing=missing, title=title, source_url=url,
-        )
+        # 학교 목록에 없는 신청자는 터미널/Discord 완료 로그 없이 건너뛴다.
         return result
 
     def send_message(
