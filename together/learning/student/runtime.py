@@ -49,7 +49,12 @@ class Student:
         return scores
 
     def category(self, row):
-        scores = self.linear('category', category_text(row))
+        if self.meta.get('category_mode') == 'mastery':
+            from .evidence import purpose
+            text = purpose(row) + ' ' + txt(row)
+        else:
+            text = category_text(row)
+        scores = self.linear('category', text)
         order = np.argsort(scores)
         margin = float(scores[order[-1]]-scores[order[-2]])
         probability = np.exp((scores-scores.max())*3);probability /= probability.sum()
@@ -77,6 +82,13 @@ class Student:
         return z/z.sum()
 
     def pair(self, row):
+        if self.meta.get('pair_mode') == 'mastery':
+            vectors=[]
+            for notice in (row['left'],row['right']):
+                indices,values=self.vector('mastery',txt(notice))
+                vectors.append(self.array('mastery_svd')[:,indices] @ values)
+            scores=self.forest('mastery',np.asarray(pairfeat(row,np.asarray(vectors)),dtype=np.float32))
+            return {'label':self.meta['pair_classes'][int(scores.argmax())], 'confidence':float(scores.max()), 'scores':scores.tolist(), 'model_version':self.meta['version']}
         a,b,w=self.meta['pair_selection'];scores=self.pair_component(a,row)*(1-w)+self.pair_component(b,row)*w
         return {'label':self.meta['pair_classes'][int(scores.argmax())], 'confidence':float(scores.max()), 'scores':scores.tolist(), 'model_version':self.meta['version']}
 

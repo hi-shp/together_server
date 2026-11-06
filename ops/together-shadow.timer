@@ -1,0 +1,10 @@
+[Unit]
+Description=Compare November notices with frozen local candidates
+
+[Timer]
+OnBootSec=2min
+OnUnitInactiveSec=2min
+Unit=together-shadow.service
+
+[Install]
+WantedBy=timers.target

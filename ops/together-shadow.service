@@ -1,0 +1,16 @@
+[Unit]
+Description=Frozen local notice model comparison (no paid calls)
+After=network.target
+
+[Service]
+Type=oneshot
+User=ubuntu
+WorkingDirectory=/home/ubuntu/together/Source
+Environment=OPENBLAS_NUM_THREADS=1
+Environment=OMP_NUM_THREADS=1
+UMask=0077
+Nice=15
+CPUQuota=20%
+MemoryMax=300M
+ExecStart=/usr/bin/python3 -m together.learning.shadow_compare --base-dir /home/ubuntu/together/Source --limit 100
+
