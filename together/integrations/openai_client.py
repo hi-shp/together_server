@@ -150,7 +150,12 @@ def check_title_similarity(new_title, recent_titles, *, context_provider=None):
             normalize_title(title),
         )
     )
-    shared_notice = lambda title: shared_program(title) or shared_exchange(title)
+    # 대학 전체 계절·도약수업 안내도 본문으로 대조한다. '수강신청'이라는
+    # 단어만으로 학과별 별도 공지라고 확정하던 경로는 공통 안내를 복제했다.
+    shared_registration = lambda title: bool(
+        re.search(r'(?:계절|도약).*개설강좌.*수강신청',normalize_title(title))
+    )
+    shared_notice = lambda title: shared_program(title) or shared_exchange(title) or shared_registration(title)
     # 학과별 모집은 모델이 동일 제목을 중복으로 판단하더라도 근거 없이 누락하지 않는다.
     if requires_department_evidence(new_title):
         context = context_provider(recent_titles[:3]) if context_provider else None

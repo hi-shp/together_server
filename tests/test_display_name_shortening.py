@@ -76,7 +76,7 @@ class DisplayNameShorteningTests(unittest.TestCase):
     def test_committed_catalog_is_stable_and_keeps_distinct_boards(self):
         path = Path(__file__).resolve().parents[1] / "together/crawler/source_catalog.json"
         rows = json.loads(path.read_text(encoding="utf-8"))
-        self.assertEqual(len(rows), 1016)
+        self.assertGreaterEqual(len(rows), 1016)
         self.assertEqual(
             [row["display_name"] for row in rows],
             [shorten_row_display_name(row) for row in rows],

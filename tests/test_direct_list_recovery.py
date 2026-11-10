@@ -20,8 +20,7 @@ class DirectListRecovery(unittest.TestCase):
                ('inslab.pusan.ac.kr/enslab/49684','inslab.pusan.ac.kr/bbs/enslab/11807'),
                ('srin.pusan.ac.kr/srin/39356','srin.pusan.ac.kr/bbs/srin/8371'),
                ('srin.pusan.ac.kr/srin/39358','srin.pusan.ac.kr/bbs/srin/8372'),
-               ('srin.pusan.ac.kr/srin/39361','srin.pusan.ac.kr/bbs/srin/10380'),
-               ('ibd.pusan.ac.kr/ibd/28668','ibd.pusan.ac.kr/bbs/ibd/6002')]
+               ('srin.pusan.ac.kr/srin/39361','srin.pusan.ac.kr/bbs/srin/10380')]
         for source,target in pairs:
             original='https://'+source+'/subview.do'
             page=AnnouncementPage('기존 구독명',original,'https://'+source.split('/')[0],59)

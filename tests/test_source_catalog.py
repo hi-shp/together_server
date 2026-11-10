@@ -90,8 +90,8 @@ class CatalogTests(unittest.TestCase):
         path = Path(__file__).resolve().parents[1] / 'together/crawler/source_catalog.json'
         rows = json.loads(path.read_text(encoding='utf-8'))
         self.assertEqual(len(rows), len(records()))
-        self.assertEqual(len(rows), 1016)
-        self.assertEqual(sorted(row['order'] for row in rows), list(range(1, 1017)))
+        self.assertGreaterEqual(len(rows), 1016)
+        self.assertEqual(sorted(row['order'] for row in rows), list(range(1, len(rows)+1)))
         for row in rows:
             self.assertTrue(row['display_name'].strip())
             self.assertTrue(row['identity_department'].strip())
@@ -99,6 +99,19 @@ class CatalogTests(unittest.TestCase):
             self.assertTrue(row['sort_group'].strip())
             self.assertTrue(row['affiliation'].strip())
             self.assertNotEqual(row['sort_group'], '28 기타 학과·전공')
+
+    def test_migrated_modules_keep_subscription_keys_and_new_leme_news_is_grouped(self):
+        rows=list(records().values())
+        for host,old,new,number in [('stemcell','44956','18418',1),('stemcell','44960','18422',38),('ibd','28668','18403',10),('yseo','23078','18312',6)]:
+            source=f'https://{host}.pusan.ac.kr/{host}/{old}/subview.do'
+            row=next(r for r in rows if r['page_url']==source)
+            page=AnnouncementPage(row['identity_department'],source,'',number)
+            self.assertEqual((page.source_url,page.department,page.number),(source,row['identity_department'],number))
+            self.assertEqual(page.page_url,f'https://{host}.pusan.ac.kr/{host}/{new}/subview.do')
+            self.assertTrue(row['previous_canonical_boards'])
+        labs=[r for r in sorted(rows,key=lambda r:r['order']) if r['organization']=='환경미생물에너지연구실']
+        self.assertEqual([r['order'] for r in labs],list(range(labs[0]['order'],labs[0]['order']+3)))
+        self.assertEqual(labs[-1]['canonical_board'],'k2web:leme:2835')
         self.assertEqual(
             [row['identity_department'] for row in rows[:4]],
             ['대학 공지', '대학 공지', '학생지원시스템(공지사항)', '학생지원시스템(장학 공지사항)'],

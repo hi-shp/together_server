@@ -166,6 +166,12 @@ def is_recent_title_duplicate(
     recent_titles.sort(reverse=True, key=lambda x: x[0])
     recent_entries = recent_titles[:1000]
     original_title = identity_title or new_title
+    if mode != 'legacy' and len(normalize_title(original_title)) >= 20 and identity(original_title)['years']:
+        # 학과 전달 제목이 많이 쌓여도 14일 안의 같은 유명 행사 제목을
+        # 1,000행 경계 때문에 후보에서 잃지 않는다. 실제 대표 확인은 유지한다.
+        exact=normalize_title(original_title)
+        recent_entries += [entry for entry in recent_titles[1000:]
+                           if normalize_title(entry[1])==exact][:3]
     if recovery_recheck:
         recent_entries = [(date, title) for date, title in recent_entries if normalize_title(title) != normalize_title(original_title)]
     if mode != "legacy":

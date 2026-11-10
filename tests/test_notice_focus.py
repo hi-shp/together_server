@@ -3,6 +3,19 @@ from together.notices.intelligence.focus import exchange_focus,focus_conflict,di
 
 
 class NoticeFocusTests(unittest.TestCase):
+    def test_different_explicit_university_employers_cannot_be_merged(self):
+        a='(재)부산대학교발전재단 사무원 서류전형 합격자 공고 및 면접전형 일정 안내'
+        b='부산대학교 학생성공개발원 국립대학육성사업 사무원 공개채용시험 서류전형 합격자 공고 및 면접전형 일정 안내'
+        self.assertEqual(focus_conflict(a,b),'hiring_employer_conflict')
+        self.assertEqual(focus_conflict(b,b.replace('학생성공개발원','인문사회연구원')),'hiring_employer_conflict')
+
+    def test_employer_aliases_and_unconfirmed_parent_do_not_force_a_conflict(self):
+        a='(재)부산대학교발전재단 사무원 채용'
+        self.assertIsNone(focus_conflict(a,'부산대 발전재단 사무원 공개채용'))
+        self.assertIsNone(focus_conflict(a,'부산대학교 사무원 채용'))
+        self.assertIsNone(focus_conflict('부산대학교 학생성공개발원 삼성전자 채용설명회',
+                                       '부산대학교 산학협력단 삼성전자 채용설명회'))
+
     def test_aliases_share_family_but_other_school_is_distinct(self):
         first='2026학년도 겨울계절수업 교류 수학 안내(서울시립대학교)'
         second='[학사과] 서울시립대 2026 동계 학점교류 안내'

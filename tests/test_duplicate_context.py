@@ -174,6 +174,32 @@ class ContextTests(unittest.TestCase):
         self.assertEqual(check("신규 행사", ["가", "나", "다"]), "중복 아님")
         self.assertEqual(decision.call_count, 3)
 
+    def test_different_explicit_hiring_employer_is_rejected_before_model_suppression(self):
+        check,decision=self.protected_checker()
+        first='(재)부산대학교발전재단 사무원 서류전형 합격자 공고 및 면접전형 일정 안내'
+        other='부산대학교 학생성공개발원 국립대학육성사업 사무원 공개채용시험 서류전형 합격자 공고 및 면접전형 일정 안내'
+        decision.return_value={'relation':'same_event','matched_index':0,'reason':'잘못된 동일 판단'}
+        self.assertEqual(check(first,[other]),'중복 아님')
+        decision.assert_not_called()
+
+    def test_common_course_registration_compares_bodies_but_preserves_department_conditions(self):
+        check,decision=self.protected_checker()
+        title='2026학년도 겨울 계절·도약수업 개설강좌 확정 및 수강신청(대기순번제) 안내'
+        body='부산대학교 겨울계절수업 공통 개설강좌 확정, 11월 13일부터 17일까지 수강신청. '*5
+        context={'new_notice':{'department':'나노에너지공학과','body_excerpt':body},'recent_notices':[{'title':title,'department':'나노메카트로닉스공학과','body_excerpt':body}]}
+        decision.return_value={'relation':'same_event','matched_index':0,'reason':'대학 공통 일정과 신청 조건 일치'}
+        self.assertEqual(check(title,[title],context_provider=lambda _:context),'중복')
+        decision.assert_called_once();decision.reset_mock()
+        context['new_notice']['body_excerpt']='나노에너지공학과 학생은 3학년만 이수 인정하며 별도로 신청서를 제출합니다. '+body
+        self.assertEqual(check(title,[title],context_provider=lambda _:context),'중복 아님')
+        decision.assert_not_called()
+
+    def test_common_course_registration_with_missing_body_keeps_first_notice(self):
+        check,decision=self.protected_checker()
+        title='2026학년도 겨울 계절·도약수업 개설강좌 확정 및 수강신청 안내'
+        self.assertEqual(check(title,[title]),'중복 아님')
+        decision.assert_not_called()
+
     def test_later_candidate_failure_is_not_reported_as_a_complete_review(self):
         check, decision = self.protected_checker()
         decision.side_effect = [{"relation": "different_event", "matched_index": -1}, RuntimeError("API unavailable")]

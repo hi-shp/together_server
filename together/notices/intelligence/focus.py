@@ -69,7 +69,23 @@ def exchange_focus(title, body=''):
             'occurrence_key':['exchange_study',schools,years,terms,programs]}
 
 
+def _pnu_hiring_employer(title):
+    """채용 공고에 명시된 부산대 소속 기관만 추출한다. 전달 학과는 쓰지 않는다."""
+    value=normalize_title(title)
+    if not re.search(r'채용|서류전형.*합격자',value) or re.search(r'설명회|박람회|특강|교육생',value):
+        return None
+    value=re.sub(r'부산대(?!학교)', '부산대학교',value)
+    prefix=re.split(r'서류전형|공개\s*채용|공개경쟁|채용',value,maxsplit=1)[0]
+    match=re.search(r'부산대학교\s*([가-힣A-Za-z·\s]{2,45}?(?:재단|개발원|협력단|연구원|교육원|센터|사업단|학과|학부|대학원|도서관|박물관|본부))',prefix)
+    if not match:return None
+    employer=re.sub(r'\s+','',match[1])
+    return None if employer=='연구원' else employer
+
+
 def focus_conflict(left_title, right_title, left_body='', right_body=''):
+    employers=[_pnu_hiring_employer(t) for t in (left_title,right_title)]
+    if all(employers) and employers[0]!=employers[1]:
+        return 'hiring_employer_conflict'
     first, second = exchange_focus(left_title,left_body), exchange_focus(right_title,right_body)
     if not first or not second:
         return None
