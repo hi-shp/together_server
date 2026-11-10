@@ -166,12 +166,14 @@ def is_recent_title_duplicate(
     recent_titles.sort(reverse=True, key=lambda x: x[0])
     recent_entries = recent_titles[:1000]
     original_title = identity_title or new_title
+    extended_exact = set()
     if mode != 'legacy' and len(normalize_title(original_title)) >= 20 and identity(original_title)['years']:
         # 학과 전달 제목이 많이 쌓여도 14일 안의 같은 유명 행사 제목을
         # 1,000행 경계 때문에 후보에서 잃지 않는다. 실제 대표 확인은 유지한다.
         exact=normalize_title(original_title)
-        recent_entries += [entry for entry in recent_titles[1000:]
-                           if normalize_title(entry[1])==exact][:3]
+        extended_exact = set(entry for entry in recent_titles[1000:]
+                             if normalize_title(entry[1])==exact)
+        recent_entries += sorted(extended_exact,reverse=True)[:3]
     if recovery_recheck:
         recent_entries = [(date, title) for date, title in recent_entries if normalize_title(title) != normalize_title(original_title)]
     if mode != "legacy":
@@ -274,6 +276,10 @@ def is_recent_title_duplicate(
     candidate_labels = [title for _, title in candidates]
     current = Notice(original_title, datetime.now().isoformat())
     for date, title in candidates:
+        if (date,title) in extended_exact:
+            # 뒤늦은 재안내는 일정·조건이 바뀌었을 수 있다. 확장 후보는
+            # 제목만으로 확정하지 않고 아래의 본문 문맥 대조를 거친다.
+            continue
         result = compare_notices(current, Notice(title, date.isoformat()))
         if result["relation"] == "same_event" and not requires_department_evidence(original_title):
             duplicate_match.set({'title':title,'observed_at':date.isoformat()})

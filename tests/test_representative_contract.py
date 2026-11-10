@@ -39,17 +39,21 @@ class RepresentativeContractTests(unittest.TestCase):
     def test_exact_title_outside_dispatch_window_does_not_suppress_a_first_notice(self):
         self.assertEqual(self.crowded_history(15,'hybrid'),'중복 아님')
 
+    def test_extended_exact_title_requires_context_decision_before_suppression(self):
+        self.assertEqual(self.crowded_history(13,'hybrid',api_same=False),'중복 아님')
+
     def test_legacy_thousand_row_candidate_boundary_is_unchanged(self):
         self.assertEqual(self.crowded_history(9,'legacy'),'중복 아님')
 
-    def crowded_history(self,days,mode):
+    def crowded_history(self,days,mode,api_same=True):
         title='[위스콘신대학교] University of Wisconsin-Stout 2027 Winter 글로벌 리더십 프로그램 안내'
         with tempfile.TemporaryDirectory() as root:
             p=Path(root)/'titles.txt';now=datetime.now()
             rows=[f'{now-timedelta(days=days):%Y-%m-%d %H:%M:%S}${title}\n']
             rows += [f'{now:%Y-%m-%d %H:%M:%S}$2026년 일반 학사 안내 {i}\n' for i in range(1001)]
             p.write_text(''.join(rows),encoding='utf8')
-            with patch.dict(os.environ,{'NOTICE_DUPLICATE_MODE':mode}),patch.object(history,'event'),patch.object(history,'check_title_similarity',return_value='중복 아님'):
+            decide=lambda _,titles,**kw: '중복' if api_same and title in titles else '중복 아님'
+            with patch.dict(os.environ,{'NOTICE_DUPLICATE_MODE':mode}),patch.object(history,'event'),patch.object(history,'check_title_similarity',side_effect=decide):
                 return history.is_recent_title_duplicate(title,str(p),representative_check=lambda _: {'status':'verified'})
 
     def test_a_history_alias_does_not_become_a_duplicate_new_post(self):
