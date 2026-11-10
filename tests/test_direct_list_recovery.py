@@ -14,6 +14,28 @@ NORMAL = '<form action="/bbs/gtu/15982/artclList.do"><table><th class="_artclThN
 
 
 class DirectListRecovery(unittest.TestCase):
+    def test_verified_direct_overrides_keep_the_original_csv_identity_and_cursor(self):
+        from together.crawler.pages import AnnouncementPage
+        pairs=[('inslab.pusan.ac.kr/enslab/26819','inslab.pusan.ac.kr/bbs/enslab/5512'),
+               ('inslab.pusan.ac.kr/enslab/49684','inslab.pusan.ac.kr/bbs/enslab/11807'),
+               ('srin.pusan.ac.kr/srin/39356','srin.pusan.ac.kr/bbs/srin/8371'),
+               ('srin.pusan.ac.kr/srin/39358','srin.pusan.ac.kr/bbs/srin/8372'),
+               ('srin.pusan.ac.kr/srin/39361','srin.pusan.ac.kr/bbs/srin/10380'),
+               ('ibd.pusan.ac.kr/ibd/28668','ibd.pusan.ac.kr/bbs/ibd/6002')]
+        for source,target in pairs:
+            original='https://'+source+'/subview.do'
+            page=AnnouncementPage('기존 구독명',original,'https://'+source.split('/')[0],59)
+            self.assertEqual((page.source_url,page.department,page.number),(original,'기존 구독명',59))
+            self.assertEqual(page.page_url,'https://'+target+'/artclList.do')
+
+    def test_explicit_disabled_direct_module_is_separate_from_network_defer(self):
+        source='https://srin.pusan.ac.kr/bbs/srin/8371/artclList.do'
+        page=types.SimpleNamespace(page_url=source,department='기존 구독명',number=59)
+        response=Mock(text='<html><body>사용중지된 싱글 모듈입니다.</body></html>',url=source,status_code=200)
+        with patch.object(crawler,'http_get',return_value=response),patch.object(crawler,'record_board_result') as state,patch.object(crawler,'record_board_deferred') as deferred,patch.object(crawler,'event'):
+            self.assertEqual(crawler.get_anns_url(page,1),([],59))
+        state.assert_called_once_with(None);deferred.assert_not_called()
+
     def test_transient_http_failure_is_deferred_but_permanent_http_failure_is_not_hidden(self):
         page = types.SimpleNamespace(page_url=SOURCE, department='GTU', number=18)
         for status in (408, 429, 500, 502, 503, 504):

@@ -88,6 +88,33 @@ class DuplicateRepresentativeTests(unittest.TestCase):
         self.assertEqual(result['status'],'pending')
         self.assertEqual(result['post_or_send_requests'],0)
 
+    def test_same_title_unbound_department_is_rechecked_using_verified_primary(self):
+        primary=SOURCE.replace('123','111')
+        html='<div class="ubboard_view"><div class="subject"><h3>'+TITLE+'</h3></div><a href="'+primary+'">본문</a></div>'
+        record={'article_url':ARTICLE,'sources':[primary],'notice':{'title':TITLE,'source_url':primary,'body_text':'대상 학교와 학기'}}
+        client=types.SimpleNamespace(get=lambda *a,**k:Response(html),board_url=lambda _:BOARD)
+        with tempfile.TemporaryDirectory() as root,patch('together.notices.intelligence.representative.PublishedNoticeStore') as store:
+            store.return_value.load.return_value=[record]
+            result=verify_representative(types.SimpleNamespace(_http=client),
+                {'title':TITLE,'source_url':SOURCE,'current_source_url':SOURCE},root,['기타 공지사항'],current_notice={'title':TITLE})
+            self.assertEqual(result['status'],'recheck')
+            self.assertEqual(result['_actual_candidates'][0]['source_url'],primary)
+            # Only the follow-up decision against the actual primary can suppress.
+            followup=verify_representative(types.SimpleNamespace(_http=client),
+                {'title':TITLE,'source_url':primary,'current_source_url':SOURCE},root,['기타 공지사항'],current_notice={'title':TITLE})
+            self.assertEqual(followup['status'],'verified')
+            self.assertEqual(result['post_or_send_requests'],0)
+
+    def test_unbound_department_cannot_borrow_a_manually_changed_primary_link(self):
+        primary=SOURCE.replace('123','111')
+        record={'article_url':ARTICLE,'sources':[primary],'notice':{'title':TITLE,'source_url':primary}}
+        client=types.SimpleNamespace(get=lambda *a,**k:Response('<div class="ubboard_view"><div class="subject"><h3>'+TITLE+'</h3></div></div>'),board_url=lambda _:BOARD)
+        with tempfile.TemporaryDirectory() as root,patch('together.notices.intelligence.representative.PublishedNoticeStore') as store:
+            store.return_value.load.return_value=[record]
+            result=verify_representative(types.SimpleNamespace(_http=client),
+                {'title':TITLE,'source_url':SOURCE,'current_source_url':SOURCE},root,['기타 공지사항'],current_notice={'title':TITLE})
+            self.assertEqual(result['status'],'pending')
+
     def test_search_uses_a_literal_word_not_school_stripped_parentheses(self):
         from urllib.parse import urlsplit,parse_qs
         calls=[]

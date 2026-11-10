@@ -32,6 +32,17 @@ class Response:
 
 
 class AttachmentNameTests(unittest.TestCase):
+    def test_plato_stripped_apostrophes_use_the_same_download_and_upload_name(self):
+        with tempfile.TemporaryDirectory() as temp:
+            first=self.fetch(temp,"'과수 육종기술' 과정 교육생 추가모집.pdf")
+            second=self.fetch(temp,"과수 육종기술 과정 교육생 추가모집.pdf")
+            self.assertEqual(first['filename'],'과수 육종기술 과정 교육생 추가모집.pdf')
+            self.assertEqual(first['path'],second['path'])
+            # Different bytes with the now-equal display name remain separate.
+            changed=self.fetch(temp,"'과수 육종기술' 과정 교육생 추가모집.pdf",Response(body=b'changed'))
+            self.assertNotEqual(first['path'],changed['path'])
+            self.assertEqual(Path(first['path']).read_bytes(),b'document')
+
     def test_image_filename_is_skipped_without_request(self):
         with tempfile.TemporaryDirectory() as temp, patch("together.crawler.files.public_http.get") as get:
             for name in ("안내.JPG", "포스터.webp", "포스터.avif", "그림.svg", "사진.HEIC"):

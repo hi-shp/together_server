@@ -29,6 +29,9 @@ def sanitize_filename(value):
     value = "".join(
         c for c in value if unicodedata.category(c) not in ("Cc", "Cf", "Cs")
     )
+    # PLATO 파일 선택기는 ASCII 작은따옴표를 제거한다. 로컬 이름도 먼저
+    # 맞춰야 업로드 완료 확인과 게시 후 이름/해시 검증이 같은 파일을 가리킨다.
+    value = value.replace("'", "")
     value = re.sub(r"\s*\([\d.,]+\s*(?:[KMGT]?i?B|바이트)\)\s*$", "", value, flags=re.I)
     value = re.sub(r'[\\/:*?"<>|]', "_", value).strip(" .")
     if not value or GENERIC.fullmatch(value):

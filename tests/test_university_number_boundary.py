@@ -1,4 +1,5 @@
 import contextlib, io, os, tempfile, types, unittest, json
+from datetime import datetime
 from pathlib import Path
 from unittest.mock import patch
 from together.crawler import announcements as crawler
@@ -60,7 +61,7 @@ class UniversityNumberBoundary(unittest.TestCase):
                 )
             )
             anchor = '<tr><td class="num">210</td><td class="subject"><a href="?board_seq=700">최신 일반 기준</a></td></tr>'
-            (root / "titles.txt").write_text("2026-10-28 08:00:00$같은 행사\n", encoding="utf-8")
+            (root / "titles.txt").write_text(f"{datetime.now():%Y-%m-%d %H:%M:%S}$같은 행사\n", encoding="utf-8")
             pinned, _ = self.collect(root, row('<img alt="공지">') + anchor, page=1)
             ordinary, _ = self.collect(root, row("211"), number=211, page=2)
             self.assertEqual(pinned, [])

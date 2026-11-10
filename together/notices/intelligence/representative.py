@@ -126,6 +126,24 @@ def verify_representative(service,evidence,base_dir,boards,*,current_notice=None
         bound=[r for r in matches if source and source in r.get('sources',[])]
         if len({r['article_url'] for r in bound})>1:
             raise RepresentativeUnconfirmed('Conflicting representative source bindings')
+        if matches and source and not bound and current_notice:
+            # 같은 제목의 다른 학과 원문은 아직 등록된 별칭이 아니다.
+            # 그 주소가 대표 본문에 없다는 이유로 영구 보류하지 않고,
+            # 실제 대표의 원문 연결을 확인해 그 문맥으로 다시 판단한다.
+            actual=[]
+            for record in matches:
+                primary=record['notice'].get('source_url','')
+                if primary and _article(client,record['article_url'],title,primary,indexed=True):
+                    actual.append(record)
+            if actual:
+                result.update(status='recheck',reason='unbound_department_source_requires_actual_representative_context',
+                              _actual_candidates=[{'title':r['notice']['title'],'source_url':r['notice']['source_url'],
+                                                   'department':r['notice'].get('department',''),
+                                                   'body_excerpt':r['notice'].get('body_text',''),
+                                                   'publication_time':r['notice'].get('publication_time',''),
+                                                   'publication_time_is_explicit':bool(r['notice'].get('publication_time'))}
+                                                  for r in actual])
+                return result
         checked=set()
         for record in bound or matches:
             url=record['article_url'];checked.add(url)

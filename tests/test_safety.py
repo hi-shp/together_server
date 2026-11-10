@@ -189,6 +189,7 @@ class CrawlerSafety(unittest.TestCase):
 class BrowserSafety(unittest.TestCase):
     def test_constructor_failure_cleans_up(self):
         with (
+            patch.dict(os.environ, {"PLATO_HTTP_MODE": "disabled"}),
             patch.object(
                 selenium_service.WriteNoticeService,
                 "init_driver",
