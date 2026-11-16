@@ -27,7 +27,7 @@ import requests
 import csv
 from functools import lru_cache
 from datetime import datetime
-from together.crawler.university import NoticeUpdater
+from together.crawler.university import NoticeUpdater, UniversityResponseDeferred
 from together.notices.intelligence.publication import known_receipt, remember_receipt
 from together.notices.intelligence.representative import verify_representative, RepresentativeUnconfirmed
 from together.notices.intelligence.routing import category_hint, configured_classifier
@@ -50,7 +50,7 @@ from together.notices.intelligence.quality import (
 )
 from together.storage.attachments import archive_files
 from together.storage.pending_notices import PendingNotices
-from together.operations.state import update_state, board_summary
+from together.operations.state import update_state, board_summary, record_board_deferred
 from together.operations.events import event, start_cycle, set_notice, clear_notice
 
 from together.notices.intelligence.policy import (
@@ -195,6 +195,15 @@ def prepare_cycle():
     return today_date, updater, page_url_manager
 
 
+def prepare_university(updater):
+    try:
+        updater.update_university_notices()
+        return True
+    except UniversityResponseDeferred:
+        event('시작', '대학 공지 응답 없음 · 기준 기록을 확정하지 않고 다음 순회 재확인', outcome='response_deferred')
+        return False
+
+
 def run_cycle(writenoticeService, prepared=None):
     today_date, updater, page_url_manager = prepared or prepare_cycle()
     updates = {}
@@ -221,10 +230,10 @@ def run_cycle(writenoticeService, prepared=None):
     notify(message)
 
     started = time.monotonic()
-    updater.update_university_notices()
+    university_ready = prepare_university(updater)
     event(
         "시작",
-        "대학 공지 기준 확인 완료",
+        "대학 공지 기준 확인 완료" if university_ready else "대학 공지 기준 확인 보류",
         elapsed_seconds=round(time.monotonic() - started, 3),
     )
     page_url_manager = PageUrlManager()
@@ -237,6 +246,11 @@ def run_cycle(writenoticeService, prepared=None):
     prefetch = OrderedBoardPrefetch(page_url_manager.announcement_pages)
     for announcement_page in page_url_manager.announcement_pages:
         pending_board = announcement_page.source_url
+        if not university_ready and pending_board in updater.urls:
+            record_board_deferred()
+            event('수집', f'{n}. {announcement_page.department} {announcement_page.number} | 응답 없음 · 다음 사이클 재확인: {pending_board}', plain=True, outcome='response_deferred', source_url=pending_board)
+            n += 1
+            continue
         unfinished = pending_notices.for_board(pending_board)
         announcement_page.on_discovered = lambda url, board=pending_board, department=announcement_page.department: pending_notices.add(board, url, department)
         if previous_board_had_notices:

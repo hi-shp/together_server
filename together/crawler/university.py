@@ -1,18 +1,56 @@
 import requests
 from bs4 import BeautifulSoup
 import csv
+import time
 from urllib.parse import urljoin
 from together.config import HTTP_TIMEOUT
+
+
+class UniversityResponseDeferred(requests.ConnectionError):
+    """The university response window expired; processing remains unconfirmed."""
 
 
 class NoticeUpdater:
     def __init__(self, yesterday_file="yesterday.txt", csv_file="pages.csv"):
         self.yesterday_file = yesterday_file
         self.csv_file = csv_file
+        self._response_deadline = None
         self.urls = [
             "https://www.pusan.ac.kr/kor/CMS/Board/PopupBoard.do?robot=Y&mgr_seq=3&mode=list&page=1",
             "https://www.pusan.ac.kr/kor/CMS/Board/PopupBoard.do?robot=Y&mgr_seq=3&mode=list&page=2",
         ]
+
+    def _get(self, url):
+        deadline = self._response_deadline or time.monotonic() + 60
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0.1:
+                raise UniversityResponseDeferred('University response window expired')
+            connect = min(HTTP_TIMEOUT[0], remaining / 3)
+            read = min(HTTP_TIMEOUT[1], remaining - connect)
+            try:
+                response = requests.get(url, timeout=(connect, read))
+                if getattr(response, 'status_code', 200) in (408, 429, 500, 502, 503, 504):
+                    delay = 2.0
+                    if getattr(response, 'status_code', 200) == 429:
+                        try:
+                            delay = max(delay, float(response.headers.get('Retry-After', 2)))
+                        except (TypeError, ValueError):
+                            pass
+                    response.close()
+                    if delay >= deadline - time.monotonic():
+                        raise UniversityResponseDeferred('University retry window exhausted')
+                    time.sleep(delay)
+                    continue
+                response.raise_for_status()
+                return response
+            except UniversityResponseDeferred:
+                raise
+            except (requests.Timeout, requests.ConnectionError):
+                remaining = deadline - time.monotonic()
+                if remaining <= 2:
+                    raise UniversityResponseDeferred('University connection deferred')
+                time.sleep(2)
 
     def get_last_notice_title(self):
         """마지막으로 확인한 대학 공지 제목을 읽는다."""
@@ -22,7 +60,7 @@ class NoticeUpdater:
     def fetch_notice_number(self, last_title):
         """저장된 제목과 일치하는 대학 공지 번호를 찾는다."""
         for url in self.urls:
-            response = requests.get(url, timeout=HTTP_TIMEOUT)
+            response = self._get(url)
             response.raise_for_status()
             soup = BeautifulSoup(response.text, "html.parser")
 
@@ -77,7 +115,7 @@ class NoticeUpdater:
 
     def fetch_highest_notice_title(self):
         """대학 공지 목록에서 최신 제목을 찾는다."""
-        response = requests.get(self.urls[0], timeout=HTTP_TIMEOUT)
+        response = self._get(self.urls[0])
         response.raise_for_status()
         soup = BeautifulSoup(response.text, "html.parser")
 
@@ -118,7 +156,7 @@ class NoticeUpdater:
         base_url = "https://www.pusan.ac.kr/kor/CMS/Board/PopupBoard.do"
         full_url = urljoin(base_url, relative_url)
 
-        response = requests.get(full_url, timeout=HTTP_TIMEOUT)
+        response = self._get(full_url)
         response.raise_for_status()
         soup = BeautifulSoup(response.text, "html.parser")
 
@@ -130,6 +168,7 @@ class NoticeUpdater:
 
     def update_university_notices(self):
         """대학 공지 번호와 마지막 확인 제목을 갱신한다."""
+        self._response_deadline = time.monotonic() + 60
         last_title = self.get_last_notice_title()
         new_number = self.fetch_notice_number(last_title)
         self.update_csv(new_number)
