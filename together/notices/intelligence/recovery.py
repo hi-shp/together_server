@@ -74,7 +74,9 @@ def _delete_once(client, board, article, subject, checkpoint):
 
 
 def _same_material(a, b):
-    return a['subject'] == b['subject'] and a['body_html'] == b['body_html'] and a['notice'] == b['notice'] and {v['name']: v['sha256'] for v in a['files']} == {v['name']: v['sha256'] for v in b['files']}
+    # 고정 기능이 없는 게시판(None)과 고정하지 않은 글(False)은 같은 상태다.
+    # 실제 고정 글(True)은 여전히 별도로 보호한다.
+    return a['subject'] == b['subject'] and a['body_html'] == b['body_html'] and bool(a['notice']) == bool(b['notice']) and {v['name']: v['sha256'] for v in a['files']} == {v['name']: v['sha256'] for v in b['files']}
 
 
 def move_category(service, base_dir, source, category, key):
