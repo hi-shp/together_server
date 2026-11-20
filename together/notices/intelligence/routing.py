@@ -229,7 +229,11 @@ def verified_activity_category(title, body):
     t = re.sub(r'\s+', '', str(title))
     b = re.sub(r'\s+', '', str(body or ''))
     category, reason = None, None
-    if re.search(r'학술지|논문지|논총', t) and re.search(r'논문투고|투고논문|원고모집', b) and not re.search(r'논문경진|논문공모전|우수논문상|시상|상금', t+b):
+    if re.search(r'PASS상담', t, re.I) and re.search(r'미상담|미신청', b) and '성적열람불가' in b:
+        category, reason = '해당없음', '성적 열람 요건으로 지정된 기존 학생의 필수 교수 상담'
+    elif re.search(r'마이크로디그리.*취득.*안내', t) and re.search(r'이수교과목|취득자에한해|이수학점', b) and not re.search(r'모집|참가신청|설명회|특강', t):
+        category, reason = '해당없음', '새 프로그램 참여 모집이 아닌 학위 이수·취득 요건 안내'
+    elif re.search(r'학술지|논문지|논총', t) and re.search(r'논문투고|투고논문|원고모집', b) and not re.search(r'논문경진|논문공모전|우수논문상|시상|상금', t+b):
         category, reason = '해당없음', '학술지 게재용 논문 투고이며 경쟁 공모전이 아님'
     elif re.search(r'학생심사단.*모집', t) and re.search(r'우수작선정|심사대상|심사기준', b):
         category, reason = '서포터즈', '작품 응모·봉사가 아닌 학생 심사단 참여 역할 모집'

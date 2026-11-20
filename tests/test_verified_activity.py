@@ -3,8 +3,15 @@ from together.notices.intelligence.routing import verified_activity_category
 
 
 class VerifiedActivityTests(unittest.TestCase):
+    def test_language_exam_prize_does_not_bypass_duplicate_review(self):
+        from together.notices.intelligence.policy import scholarship_duplicate_allowed
+        self.assertFalse(scholarship_duplicate_allowed('2026 하반기 모의 시험(토익, 토플) 경시대회 안내(장학금)'))
+        self.assertTrue(scholarship_duplicate_allowed('2027년 1학기 국가장학금 신청 안내'))
+        self.assertTrue(scholarship_duplicate_allowed('장학생 추천 및 학과별 신청 안내'))
     def test_actual_activity_overrides_topic_words(self):
         cases = [
+            ('교수님 PASS 상담 안내', '미신청 또는 미상담시 성적열람 불가', '해당없음'),
+            ('마이크로디그리 취득 안내', '해당 학기 취득자에 한해 적용하는 이수교과목', '해당없음'),
             ('학술지 미래기술문화융합논문지 발간 사업', '논문 투고 후 심사 게재. 편당 연구비 지급', '해당없음'),
             ('커리어로드맵 공모전 학생심사단 모집', '우수작 선정, 심사기준과 심사대상 안내', '서포터즈'),
             ('계약직원 최종 합격자 공고', '공개채용 최종 합격자 공고', '해당없음'),
@@ -18,6 +25,8 @@ class VerifiedActivityTests(unittest.TestCase):
 
     def test_different_activities_are_not_forced(self):
         cases = [
+            ('마이크로디그리 프로그램 설명회 참가 신청', '이수교과목 및 이수학점을 설명합니다'),
+            ('취업 PASS 상담 프로그램 모집', '참여를 희망하는 학생 누구나 신청'),
             ('학술지 우수논문상 공모전', '논문투고, 상금과 시상'),
             ('직원 합격자 공고 및 추가채용', '합격자 안내 및 추가 지원자 모집'),
             ('배드민턴대회 결과 안내', '참가대상 및 신청기한이 있었으며 수상 결과 안내'),

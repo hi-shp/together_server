@@ -170,4 +170,7 @@ def policy_config(path=None):
 def scholarship_duplicate_allowed(title, department=""):
     """Keep scholarship opportunities separate for each source department."""
     import re
+    # 어학 모의시험의 성적우수 장학 혜택은 학과별 장학생 모집이 아니다.
+    if re.search(r'모의\s*시험.*경시\s*대회', title or ''):
+        return False
     return bool(re.search(r"장학(?!재단)|드림리더", title or "") or "장학" in (department or ""))
