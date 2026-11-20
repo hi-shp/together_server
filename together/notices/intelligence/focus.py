@@ -83,6 +83,16 @@ def _pnu_hiring_employer(title):
 
 
 def focus_conflict(left_title, right_title, left_body='', right_body=''):
+    # 학위청구 대체강좌는 대학 공통 모집이지만 언어별로 대상·강의가 다르다.
+    def course_language(title):
+        value = normalize_title(title)
+        if not re.search(r'외국어\s*시험.*대체\s*강좌', value):
+            return None
+        languages = {v for v in ('영어', '한국어', '중국어', '일본어') if v in value}
+        return next(iter(languages)) if len(languages) == 1 else None
+    languages = [course_language(v) for v in (left_title, right_title)]
+    if all(languages) and languages[0] != languages[1]:
+        return 'substitute_course_language_conflict'
     employers=[_pnu_hiring_employer(t) for t in (left_title,right_title)]
     if all(employers) and employers[0]!=employers[1]:
         return 'hiring_employer_conflict'

@@ -155,7 +155,13 @@ def check_title_similarity(new_title, recent_titles, *, context_provider=None):
     shared_registration = lambda title: bool(
         re.search(r'(?:계절|도약).*개설강좌.*수강신청',normalize_title(title))
     )
-    shared_notice = lambda title: shared_program(title) or shared_exchange(title) or shared_registration(title)
+    shared_language_course = lambda title: bool(
+        re.search(r'외국어\s*시험.*대체\s*강좌', normalize_title(title))
+    )
+    shared_notice = lambda title: (
+        shared_program(title) or shared_exchange(title) or shared_registration(title)
+        or shared_language_course(title)
+    )
     # 학과별 모집은 모델이 동일 제목을 중복으로 판단하더라도 근거 없이 누락하지 않는다.
     if requires_department_evidence(new_title):
         context = context_provider(recent_titles[:3]) if context_provider else None

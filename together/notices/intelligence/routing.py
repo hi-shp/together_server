@@ -68,6 +68,9 @@ def category_hint(
     title, keyword_categories, classifier=None, allow_provisional=False, *, body=""
 ):
     title = str(title)
+    confirmed = verified_activity_category(title, body)
+    if confirmed:
+        return confirmed
     if re.search(r"지도교수\s*(?:상담사업|선정\s*일정)|학위논문\s*발표회", title) and not re.search(r"특강|워크숍|워크샵|작성법", title):
         return {"category": "해당없음", "method": "administrative_intent", "reason": "지도교수 배정·상담 또는 학위심사 안내"}
     if re.search(r"특강.*자료집.*(?:파일\s*)?공유", title):
@@ -219,3 +222,23 @@ def category_hint(
         "prediction": prediction,
         "reason": "로컬 근거가 부족하거나 활동 형식이 충돌함",
     }
+
+
+def verified_activity_category(title, body):
+    """본문으로 확인한 활동 형식만 강제한다. 단어 하나로 결과를 뒤집지 않는다."""
+    t = re.sub(r'\s+', '', str(title))
+    b = re.sub(r'\s+', '', str(body or ''))
+    category, reason = None, None
+    if re.search(r'학술지|논문지|논총', t) and re.search(r'논문투고|투고논문|원고모집', b) and not re.search(r'논문경진|논문공모전|우수논문상|시상|상금', t+b):
+        category, reason = '해당없음', '학술지 게재용 논문 투고이며 경쟁 공모전이 아님'
+    elif re.search(r'학생심사단.*모집', t) and re.search(r'우수작선정|심사대상|심사기준', b):
+        category, reason = '서포터즈', '작품 응모·봉사가 아닌 학생 심사단 참여 역할 모집'
+    elif re.search(r'합격자.*공고|합격자.*발표', t) and re.search(r'합격자|면접전형', b) and not re.search(r'추가모집|추가채용|재모집|지원자모집', t):
+        category, reason = '해당없음', '새 채용 지원 모집이 아닌 전형 합격 결과·후속 일정 공고'
+    elif re.search(r'고사장|수험생안내|선발.*전형진행안내', t) and re.search(r'수험표|입실|합격자|수험생', b) and not re.search(r'모집|접수안내|신규신청', t):
+        category, reason = '해당없음', '이미 신청한 응시자의 고사장·전형 진행 안내'
+    elif re.search(r'배드민턴|테니스|탁구|골든벨', t) and re.search(r'참가대상|신청기한|참가신청', b) and not re.search(r'결과|수상|후기', t):
+        category, reason = '교육/특강/프로그램', '학생이 신청해 참여하는 체육·퀴즈 행사'
+    if category:
+        return {'category': category, 'method': 'verified_activity_intent', 'reason': reason}
+    return None

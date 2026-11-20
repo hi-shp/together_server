@@ -200,6 +200,28 @@ class ContextTests(unittest.TestCase):
         self.assertEqual(check(title,[title]),'중복 아님')
         decision.assert_not_called()
 
+    def test_common_language_course_is_reviewed_across_departments(self):
+        check, decision = self.protected_checker()
+        title = '2026학년도 겨울학기 대학원 학위청구 외국어시험(영어) 대체강좌 수강생 모집'
+        body = '언어교육원 대학원 전체 공통 강좌, 12월 1일부터 11일까지 홈페이지 신청. ' * 5
+        context = {'new_notice': {'department': '화학교육과', 'body_excerpt': body},
+                   'recent_notices': [{'title': title, 'department': '수학과', 'body_excerpt': body}]}
+        decision.return_value = {'relation': 'same_event', 'matched_index': 0, 'reason': '같은 영어 과정·접수·대상·일정'}
+        self.assertEqual(check(title, [title], context_provider=lambda _: context), '중복')
+        decision.assert_called_once()
+        decision.reset_mock()
+        context['new_notice']['body_excerpt'] = '화학교육과 학생은 학과에 신청서 제출, 3학년만 이수 인정. ' + body
+        self.assertEqual(check(title, [title], context_provider=lambda _: context), '중복 아님')
+        decision.assert_not_called()
+
+    def test_language_courses_keep_missing_body_and_different_language_or_term(self):
+        check, decision = self.protected_checker()
+        title = '2026학년도 겨울학기 대학원 학위청구 외국어시험(영어) 대체강좌 수강생 모집'
+        decision.return_value = {'relation': 'same_event', 'matched_index': 0, 'reason': '잘못된 일치'}
+        for candidate in (title, title.replace('영어', '한국어'), title.replace('겨울', '여름')):
+            self.assertEqual(check(title, [candidate]), '중복 아님')
+        decision.assert_not_called()
+
     def test_later_candidate_failure_is_not_reported_as_a_complete_review(self):
         check, decision = self.protected_checker()
         decision.side_effect = [{"relation": "different_event", "matched_index": -1}, RuntimeError("API unavailable")]

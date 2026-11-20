@@ -16,7 +16,7 @@ def department_conditions_differ(context):
         department = re.sub(r"\([^)]*\)", "", notice.get("department", ""))
         department = re.sub(r"\s+", "", department)
         conditions = set()
-        if len(department) >= 3 and re.search(r"학과|학부|전공", department):
+        if len(department) >= 3 and re.search(r"학과|학부|전공|교육과", department):
             for match in re.finditer(re.escape(department) + r".{0,100}", body):
                 if re.search(r"학점|제출|지원자격|참여대상|학년|이수|인정|불가", match[0]):
                     conditions.add(match[0])
