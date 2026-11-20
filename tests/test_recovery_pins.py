@@ -1,9 +1,15 @@
 import copy
 import unittest
-from together.notices.intelligence.recovery import _same_material
+from together.notices.intelligence.recovery import _same_material, _has_source
 
 
 class RecoveryPinTests(unittest.TestCase):
+    def test_source_query_is_decoded_and_different_article_is_rejected(self):
+        source='https://school.invalid/view?mgr_seq=10&board_seq=1234'
+        self.assertTrue(_has_source('<p>본문 링크 : <a href="https://school.invalid/view?mgr_seq=10&amp;board_seq=1234">원문</a></p>',source))
+        self.assertTrue(_has_source('<p>'+source+'</p>',source))
+        self.assertFalse(_has_source('<a href="'+source+'5">다른 글</a>',source))
+        self.assertFalse(_has_source('<p>https://school.invalid/other</p>',source))
     def snapshot(self, notice):
         return {'subject':'학술지 논문 모집','body_html':'<p>같은 원문</p>','notice':notice,'files':[{'name':'안내.hwp','sha256':'verified-bytes'}]}
 

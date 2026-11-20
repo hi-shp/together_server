@@ -79,6 +79,14 @@ def _same_material(a, b):
     return a['subject'] == b['subject'] and a['body_html'] == b['body_html'] and bool(a['notice']) == bool(b['notice']) and {v['name']: v['sha256'] for v in a['files']} == {v['name']: v['sha256'] for v in b['files']}
 
 
+def _has_source(body_html, source):
+    # 편집 HTML의 &amp;와 원문 URL의 &를 같은 링크로 대조한다.
+    soup = BeautifulSoup(body_html, 'html.parser')
+    if soup.find('a', href=source) is not None:
+        return True
+    return source in re.findall(r'https?://[^\s<>"\']+', soup.get_text(' ', strip=True))
+
+
 def move_category(service, base_dir, source, category, key):
     """백업→학교 복사→내용/첨부 검증→기존글 삭제. 알림 재전송 없음."""
     receipt = known_receipt(base_dir, source)
@@ -108,7 +116,7 @@ def move_category(service, base_dir, source, category, key):
     record = next((p for p in index.load() if p['article_url'] == oldurl), None)
     if state['phase'] == 'prepared':
         original = editor.read(oldurl, backup=True)
-        if not record or original['signature'] != record['signature'] or source not in original['body_html']:
+        if not record or original['signature'] != record['signature'] or not _has_source(original['body_html'], source):
             return {'done': False, 'reason': 'manual_edit_or_missing_original_proof'}
         checkpoint('backed_up', original=original, original_record=record, original_receipt=receipt)
     original = state['original']
