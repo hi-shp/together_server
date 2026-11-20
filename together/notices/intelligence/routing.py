@@ -229,7 +229,11 @@ def verified_activity_category(title, body):
     t = re.sub(r'\s+', '', str(title))
     b = re.sub(r'\s+', '', str(body or ''))
     category, reason = None, None
-    if re.search(r'PASS상담', t, re.I) and re.search(r'미상담|미신청', b) and '성적열람불가' in b:
+    if '현장실습' in t and re.search(r'모집|프로그램운영', t) and re.search(r'기업부담실습지원비|실습비[\d,]+원/월', b) and re.search(r'직무수행|산재보험', b):
+        category, reason = '취업 정보', '기업·연구기관에서 직무를 수행하며 월 실습비를 받는 현장실습 모집'
+    elif re.search(r'투표일정변경', t) and re.search(r'작품이접수되었습니다|접수가마감', b) and re.search(r'투표시작시|투표방법.*별도안내', b):
+        category, reason = '해당없음', '작품 접수 후 심사·투표 일정 변경이며 새 응모나 투표 신청 안내가 아님'
+    elif re.search(r'PASS상담', t, re.I) and re.search(r'미상담|미신청', b) and '성적열람불가' in b:
         category, reason = '해당없음', '성적 열람 요건으로 지정된 기존 학생의 필수 교수 상담'
     elif re.search(r'마이크로디그리.*취득.*안내', t) and re.search(r'이수교과목|취득자에한해|이수학점', b) and not re.search(r'모집|참가신청|설명회|특강', t):
         category, reason = '해당없음', '새 프로그램 참여 모집이 아닌 학위 이수·취득 요건 안내'
