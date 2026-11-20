@@ -229,7 +229,11 @@ def verified_activity_category(title, body):
     t = re.sub(r'\s+', '', str(title))
     b = re.sub(r'\s+', '', str(body or ''))
     category, reason = None, None
-    if '현장실습' in t and re.search(r'모집|프로그램운영', t) and re.search(r'기업부담실습지원비|실습비[\d,]+원/월', b) and re.search(r'직무수행|산재보험', b):
+    if re.search(r'재능이보여|전공봉사단', t) and '모집' in t and re.search(r'\d+시간이상봉사활동진행', b):
+        category, reason = '봉사활동', '파견 기관에서 정해진 시간 이상 봉사를 수행하는 전공·예술 봉사단 모집'
+    elif '경진대회' in t and all(v in b for v in ('코딩캠프', '딥러닝접근', '프로젝트예시')):
+        category, reason = '[공모전] 공학/IT/SW', '딥러닝 모델·코드를 구현해 제출하고 평가받는 기술 경진대회'
+    elif '현장실습' in t and re.search(r'모집|프로그램운영', t) and re.search(r'기업부담실습지원비|실습비[\d,]+원/월', b) and re.search(r'직무수행|산재보험', b):
         category, reason = '취업 정보', '기업·연구기관에서 직무를 수행하며 월 실습비를 받는 현장실습 모집'
     elif re.search(r'투표일정변경', t) and re.search(r'작품이접수되었습니다|접수가마감', b) and re.search(r'투표시작시|투표방법.*별도안내', b):
         category, reason = '해당없음', '작품 접수 후 심사·투표 일정 변경이며 새 응모나 투표 신청 안내가 아님'
