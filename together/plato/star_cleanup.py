@@ -47,7 +47,12 @@ def collect_old_stars(session, board_url, today):
                 raise PostEditError("Star search board mismatch")
             title = link.get_text(" ", strip=True)
             entries.append(ident["post_id"])
-            dates = re.findall(r"\d{4}-\d{2}-\d{2}", row.get_text(" ", strip=True))
+            # 제목 속 행사 날짜를 작성일로 오인해 당일 별표를 지우지 않는다.
+            metadata = BeautifulSoup(str(row), "html.parser")
+            for article in metadata.select('a[href]'):
+                if urlsplit(urljoin(base, article["href"])).path == "/mod/ubboard/article.php":
+                    article.decompose()
+            dates = re.findall(r"\d{4}-\d{2}-\d{2}", metadata.get_text(" ", strip=True))
             if title.startswith("⭐") and not dates:
                 raise PostEditError("Starred post date needs inspection")
             if title.startswith("⭐") and dates and dates[0] < today:

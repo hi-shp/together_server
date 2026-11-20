@@ -5,6 +5,8 @@ import json
 import os
 from pathlib import Path
 import re
+from datetime import datetime
+from zoneinfo import ZoneInfo
 from urllib.parse import urljoin, urlsplit, parse_qs, urlencode
 from bs4 import BeautifulSoup
 from together.storage.fallback_reviews import FallbackReviews
@@ -87,6 +89,28 @@ def _has_source(body_html, source):
     return source in re.findall(r'https?://[^\s<>"\']+', soup.get_text(' ', strip=True))
 
 
+def _same_relocated_material(original, copied):
+    # 복사 후 게시판 정책에 맞춰 바꾸는 선두 별표만 비교에서 제외한다.
+    return _same_material(
+        dict(original, subject=original['subject'].removeprefix('⭐').strip()),
+        dict(copied, subject=copied['subject'].removeprefix('⭐').strip()),
+    )
+
+
+def _relocated_subject(client, article_url, subject, target):
+    plain = subject.removeprefix('⭐').strip()
+    if target in ('기타 공지사항', '장학금'):
+        return plain
+    with client.get(article_url, timeout=(5, 30)) as response:
+        response.raise_for_status()
+        info = BeautifulSoup(response.text, 'html.parser').select_one('.ubboard_view .well > .info')
+    dates = set(re.findall(r'\d{4}-\d{2}-\d{2}', info.get_text(' ', strip=True) if info else ''))
+    if len(dates) != 1:
+        raise PostEditError('Copied post creation date needs verification')
+    today = datetime.now(ZoneInfo('Asia/Seoul')).date().isoformat()
+    return ('⭐' if dates.pop() == today else '') + plain
+
+
 def move_category(service, base_dir, source, category, key):
     """백업→학교 복사→내용/첨부 검증→기존글 삭제. 알림 재전송 없음."""
     receipt = known_receipt(base_dir, source)
@@ -124,7 +148,7 @@ def move_category(service, base_dir, source, category, key):
     matches = []
     for _, link in _links(client, newboard, original['subject']).items():
         copied = editor.read(link, backup=True)
-        if _same_material(original, copied):
+        if _same_relocated_material(original, copied):
             matches.append((link, copied))
     if len(matches) > 1:
         return {'done': False, 'reason': 'multiple_existing_target_posts'}
@@ -157,16 +181,24 @@ def move_category(service, base_dir, source, category, key):
         # 다음 호출은 조회부터 하므로 여기서 장애가 나도 중복 복사하지 않는다.
         return move_category(service, base_dir, source, category, key)
     newurl, copied = matches[0]
-    checkpoint('copy_verified', newurl=newurl, copied=copied)
+    subject = _relocated_subject(client, newurl, copied['subject'], target)
+    if copied['subject'] != subject:
+        if state.get('title_format_submitting'):
+            return {'done': False, 'reason': 'title_save_acceptance_unknown_original_preserved'}
+        checkpoint('title_format_submitting', title_format_submitting=True, newurl=newurl, requested_subject=subject)
+        copied = editor.update(newurl, subject, copied['body_html'], expected_signature=copied['signature'])['after']
+        if copied['subject'] != subject or not _same_relocated_material(original, copied):
+            raise PostEditError('Copied post title policy verification failed')
+    checkpoint('copy_verified', newurl=newurl, copied=copied, title_format_submitting=False)
     if '/mod_ubboard/attachment/' + oldid + '/' in copied['body_html']:
         return {'done': False, 'reason': 'embedded_old_attachment_dependency_original_preserved'}
     if oldid in _links(client, oldboard, original['subject']):
         if editor.read(oldurl)['signature'] != original['signature']:
             return {'done': False, 'reason': 'manual_edit_before_delete'}
         _delete_once(client, oldboard, oldurl, original['subject'], checkpoint)
-    if not _same_material(original, editor.read(newurl)):
+    if not _same_material(copied, editor.read(newurl)):
         raise PostEditError('Target changed after copy; inspect before finalization')
-    remember_receipt(base_dir, dict(receipt, article_url=newurl, board=target, moved_from=oldurl))
+    remember_receipt(base_dir, dict(receipt, article_url=newurl, subject=copied['subject'], board=target, moved_from=oldurl))
     oldrecord = state['original_record']
     index.put(dict(oldrecord, disabled=True, moved_to=newurl))
     index.put(dict(oldrecord, article_url=newurl, board=target, signature=copied['signature']))
