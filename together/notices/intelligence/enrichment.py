@@ -231,6 +231,8 @@ def apply_enrichment(service, record, announcement, department, base_dir):
         )
         return False
     # 내용 해시가 같은 파일은 다시 올리지 않는다. 같은 이름의 다른 파일은 이름을 분리한다.
+    from together.storage.attachment_material import file_material_digest
+    known_material = {item["material_sha256"] for item in current["files"] if item.get("material_sha256")}
     known_hashes = {item["sha256"] for item in current["files"]}
     known_names = {item["name"] for item in current["files"]}
     folder_root = Path(base_dir) / ".runtime/intelligence"
@@ -248,7 +250,8 @@ def apply_enrichment(service, record, announcement, department, base_dir):
         for value in candidates:
             path = Path(value)
             digest = file_digest(path)
-            if digest in known_hashes:
+            material = file_material_digest(path)
+            if digest in known_hashes or (material and material in known_material):
                 continue
             name = path.name
             if name in known_names:
@@ -260,6 +263,8 @@ def apply_enrichment(service, record, announcement, department, base_dir):
             os.chmod(destination, 0o600)
             uploads.append(destination)
             known_hashes.add(digest)
+            if material:
+                known_material.add(material)
             known_names.add(name)
         candidate_html = sanitize_html(announcement.content_html, announcement.url)
         improvements = body_gain(current["body_html"], candidate_html)

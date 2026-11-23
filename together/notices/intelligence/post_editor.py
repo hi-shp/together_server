@@ -10,6 +10,7 @@ import tempfile
 from urllib.parse import parse_qs, unquote, urlsplit
 import uuid
 from together.storage.attachments import file_digest
+from together.storage.attachment_material import hwp_material_digest, MAX_MATERIAL_BYTES
 
 from bs4 import BeautifulSoup
 import requests
@@ -209,6 +210,7 @@ class PlatoPostEditor:
             )
             size = 0
             digest = hashlib.sha256()
+            material = bytearray() if Path(item['name']).suffix.lower() == '.hwp' else None
             handle = destination.open("wb") if destination else None
             try:
                 with session.get(
@@ -221,13 +223,22 @@ class PlatoPostEditor:
                         if size > max_bytes:
                             raise PostEditError("Attachment exceeds verification limit")
                         digest.update(chunk)
+                        if material is not None:
+                            if size <= MAX_MATERIAL_BYTES:
+                                material.extend(chunk)
+                            else:
+                                material = None
                         if handle:
                             handle.write(chunk)
             finally:
                 if handle:
                     handle.close()
                     os.chmod(destination, 0o600)
-            return dict(item, bytes=size, sha256=digest.hexdigest())
+            saved = dict(item, bytes=size, sha256=digest.hexdigest())
+            material_key = hwp_material_digest(material) if material is not None else None
+            if material_key:
+                saved['material_sha256'] = material_key
+            return saved
         finally:
             session.close()
 
