@@ -12,6 +12,16 @@ OLD = '계약직원을 공개 모집합니다. 2026. 11. 3. 부산대학교 연�
 NEW = '계약직원을 공개 모집합니다. 2026. 11. 17. 부산대학교 연구처장'
 
 class HiringIssueDateTests(unittest.TestCase):
+    def test_different_explicit_positions_keep_the_first_notice_for_each(self):
+        left = '부산대학교 AX·정보화혁신본부 계약직원(전임연구원, 사무원) 공개채용 공고'
+        right = '부산대학교 AX·정보화혁신본부 계약직원(연구보조원) 공개채용 공고'
+        self.assertEqual(focus_conflict(left, right), 'hiring_position_conflict')
+
+    def test_a_partial_title_with_an_overlapping_position_is_not_a_conflict(self):
+        left = '부산대학교 AX·정보화혁신본부 계약직원(전임연구원, 사무원) 공개채용 공고'
+        right = '부산대학교 AX·정보화혁신본부 사무원 공개채용 공고'
+        self.assertIsNone(focus_conflict(left, right))
+
     def test_same_employer_different_signed_dates_preserve_both_rounds(self):
         self.assertEqual(focus_conflict(TITLE, TITLE, NEW, OLD), 'hiring_official_issue_date_conflict')
 

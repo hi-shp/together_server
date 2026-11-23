@@ -212,7 +212,7 @@ def check_title_similarity(new_title, recent_titles, *, context_provider=None):
             )
             if body_conflict:
                 final_relation = 'different_event'
-                detail = '공식 기관이 기재한 채용 공고일이 서로 달라 별도 모집 회차로 보존' if body_conflict == 'hiring_official_issue_date_conflict' else '대상 대학·학기·회차가 달라 별도 공지로 보존'
+                detail = '공식 기관이 기재한 채용 공고일이 서로 달라 별도 모집 회차로 보존' if body_conflict == 'hiring_official_issue_date_conflict' else '같은 기관이어도 명시된 채용 직무가 서로 달라 각각의 첫 공지로 보존' if body_conflict == 'hiring_position_conflict' else '대상 대학·학기·회차가 달라 별도 공지로 보존'
                 reviews.append(f'{position}번 후보: {detail}')
                 continue
         if shared_notice(new_title) and (

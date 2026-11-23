@@ -114,6 +114,9 @@ def focus_conflict(left_title, right_title, left_body='', right_body=''):
     if all(employers) and employers[0]!=employers[1]:
         return 'hiring_employer_conflict'
     if all(employers) and employers[0] == employers[1]:
+        positions = [set(re.findall(r'전임연구원|전문연구원|연구보조원|연구교수|행정조교|사무원|행정원', normalize_title(title))) for title in (left_title, right_title)]
+        if all(positions) and positions[0].isdisjoint(positions[1]):
+            return 'hiring_position_conflict'
         issued = [_official_hiring_date(body) for body in (left_body, right_body)]
         if all(issued) and issued[0] != issued[1]:
             return 'hiring_official_issue_date_conflict'
