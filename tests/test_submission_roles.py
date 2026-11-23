@@ -3,6 +3,29 @@ from together.notices.intelligence.routing import category_hint
 
 
 class SubmissionAndResults(unittest.TestCase):
+    def test_scholarship_selection_schedule_is_not_a_result(self):
+        hint = category_hint(
+            "2027년도 관정재단 장학생 선발 안내", {},
+            body="추천기한: 11월 10일까지 학과사무실. 지원자격: 3학년 진학 예정자. "
+                 "추천 장학생 명단과 신청서를 제출합니다. 최종 선발은 12월 예정입니다.",
+        )
+        self.assertNotEqual(hint.get("method"), "selection_result_body")
+        self.assertNotEqual(hint.get("category"), "해당없음")
+
+    def test_scholarship_future_final_selection_alone_is_not_a_result(self):
+        hint = category_hint(
+            "2027년도 관정재단 장학생 선발 안내", {},
+            body="최종 선발: 2027년 1월 예정. 추천 명단 양식을 학과로 제출.",
+        )
+        self.assertNotEqual(hint.get("method"), "selection_result_body")
+
+    def test_new_scholarship_application_is_not_hidden_by_a_result_reference(self):
+        hint = category_hint(
+            "장학생 선발 안내", {},
+            body="전년도 선발 결과를 참고하세요. 신청기한 11월 12일. 지원자격과 추천대상은 붙임 참조.",
+        )
+        self.assertNotEqual(hint.get("method"), "selection_result_body")
+
     def test_selected_students_followup_is_not_an_open_scholarship(self):
         hint = category_hint(
             "[장학] 2026년 문헌정보학과 동문 장학생 선정 공고",
