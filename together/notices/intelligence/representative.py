@@ -38,13 +38,25 @@ def _article(client,url,title,source='',*,indexed=False):
     return any(urlsplit(v).netloc.endswith('.pusan.ac.kr') and urlsplit(v).netloc!='dev-plato.pusan.ac.kr' for v in links)
 
 
+def literal_search_anchor(title):
+    value = display_title(title)
+    core = re.sub(r'^(?:\[[^\]]{1,80}\]\s*)+', '', value.lstrip('⭐').strip())
+    generic = {'부산대학교', '부산대', '대학공지', '학생지원시스템', '공지사항',
+               '안내', '개최', '모집', '신청', '공고', '실시', '운영', '프로그램',
+               '학부', '대학원', '대학원생'}
+    literal = lambda text: [w for w in re.findall(r'[가-힣A-Za-z0-9]+', text) if len(w) >= 2]
+    words = [w for w in literal(core) if w not in generic
+             and not re.fullmatch(r'\d+(?:학년도|년|학기|차|회|기|월|일)?', w)]
+    words = words or literal(core) or literal(value)
+    if not words:
+        raise RepresentativeUnconfirmed('No stable literal title search anchor')
+    return max(words, key=len)
+
+
 def _search(client,board,title,source=''):
     # 학교 검색은 괄호를 입력에서 지워 전체 제목 검색이 실패할 수 있다.
     # 원래 제목에 실제로 포함된 안전한 낱말로 찾고, 글의 원문을 다시 대조한다.
-    words=re.findall(r'[가-힣A-Za-z0-9]+',display_title(title))
-    words=[v for v in words if len(v)>=2]
-    if not words:raise RepresentativeUnconfirmed('No stable literal title search anchor')
-    anchor=max(words,key=len)
+    anchor=literal_search_anchor(title)
     query=board+'&'+urlencode({'keyfield':'subject','keyword':anchor})
     pending,seen,found=[query],set(),{}
     board_id=parse_qs(urlsplit(board).query).get('id')
