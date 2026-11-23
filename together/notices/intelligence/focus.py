@@ -82,6 +82,23 @@ def _pnu_hiring_employer(title):
     return None if employer=='연구원' else employer
 
 
+def _official_hiring_date(body):
+    # The issuer's signed announcement date is distinct from a forwarding department's posting date.
+    matches = re.findall(
+        r'(?<!\d)(20\d{2})\s*[.년]\s*(1[0-2]|0?[1-9])\s*[.월]\s*'
+        r'(3[01]|[12]\d|0?[1-9])\s*[.일]?\s*부산대학교\s*'
+        r'[^.\n\d]{0,45}(?:총장|처장|본부장|원장|단장|학장)',
+        str(body or ''),
+    )
+    dates = set()
+    for year, month, day in matches:
+        try:
+            dates.add(datetime(int(year), int(month), int(day)).date())
+        except ValueError:
+            continue
+    return next(iter(dates)) if len(dates) == 1 else None
+
+
 def focus_conflict(left_title, right_title, left_body='', right_body=''):
     # 학위청구 대체강좌는 대학 공통 모집이지만 언어별로 대상·강의가 다르다.
     def course_language(title):
@@ -96,6 +113,10 @@ def focus_conflict(left_title, right_title, left_body='', right_body=''):
     employers=[_pnu_hiring_employer(t) for t in (left_title,right_title)]
     if all(employers) and employers[0]!=employers[1]:
         return 'hiring_employer_conflict'
+    if all(employers) and employers[0] == employers[1]:
+        issued = [_official_hiring_date(body) for body in (left_body, right_body)]
+        if all(issued) and issued[0] != issued[1]:
+            return 'hiring_official_issue_date_conflict'
     first, second = exchange_focus(left_title,left_body), exchange_focus(right_title,right_body)
     if not first or not second:
         return None

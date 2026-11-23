@@ -194,6 +194,15 @@ class ContextTests(unittest.TestCase):
         self.assertEqual(check(title,[title],context_provider=lambda _:context),'중복 아님')
         decision.assert_not_called()
 
+    def test_different_official_hiring_dates_do_not_reach_model_suppression(self):
+        check, decision = self.protected_checker()
+        title = '부산대학교 연구처 연구안보센터 계약직원 공개채용 공고'
+        common = '연구안보센터 전임연구원을 다음과 같이 공개 모집합니다. ' * 4
+        context = {'new_notice': {'body_excerpt': common + '2026. 11. 17. 부산대학교 연구처장'}, 'recent_notices': [{'title': title, 'body_excerpt': common + '2026. 11. 3. 부산대학교 연구처장'}]}
+        decision.return_value = {'relation': 'same_event', 'matched_index': 0, 'reason': '같은 제목이라는 오판'}
+        self.assertEqual(check(title, [title], context_provider=lambda _: context), '중복 아님')
+        decision.assert_not_called()
+
     def test_common_wish_list_registration_compares_actual_bodies(self):
         check, decision = self.protected_checker()
         title = '2026학년도 겨울계절·도약수업 희망과목담기 및 수강신청 안내'

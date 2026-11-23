@@ -204,6 +204,17 @@ def check_title_similarity(new_title, recent_titles, *, context_provider=None):
     }
     for position, candidate in enumerate(candidates):
         context = context_provider([candidate]) if context_provider else None
+        if context and context.get('recent_notices'):
+            body_conflict = focus_conflict(
+                new_title, candidate,
+                context.get('new_notice', {}).get('body_excerpt', ''),
+                context['recent_notices'][0].get('body_excerpt', ''),
+            )
+            if body_conflict:
+                final_relation = 'different_event'
+                detail = '공식 기관이 기재한 채용 공고일이 서로 달라 별도 모집 회차로 보존' if body_conflict == 'hiring_official_issue_date_conflict' else '대상 대학·학기·회차가 달라 별도 공지로 보존'
+                reviews.append(f'{position}번 후보: {detail}')
+                continue
         if shared_notice(new_title) and (
             not context
             or len(context.get("new_notice", {}).get("body_excerpt", "").strip()) < 80

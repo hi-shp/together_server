@@ -285,6 +285,14 @@ def is_recent_title_duplicate(
             continue
         result = compare_notices(current, Notice(title, date.isoformat()))
         if result["relation"] == "same_event" and not requires_department_evidence(original_title):
+            if announcement is not None and '채용' in original_title:
+                body_context = duplicate_context(announcement, department, [title], {title: date}, BASE_DIR)
+                if body_context and body_context.get('recent_notices') and focus_conflict(
+                    original_title, title,
+                    body_context.get('new_notice', {}).get('body_excerpt', ''),
+                    body_context['recent_notices'][0].get('body_excerpt', ''),
+                ):
+                    continue  # An identical title must not suppress a different signed hiring round.
             duplicate_match.set({'title':title,'observed_at':date.isoformat()})
             return decision("중복", "행사·연도·회차 대조", highest_similarity)
     context = None
