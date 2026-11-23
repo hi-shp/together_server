@@ -194,6 +194,26 @@ class ContextTests(unittest.TestCase):
         self.assertEqual(check(title,[title],context_provider=lambda _:context),'중복 아님')
         decision.assert_not_called()
 
+    def test_common_wish_list_registration_compares_actual_bodies(self):
+        check, decision = self.protected_checker()
+        title = '2026학년도 겨울계절·도약수업 희망과목담기 및 수강신청 안내'
+        body = '부산대학교 공통 일정: 희망과목담기 11월 11일, 수강신청 11월 13일부터 17일까지. ' * 4
+        context = {'new_notice': {'department': '영어영문학과', 'body_excerpt': body}, 'recent_notices': [{'title': title, 'department': '사학과', 'body_excerpt': body}]}
+        decision.return_value = {'relation': 'same_event', 'matched_index': 0, 'reason': '대학 공통 일정과 신청 조건 일치'}
+        self.assertEqual(check(title, [title], context_provider=lambda _: context), '중복')
+        decision.assert_called_once()
+
+    def test_unnamed_local_office_cutoff_preserves_exchange_notice(self):
+        from together.notices.intelligence.context import department_conditions_differ
+        body = '겨울계절수업 고려대학교·성균관대학교·울산대학교 공통 교류수학 일정. ' * 5
+        context = {'new_notice': {'department': '생명과학과', 'body_excerpt': '희망하는 경우 11/2(월)까지 서류를 메일 또는 직접 제출. 제출처: 학과사무실. 제출서류: 수학신청원, 성적증명서. ' + body}, 'recent_notices': [{'department': '의생명융합공학부', 'body_excerpt': body}]}
+        self.assertTrue(department_conditions_differ(context))
+
+    def test_identical_local_submission_instruction_is_not_a_difference(self):
+        from together.notices.intelligence.context import department_conditions_differ
+        body = '학생은 11/2까지 제출처: 학과사무실에 수학신청원 제출. 제출서류와 공통 일정을 확인하세요.'
+        self.assertFalse(department_conditions_differ({'new_notice': {'body_excerpt': body}, 'recent_notices': [{'body_excerpt': body}]}))
+
     def test_common_course_registration_with_missing_body_keeps_first_notice(self):
         check,decision=self.protected_checker()
         title='2026학년도 겨울 계절·도약수업 개설강좌 확정 및 수강신청 안내'

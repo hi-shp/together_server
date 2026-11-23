@@ -20,6 +20,14 @@ def department_conditions_differ(context):
             for match in re.finditer(re.escape(department) + r".{0,100}", body):
                 if re.search(r"학점|제출|지원자격|참여대상|학년|이수|인정|불가", match[0]):
                     conditions.add(match[0])
+
+        # A department can give its own cutoff without repeating its full name.
+        # Preserve that local submission step even when the common timetable matches.
+        for match in re.finditer(r"(?:학과|학부|전공)(?:사무실|행정실)|(?:제출처|접수처)[:：]", body):
+            start, end = max(0, match.start() - 100), min(len(body), match.end() + 100)
+            local = body[start:end]
+            if re.search(r"제출|접수", local) and re.search(r"기한|마감|까지|제출서류|제출방법", local):
+                conditions.add(local)
         scopes.append(conditions)
     return len(scopes) > 1 and any(scopes[0] != other and (scopes[0] or other) for other in scopes[1:])
 

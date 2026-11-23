@@ -153,7 +153,7 @@ def check_title_similarity(new_title, recent_titles, *, context_provider=None):
     # 대학 전체 계절·도약수업 안내도 본문으로 대조한다. '수강신청'이라는
     # 단어만으로 학과별 별도 공지라고 확정하던 경로는 공통 안내를 복제했다.
     shared_registration = lambda title: bool(
-        re.search(r'(?:계절|도약).*개설강좌.*수강신청',normalize_title(title))
+        re.search(r'(?:계절|도약).*(?:개설강좌|희망과목\s*담기).*수강신청',normalize_title(title))
     )
     shared_language_course = lambda title: bool(
         re.search(r'외국어\s*시험.*대체\s*강좌', normalize_title(title))
