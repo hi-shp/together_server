@@ -13,6 +13,19 @@ from together.crawler.pages import AnnouncementPage
 
 
 class CatalogTests(unittest.TestCase):
+    def test_new_official_boards_have_distinct_identities_and_stay_with_their_organization(self):
+        rows = list(records().values())
+        keys = {'k2web:omse:1213', 'k2web:fsn:654', 'k2web:archaeology:393', 'k2web:chemistrylab:10270', 'k2web:chemistrylab:10271', 'k2web:molbiology:800', 'k2web:rocket-:19117'}
+        selected = [r for r in rows if r.get('canonical_board') in keys]
+        self.assertEqual(len(selected), 7)
+        self.assertEqual(len({r['identity_department'] for r in selected}), 7)
+        for row in selected:
+            same = sorted(r['order'] for r in rows if r['organization'] == row['organization'])
+            self.assertEqual(same, list(range(min(same), max(same) + 1)))
+            self.assertTrue(row['menu_source'].startswith('https://'))
+        notice = next(r for r in selected if r['canonical_board'] == 'k2web:molbiology:800')
+        self.assertEqual(notice['display_name'], '분자생물학과(공지)')
+
     def test_physical_education_is_one_department_inside_education_college(self):
         rows=sorted(records().values(),key=lambda r:r['order'])
         phys=[r for r in rows if r['organization']=='체육교육과']
