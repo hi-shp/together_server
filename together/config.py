@@ -1,6 +1,7 @@
 """환경설정과 Discord 알림."""
 
 import os
+import hashlib
 import sqlite3
 from contextvars import ContextVar
 from pathlib import Path
@@ -15,10 +16,22 @@ _warned = set()
 notice_category = ContextVar("discord_notice_category", default=None)
 
 
-def _discord_result(channel, outcome, status=None, message_id=None):
+def _discord_result(channel, outcome, status=None, message_id=None, log_path=None):
     try:
         from together.operations.events import event
 
+        attachment = {}
+        if log_path is not None:
+            path = Path(log_path)
+            attachment = {'filename': path.name}
+            try:
+                digest = hashlib.sha256()
+                with path.open('rb') as handle:
+                    for chunk in iter(lambda: handle.read(65536), b''):
+                        digest.update(chunk)
+                attachment.update(bytes=path.stat().st_size, sha256=digest.hexdigest())
+            except OSError:
+                attachment['error'] = 'log_metadata_unavailable'
         event(
             "Discord",
             "로그 전송 결과",
@@ -27,6 +40,7 @@ def _discord_result(channel, outcome, status=None, message_id=None):
             outcome=outcome,
             status=status,
             message_id=message_id,
+            **attachment,
         )
     except Exception:
         pass
@@ -88,12 +102,12 @@ def notify(content=None, *, channel="WEBHOOK_URL", log_path=None, error_prefix=N
                 scholarship.complete(scholarship_key, True, message_id)
             except (OSError, sqlite3.Error):
                 _discord_result(channel, "scholarship_receipt_storage_error")
-        _discord_result(
-            channel,
-            "sent",
-            response.status_code,
-            message_id if isinstance(message_id, str) else None,
-        )
+        result_args = (channel, "sent", response.status_code,
+                       message_id if isinstance(message_id, str) else None)
+        if log_path is None:
+            _discord_result(*result_args)
+        else:
+            _discord_result(*result_args, log_path=log_path)
         return True
     except (requests.RequestException, OSError) as exc:
         if scholarship_key:

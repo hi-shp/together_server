@@ -204,6 +204,7 @@ def is_recent_title_duplicate(
 
     def decision(result, method, similarity=None):
         nonlocal candidate_labels
+        proof = {}
         method = duplicate_review.get() or method
         if result=='중복' and representative_check is not None:
             from together.notices.intelligence.representative import RepresentativeUnconfirmed
@@ -247,6 +248,8 @@ def is_recent_title_duplicate(
             normalized_similarity=similarity,
             candidates=candidate_labels,
             reason=duplicate_review_reason.get(),
+            representative_url=proof.get('article_url', ''),
+            representative_status=(proof.get('status') if result == '중복' or proof.get('status') in ('first_publication', 'missing', 'pending') else None),
         )
         return result
 

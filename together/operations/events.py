@@ -9,6 +9,7 @@ import json
 import os
 from pathlib import Path
 import re
+import sqlite3
 import subprocess
 import time
 import unicodedata
@@ -20,11 +21,12 @@ from together.config import BASE_DIR
 _context = ContextVar("crawler_log_context", default={})
 duplicate_match = ContextVar('duplicate_matched_representative',default=None)
 _warned = False
+_audit_warned = False
 MAX_FILE = 8 * 1024**2
 BACKUPS = 31
 RETENTION = 90 * 86400
 FIELDS = set(
-    "source_url title department result method category similarity normalized_similarity candidates reason elapsed_seconds count sent deduplicated missing expected latest_number saved_number filename bytes sha256 error status model score notice_id cycle_id board_index board_count outcome attachment_count channel message_id".split()
+    "source_url title department result method category similarity normalized_similarity candidates reason elapsed_seconds count sent deduplicated missing expected latest_number saved_number filename bytes sha256 error status model score notice_id cycle_id board_index board_count outcome attachment_count channel message_id representative_url representative_status".split()
 )
 
 
@@ -123,7 +125,7 @@ def set_notice(url, department="", title=""):
 
 
 def _value(key, value):
-    if key == "source_url":
+    if key in ("source_url", "representative_url"):
         return safe_url(value)
     if isinstance(value, (bool, int, float)) or value is None:
         return value
@@ -161,7 +163,7 @@ def _save(record):
 
 
 def event(stage, message, *, level="INFO", console=True, plain=False, **fields):
-    global _warned
+    global _warned, _audit_warned
     from .cycle_activity import tick
     if stage=='게시' and fields.get('outcome')=='verified' and message=='게시글 작성 완료':
         tick('post')
@@ -180,6 +182,13 @@ def event(stage, message, *, level="INFO", console=True, plain=False, **fields):
     record.update(
         {key: _value(key, value) for key, value in fields.items() if key in FIELDS}
     )
+    try:
+        from together.storage.audit_events import retain_event
+        retain_event(BASE_DIR, record)
+    except (OSError, ValueError, sqlite3.Error) as exc:
+        if not _audit_warned:
+            print(f"{now:%H:%M:%S} WARN  [운영] 검증 원장 저장 생략 | {type(exc).__name__}", flush=True)
+            _audit_warned = True
     if console and (
         level != "DEBUG" or os.getenv("CRAWLER_LOG_LEVEL", "INFO") == "DEBUG"
     ):

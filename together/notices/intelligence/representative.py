@@ -138,6 +138,8 @@ def verify_representative(service,evidence,base_dir,boards,*,current_notice=None
     """verified/missing/pending. 미확인을 미게시로 바꾸거나 재요청하지 않는다."""
     title=evidence.get('title','');source=evidence.get('source_url','')
     result={'status':'pending','candidate_title':title,'candidate_source_url':source,
+            'current_source_url':evidence.get('current_source_url',''),
+            'current_title':(current_notice or {}).get('title',''),
             'checked_at':time.time(),'search_pages':0,'searched_boards':0,'post_or_send_requests':0}
     client=getattr(service,'_http',None)
     temporary_client=False
