@@ -8,9 +8,13 @@ def compressed(raw):
     obj=zlib.compressobj(wbits=-15)
     return obj.compress(raw)+obj.flush()
 
-def streams(cursor=0,metadata=b'author',body=b'full table and deadline 2026-11-30',style=b'font and numbering',image=b'poster image',flags=1):
+def streams(cursor=0,metadata=b'author',body=b'full table and deadline 2026-11-30',style=b'font and numbering',image=b'poster image',flags=1,docdata=None):
     header=bytearray(256);header[:17]=b'HWP Document File';header[34:36]=bytes([1,5]);struct.pack_into('<I',header,36,flags)
-    info=record(16,bytes(14)+struct.pack('<III',cursor,0,0))+record(21,style)+record(27,metadata)
+    if docdata is None:
+        items=[struct.pack('<HHI',0x4000+i,6 if i%2 else 7,i) for i in range(8)]
+        if metadata!=b'author':items.reverse()
+        docdata=bytes.fromhex('1c020100000007020080070208000000')+b''.join(items)
+    info=record(16,bytes(14)+struct.pack('<III',cursor,0,0))+record(21,style)+record(27,docdata)
     return {'FileHeader':bytes(header),'DocInfo':compressed(info),'BodyText/Section0':compressed(body),'BinData/BIN0001.png':image,'PrvImage':metadata,'\x05HwpSummaryInformation':metadata,'DocOptions/_LinkDoc':metadata}
 
 class Ole:
@@ -60,3 +64,12 @@ class AttachmentMaterialTests(unittest.TestCase):
     def test_invalid_compressed_trailer_never_produces_a_content_match(self):
         a=streams();a['DocInfo']+=bytes(8)
         self.assertIsNone(self.digest(a))
+
+    def test_numeric_document_settings_values_are_preserved(self):
+        prefix=bytes.fromhex('1c020100000007020080070208000000')
+        a=prefix+b''.join(struct.pack('<HHI',0x4000+i,6 if i%2 else 7,i) for i in range(8))
+        b=a[:-4]+struct.pack('<I',99)
+        self.assertNotEqual(self.digest(streams(docdata=a)),self.digest(streams(docdata=b)))
+
+    def test_unknown_document_data_is_not_discarded(self):
+        self.assertNotEqual(self.digest(streams(docdata=b'unknown A')),self.digest(streams(docdata=b'unknown B')))

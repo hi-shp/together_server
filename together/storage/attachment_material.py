@@ -2,6 +2,7 @@
 
 Hancom HWP 5.0: preserve body, styles, numbering, embedded data and unknown
 streams. Ignore preview/save metadata and only the saved cursor in properties.
+본 제품은 한글과컴퓨터의 한글 문서 파일(.hwp) 공개 문서를 참고하여 개발하였습니다.
 """
 import hashlib
 import io
@@ -31,6 +32,20 @@ def _unpack(raw, compressed):
     return result
 
 
+def _docdata(raw):
+    # Known numeric document settings from the verified HWP pair. Preserve every
+    # ID/type/value; normalize only item order. Unknown layouts stay byte-exact.
+    prefix = bytes.fromhex('1c020100000007020080070208000000')
+    if len(raw) != 80 or not raw.startswith(prefix):
+        return raw
+    items = [raw[pos:pos + 8] for pos in range(16, 80, 8)]
+    if len({struct.unpack_from('<H', item)[0] for item in items}) != 8:
+        return raw
+    if any(struct.unpack_from('<H', item, 2)[0] not in (6, 7) for item in items):
+        return raw
+    return prefix + b''.join(sorted(items, key=lambda item: struct.unpack_from('<H', item)[0]))
+
+
 def _docinfo(raw):
     result = bytearray()
     position = 0
@@ -54,7 +69,7 @@ def _docinfo(raw):
                 raise ValueError('Unknown document properties')
             payload = payload[:14]  # Keep section/start numbers; ignore saved cursor.
         elif tag == 27:
-            continue  # Document-specific non-rendering user metadata.
+            payload = _docdata(payload)
         result.extend(struct.pack('<HHI', tag, level, len(payload)))
         result.extend(payload)
     return bytes(result)
