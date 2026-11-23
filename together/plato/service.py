@@ -1005,6 +1005,8 @@ class WriteNoticeService:
             "봉사활동",
             "서포터즈",
             "취업 정보",
+            "장학금",
+            "기타 공지사항",
         ]
 
         from together.plato.star_cleanup import collect_old_stars, remove_star, unverified_star_edits
@@ -1065,7 +1067,7 @@ class WriteNoticeService:
                         failures.append({"board": board_name, "url": url, "error": type(exc).__name__})
                         event("PLATO", f"오류 발생: {type(exc).__name__}", level="WARN")
                 if not any(item["board"] == board_name for item in failures):
-                    event("PLATO", "모든 게시판 수정 완료" if board_name == "취업 정보" and not failures else f"{board_name} 게시판 수정 완료 → 다음 게시판으로 이동", level="INFO")
+                    event("PLATO", "모든 게시판 수정 완료" if board_name == board_names[-1] and not failures else f"{board_name} 게시판 수정 완료 → 다음 게시판으로 이동", level="INFO")
                 completed_boards.add(board_name)
         finally:
             if owns_session:

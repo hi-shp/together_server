@@ -96,6 +96,44 @@ def _first_publication(base_dir, evidence, current):
     return True
 
 
+def _archived_title(client, boards, title, source, result):
+    """색인 보관 범위를 벗어난 실제 같은 제목을 먼저 찾는다. 저장 요청 없음."""
+    actual = []
+    for name in boards:
+        links, pages = _search(client, client.board_url(name), title)
+        result['search_pages'] += pages
+        result['searched_boards'] += 1
+        for url in links:
+            with client.get(url, timeout=(5, 30)) as response:
+                response.raise_for_status()
+                soup = BeautifulSoup(response.text, 'html.parser')
+            heading = soup.select_one('.ubboard_view .subject h3')
+            content = soup.select_one('.ubboard_view .content')
+            if not heading or not content:
+                raise RepresentativeUnconfirmed('Archived title is not an actual article')
+            displayed = _subject(heading.get_text(' ', strip=True))
+            if displayed != _subject(title) and not displayed.endswith(' ' + _subject(title)):
+                continue
+            originals = [urljoin(url, a['href']) for a in content.select('a[href]')
+                         if '본문 링크' in a.parent.get_text(' ', strip=True)
+                         or a.get_text(' ', strip=True) in ('원문', '본문 링크')]
+            originals = list(dict.fromkeys(u for u in originals
+                if (urlsplit(u).hostname or '').endswith('.pusan.ac.kr')
+                and urlsplit(u).hostname != 'dev-plato.pusan.ac.kr'))
+            if source and any(notice_identity(u) == notice_identity(source) for u in originals):
+                result.update(status='verified', article_url=url,
+                              reason='actual_archived_representative_exists')
+                return result
+            if len(originals) == 1:
+                actual.append({'title': displayed, 'source_url': originals[0],
+                               'department': '', 'body_excerpt': content.get_text(' ', strip=True)[:6000]})
+    if actual:
+        result.update(status='recheck', reason='archived_title_requires_actual_source_context',
+                      _actual_candidates=actual[:3])
+        return result
+    return None
+
+
 def verify_representative(service,evidence,base_dir,boards,*,current_notice=None):
     """verified/missing/pending. 미확인을 미게시로 바꾸거나 재요청하지 않는다."""
     title=evidence.get('title','');source=evidence.get('source_url','')
@@ -153,6 +191,11 @@ def verify_representative(service,evidence,base_dir,boards,*,current_notice=None
                 result.update(status='verified',article_url=url,reason='actual_indexed_representative_exists')
                 return result
         if not matches and current_notice and active:
+            # 실제 대표가 보관 기간으로 색인에서 빠졌을 때, 무관한 현재 글 세 개로
+            # 판단을 뒤집기 전에 학교에 남은 같은 제목부터 원문 연결로 확인한다.
+            archived = _archived_title(client, boards, title, source, result)
+            if archived:
+                return archived
             # 제목 이력에는 '다른 글의 중복이라 게시하지 않았던 제목'도 있다.
             # 그 제목을 못 찾았다는 이유로 다시 게시하지 않고 실제 게시된
             # 원문 후보를 이용해 의미 판정을 한 번 다시 하도록 돌려준다.

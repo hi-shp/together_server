@@ -63,7 +63,7 @@ class StarCleanupResume(unittest.TestCase):
 
                 def interrupted(*args):
                     # The durable marker exists before any network operation.
-                    self.assertEqual(len(json.loads(pending.read_text())['items']), 9)
+                    self.assertEqual(len(json.loads(pending.read_text())['items']), 11)
                     raise SystemExit(143)
 
                 effects = iter([([], [1])] * finished)
@@ -78,7 +78,7 @@ class StarCleanupResume(unittest.TestCase):
                     with self.assertRaises(SystemExit):
                         service.remove_stars('course', '2026-11-01')
                 items = json.loads(pending.read_text())['items']
-                self.assertEqual(len(items), 9 - finished)
+                self.assertEqual(len(items), 11 - finished)
                 self.assertTrue(all(item['error'] == 'cleanup_interrupted' for item in items))
                 self.assertFalse(service._title_maintenance)
                 self.assertFalse(pending.with_suffix('.pending').exists())
@@ -88,7 +88,11 @@ class StarCleanupResume(unittest.TestCase):
             root = Path(directory)
             service = module.WriteNoticeService.__new__(module.WriteNoticeService)
             service._http = MagicMock()
+            service._http.board_url.side_effect=lambda name:name
             with patch.object(module, 'BASE_DIR', root), patch.object(module, 'event'), patch('together.plato.star_cleanup.collect_old_stars', return_value=([], [1])) as scan:
                 self.assertEqual(service.remove_stars('course', '2026-11-01'), [])
-            self.assertEqual(scan.call_count, 9)
+            self.assertEqual(scan.call_count, 11)
+            visited={call.args[1] for call in scan.call_args_list}
+            self.assertIn(service._http.board_url('장학금'),visited)
+            self.assertIn(service._http.board_url('기타 공지사항'),visited)
             self.assertEqual(json.loads((root / '.runtime/star-cleanup/pending.json').read_text())['items'], [])

@@ -116,8 +116,10 @@ class PublishedNoticeStore:
             row for row in self.load() if row["article_url"] != record["article_url"]
         ]
         posts.append(record)
-        cutoff = (datetime.now() - timedelta(days=14)).isoformat()
-        posts = [row for row in posts if row["notice"]["observed_at"] >= cutoff][-1000:]
+        # 제목 전달 이력은 계속 갱신돼도 실제 대표글은 더 일찍 작성될 수 있다.
+        # 14일 만에 대표 주소만 사라져 동일 공지가 다시 게시되지 않게 한다.
+        # 메모리 사용량은 기존과 같은 최대 1,000개 레코드로 유지한다.
+        posts = posts[-1000:]
         value = json.dumps({"schema": 1, "posts": posts}, ensure_ascii=False)
         temporary = self.path.with_suffix(".pending")
         temporary.write_text(value, encoding="utf-8")

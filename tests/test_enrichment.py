@@ -226,13 +226,14 @@ class CandidateAndContentTests(unittest.TestCase):
             store.put(dict(record, article_url=URL.replace("2474380", "2474381")))
             self.assertIsNone(store.find(ann, "기계"))
 
-    def test_registration_store_does_not_retain_old_rows_indefinitely(self):
+    def test_registration_store_keeps_older_published_representatives(self):
         with tempfile.TemporaryDirectory() as temp:
             store = PublishedNoticeStore(temp)
             old = self.notice()
             old.observed_at = (datetime.now() - timedelta(days=15)).isoformat()
             store.put({"article_url": URL, "notice": asdict(old)})
-            self.assertEqual(store.load(), [])
+            self.assertEqual(len(store.load()), 1)
+            self.assertEqual(store.load()[0]["notice"]["source_url"], "https://example.invalid/old")
 
     def test_live_manual_change_prevents_enrichment(self):
         with tempfile.TemporaryDirectory() as temp:

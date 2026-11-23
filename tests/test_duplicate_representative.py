@@ -131,7 +131,7 @@ class DuplicateRepresentativeTests(unittest.TestCase):
         from together.notices.intelligence.representative import verify_representative
         from unittest.mock import MagicMock
         record={'article_url':ARTICLE,'sources':[SOURCE],'notice':{'title':'[학사과] 서울시립대 2026 겨울 학점교류 모집','source_url':SOURCE,'body_text':'원문 내용','department':'대학 공지'}}
-        with tempfile.TemporaryDirectory() as root,patch('together.notices.intelligence.representative.PublishedNoticeStore') as store:
+        with tempfile.TemporaryDirectory() as root,patch('together.notices.intelligence.representative.PublishedNoticeStore') as store, patch('together.notices.intelligence.representative._archived_title',return_value=None):
             store.return_value.load.return_value=[record]
             client=MagicMock()
             result=verify_representative(types.SimpleNamespace(_http=client),{'title':TITLE},root,['기타 공지사항'],current_notice={'title':TITLE})
