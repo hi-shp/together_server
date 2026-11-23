@@ -24,3 +24,6 @@ class DepartmentFirstNoticeTests(unittest.TestCase):
         title='2026-2학기 학부 졸업시험 안내';url='https://example.invalid/exam'
         context={'new_notice':{'source_url':url},'recent_notices':[{'source_url':url,'title':title}]}
         self.assertEqual(self.decide(title,context),'중복')
+
+    def test_readmission_cutoff_is_not_merged_without_department_evidence(self):
+        self.assertEqual(self.decide('2027-1학기 재입학 안내- 12.4(금) 까지'),'중복 아님')
