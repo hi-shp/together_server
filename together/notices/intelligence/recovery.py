@@ -19,7 +19,10 @@ from .enrichment import PublishedNoticeStore
 
 def _links(client, board, subject):
     """공식 제목 검색의 끝까지 읽어 불확실한 POST 결과부터 대조한다."""
-    first = board + '&' + urlencode({'keyfield': 'subject', 'keyword': subject.lstrip('⭐')})
+    # 학교 검색은 괄호를 제거하므로 제목 전체를 넣으면 복사본을 놓칠 수 있다.
+    # 검색은 실제 낱말로 하되, 아래 이동 절차의 본문·첨부 대조는 그대로 유지한다.
+    from .representative import literal_search_anchor
+    first = board + '&' + urlencode({'keyfield': 'subject', 'keyword': literal_search_anchor(subject)})
     pending, seen, found = [first], set(), {}
     while pending:
         url = pending.pop(0)
