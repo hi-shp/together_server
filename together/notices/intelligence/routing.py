@@ -236,6 +236,14 @@ def category_hint(
 
 def verified_activity_category(title, body):
     """본문으로 확인한 활동 형식만 강제한다. 단어 하나로 결과를 뒤집지 않는다."""
+
+    # 교직 이수자의 교과목·학점 인정 절차는 새 봉사자 참여 모집과 구분한다.
+    if (re.search(r'교육봉사활동', str(title))
+            and re.search(r'이수|학점\s*인정|시행\s*안내', str(title))
+            and not re.search(r'모집|봉사자|자원봉사', str(title))
+            and re.search(r'교원자격|교직|XA4000347|교과목번호', str(body))):
+        return {'category': '해당없음', 'method': 'curricular_volunteer_credit',
+                'reason': '교원자격 취득을 위한 교육봉사 교과목 이수·학점 인정 절차이며 새 봉사자 모집이 아님'}
     t = re.sub(r'\s+', '', str(title))
     b = re.sub(r'\s+', '', str(body or ''))
     category, reason = None, None
