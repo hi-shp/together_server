@@ -86,7 +86,8 @@ def fetch(u):
   
   try:m=json.loads(meta.read_text(encoding='utf-8'))
   except (ValueError,OSError):m={}
-  if raw.exists() and m:
+  fresh=raw.exists() and 0 <= time.time()-raw.stat().st_mtime <= 6*3600
+  if fresh and m.get('status')==200 and m.get('url')==u and not m.get('routing_unresolved'):
    try:
     with gzip.open(raw,'rb') as h:data=h.read()
    except (OSError,EOFError):data=b''
@@ -95,8 +96,7 @@ def fetch(u):
     if m.get('routing_checked'):
      with gzip.open(raw,'wb') as h:h.write(data)
      meta.write_text(json.dumps(m,ensure_ascii=False),encoding='utf-8')
-   return m,data
-  if m:return m,b''
+   if data:return m,data
  p=urlsplit(u)
  with LOCK: gate=HOSTLOCK.setdefault(p.hostname,threading.Lock())
  try:
@@ -114,6 +114,7 @@ def fetch(u):
    m,data=route_page(m,data)
    with gzip.open(raw,'wb') as h:h.write(data)
  except requests.RequestException as exc:m={'url':u,'error':type(exc).__name__,'checked_at':datetime.now().astimezone().isoformat()};data=b''
+ if not data:raw.unlink(missing_ok=True)
  meta.write_text(json.dumps(m,ensure_ascii=False),encoding='utf-8')
  return m,data
 def links(data,base):

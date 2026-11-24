@@ -55,6 +55,44 @@ class ScheduleTests(unittest.TestCase):
 
 
 class AuditTests(unittest.TestCase):
+    def test_discovery_does_not_reuse_expired_or_failed_html_on_resume(self):
+        import ast,gzip,hashlib,os,threading,time,types
+        from urllib.parse import urlsplit
+        import requests
+        path=Path(__file__).resolve().parents[1]/'tools/nightly_checks/discover_pnu_sites.py'
+        tree=ast.parse(path.read_text(encoding='utf-8-sig'))
+        functions=[node for node in tree.body if isinstance(node,ast.FunctionDef) and node.name in ('cachekey','fetch')]
+        class Network:
+            def __init__(self,empty=False):self.calls=0;self.empty=empty
+            def get(self,url,**kwargs):
+                self.calls+=1
+                response=Response(url)
+                if self.empty:response.content=b''
+                return response
+        class Response:
+            def __init__(self,url):self.url=url;self.status_code=200;self.content=b'<html>fresh</html>';self.headers={'Content-Type':'text/html'}
+            def __enter__(self):return self
+            def __exit__(self,*args):return False
+        url='https://example.pusan.ac.kr/example/index.do'
+        for scenario in ('fresh','expired','failed','wrong_url','routing_unresolved','empty_response'):
+            with self.subTest(scenario=scenario),tempfile.TemporaryDirectory() as directory:
+                cache=Path(directory);key=hashlib.sha256(url.encode()).hexdigest();raw=cache/(key+'.gz')
+                with gzip.open(raw,'wb') as handle:handle.write(b'<html>cached</html>')
+                if scenario=='expired':os.utime(raw,(time.time()-7*3600,)*2)
+                meta={'url':url,'status':503 if scenario in ('failed','empty_response') else 200,'routing_unresolved':scenario=='routing_unresolved','routing_checked':True}
+                if scenario=='wrong_url':meta['url']='https://example.pusan.ac.kr/other'
+                (cache/(key+'.json')).write_text(json.dumps(meta));network=Network(scenario=='empty_response')
+                scope=dict(CACHE=cache,hashlib=hashlib,gzip=gzip,json=json,time=time,datetime=datetime,urlsplit=urlsplit,threading=threading,requests=requests,
+                           LOCK=threading.Lock(),HOSTLOCK={},LAST={},LOCAL=types.SimpleNamespace(session=network),route_page=lambda m,data:(m,data))
+                exec(compile(ast.Module(body=functions,type_ignores=[]),'discovery-functions','exec'),scope)
+                _,body=scope['fetch'](url)
+                self.assertEqual(network.calls,0 if scenario=='fresh' else 1)
+                self.assertEqual(body,b'<html>cached</html>' if scenario=='fresh' else b'' if scenario=='empty_response' else b'<html>fresh</html>')
+                if scenario=='empty_response':
+                    self.assertFalse(raw.exists())
+                    scope['fetch'](url)
+                    self.assertEqual(network.calls,2)
+
     def test_late_publication_is_reviewed_using_receipt_time_not_source_time(self):
         root=Path(tempfile.mkdtemp());self.addCleanup(__import__('shutil').rmtree,root)
         path=root/'.runtime/intelligence/published-posts.json';path.parent.mkdir(parents=True)
