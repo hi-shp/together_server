@@ -99,7 +99,7 @@ def _decision(model, request, *, require_remote=False):
     try:
         if provider.enabled and provider.exhausted:
             return work_decision()
-        if not require_remote and time.monotonic() < _retry_api_at:
+        if (not require_remote or provider.enabled) and time.monotonic() < _retry_api_at:
             deferred = True
             raise ConnectionError('API recovery probe deferred; crawler continues locally')
         if provider.enabled:
@@ -131,6 +131,8 @@ def _decision(model, request, *, require_remote=False):
         if not deferred and (not provider.enabled or api_attempted):
             accounting.record(model, request, response=response, error=exc)
         if provider.enabled:
+            if api_attempted and not credit_exhausted(exc):
+                _retry_api_at = time.monotonic() + 120
             if credit_exhausted(exc):
                 provider.mark_exhausted('provider_confirmed_credit_exhausted')
                 event('API', 'API 크레딧 소진 · 이후 불확실 판단은 Work로 전환', console=False)

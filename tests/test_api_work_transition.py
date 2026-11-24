@@ -213,3 +213,15 @@ class TransitionTests(unittest.TestCase):
             work.assert_not_called()
         self.assertTrue(DecisionProvider(self.base).exhausted)
 
+    def test_transient_api_failure_keeps_probe_backoff_after_work_success(self):
+        api = self.adapter()
+        api.client.chat.completions.create.side_effect = ConnectionError('temporary network failure')
+        remote = dict(self.answer, _work_remote=True, _work_model='subscription-model')
+        another = category_request('다른 학생 프로그램 모집', CATEGORIES, '학생 참여자를 모집합니다.')
+        with patch('together.integrations.work_client.WorkClient.decide', return_value=remote), patch.object(api, 'event'):
+            self.assertTrue(api._decision(api.CATEGORY_MODEL, self.request)['_work_remote'])
+            self.assertTrue(api._decision(api.CATEGORY_MODEL, another)['_work_remote'])
+            self.assertTrue(api._decision(api.CATEGORY_MODEL, another, require_remote=True)['_work_remote'])
+        self.assertFalse(DecisionProvider(self.base).exhausted)
+        self.assertEqual(api.client.chat.completions.create.call_count, 1)
+
