@@ -70,18 +70,25 @@ class DecisionProvider:
         with self.db() as db:
             db.execute('BEGIN IMMEDIATE')
             with ApiAccounting(self.base).connection() as usage:
-                spent, unknown = usage.execute('SELECT COALESCE(SUM(cost),0),SUM(cost IS NULL) FROM usage WHERE at>=?',
-                                              (self.config['balance_observed_at'],)).fetchone()
-            pending = db.execute("SELECT COALESCE(SUM(maximum),0) FROM reservations WHERE state!='settled'").fetchone()[0]
-            if unknown:
+                commitments = usage.execute('SELECT at,cost FROM usage WHERE at>=?',
+                                            (self.config['balance_observed_at'],)).fetchall()
+            if any(cost is None for _, cost in commitments):
                 raise CreditUnavailable('Unknown API costs must be reconciled before spending')
-            remaining_spent = spent + pending + self.config.get('prior_unsettled_usd', 0)
-            available = 0
-            for grant in sorted(grants, key=lambda row: row['expires_at']):
-                used = min(remaining_spent, grant['balance_usd'])
-                remaining_spent -= used
-                if datetime.fromisoformat(grant['expires_at']).timestamp() > time.time():
-                    available += grant['balance_usd'] - used
+            commitments += db.execute("SELECT at,maximum FROM reservations WHERE state!='settled'").fetchall()
+            commitments.append((self.config['balance_observed_at'], self.config.get('prior_unsettled_usd', 0)))
+            balances = [[datetime.fromisoformat(grant['expires_at']).timestamp(), grant['balance_usd']]
+                        for grant in sorted(grants, key=lambda row: row['expires_at'])]
+            # Expired, unused credit cannot absorb requests made after its expiry.
+            overdrawn = False
+            for charged_at, amount in sorted(commitments):
+                for balance in balances:
+                    if balance[0] <= charged_at:
+                        continue
+                    used = min(amount, balance[1])
+                    balance[1] -= used
+                    amount -= used
+                overdrawn |= amount > 1e-9
+            available = 0 if overdrawn else sum(left for expires, left in balances if expires > time.time())
             if available < maximum:
                 # Roll back this short transaction before writing the permanent switch.
                 reason = 'authorized_credit_remaining_below_one_request'

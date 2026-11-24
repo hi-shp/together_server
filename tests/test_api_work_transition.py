@@ -81,6 +81,31 @@ class TransitionTests(unittest.TestCase):
             DecisionProvider(self.base).reserve('gpt-5.4-mini', self.request)
         self.assertTrue(DecisionProvider(self.base).exhausted)
 
+    def test_spending_after_grant_expiry_consumes_only_unexpired_credit(self):
+        self.config['credit_grants'] = [{'balance_usd': 10, 'expires_at': '2020-01-01T00:00:00+00:00'},
+                                        {'balance_usd': 2.3, 'expires_at': '2099-01-01T00:00:00+00:00'}]
+        self.save()
+        with ApiAccounting(self.base).connection() as db:
+            db.executemany('INSERT INTO usage VALUES (?,?,?,?,?,?,?,?,?)', [
+                (1570000000, '', 'gpt-5.4-mini', '', 0, 0, 0, 9, ''),
+                (1600000000, '', 'gpt-5.4-mini', '', 0, 0, 0, 2.3, '')])
+        with self.assertRaises(CreditUnavailable):
+            DecisionProvider(self.base).reserve('gpt-5.4-mini', self.request)
+        self.assertTrue(DecisionProvider(self.base).exhausted)
+
+    def test_unknown_request_after_expiry_reserves_only_unexpired_credit(self):
+        self.config['credit_grants'] = [{'balance_usd': 10, 'expires_at': '2020-01-01T00:00:00+00:00'},
+                                        {'balance_usd': 2.3, 'expires_at': '2099-01-01T00:00:00+00:00'}]
+        self.save()
+        with ApiAccounting(self.base).connection() as db:
+            db.execute('INSERT INTO usage VALUES (?,?,?,?,?,?,?,?,?)',
+                       (1570000000, '', 'gpt-5.4-mini', '', 0, 0, 0, 9, ''))
+        provider = DecisionProvider(self.base)
+        with provider.db() as db:
+            db.execute('INSERT INTO reservations VALUES (?,?,?,?)', ('uncertain', 1600000000, 2.3, 'pending'))
+        with self.assertRaises(CreditUnavailable):
+            provider.reserve('gpt-5.4-mini', self.request)
+
     def test_uncertain_paid_outcome_remains_reserved(self):
         p = DecisionProvider(self.base)
         key = p.reserve('gpt-5.4-mini', self.request)
