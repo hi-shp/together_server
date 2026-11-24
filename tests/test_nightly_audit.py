@@ -11,9 +11,20 @@ from unittest.mock import patch
 from together.operations.nightly import KST,activity,advance,read,run,scheduled_slot,verdict
 from together.operations.nightly_http import cached_response
 from together.operations.nightly_semantic import batches,collect
+from together.operations.nightly_email_clock import dates,calibrate
 
 
 class ScheduleTests(unittest.TestCase):
+    def test_school_utc_clock_is_calibrated_from_verified_attempts(self):
+        self.assertEqual(calibrate([(100000,100001),(100500,100501)]),0)
+
+    def test_school_korea_clock_does_not_shift_the_audit_day(self):
+        self.assertEqual(calibrate([(100000,67600),(100500,68100)]),-32400)
+
+    def test_unknown_school_clock_is_not_reported_as_verified(self):
+        self.assertIsNone(calibrate([]))
+        html='<table><tr><td>2026-11-24 05:51:09</td><td><a href="/local/ubmessage/email_send.php?id=157301&amp;eid=12">제목</a></td><td></td><td></td><td></td></tr></table>'
+        self.assertEqual(dates(html)['12'],datetime(2026,11,24,5,51,9,tzinfo=timezone.utc).timestamp())
     def test_friday_runs_at_2200_korea_not_utc(self):
         now=datetime(2026,11,27,13,0,tzinfo=timezone.utc)
         self.assertEqual(scheduled_slot(now).isoformat(),'2026-11-27T22:00:00+09:00')

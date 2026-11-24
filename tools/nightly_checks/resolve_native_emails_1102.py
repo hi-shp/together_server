@@ -11,6 +11,7 @@ from together.plato.auth import http_login_session
 from together.plato.http_client import PlatoHttpClient
 from together.plato.notifications import parse_email_history,parse_send_form,normalize
 from together.plato.email_dispatch import _HistoryLinks
+from together.operations.nightly_email_clock import dates,calibrate
 C=json.loads((O/'context.json').read_text());since=C['email_since'];until=C['until']
 def save(name,v):
  p=O/name;p.write_text(json.dumps(v,ensure_ascii=False,indent=2));p.chmod(0o600)
@@ -37,7 +38,8 @@ try:
   page=queue.pop(0)
   if page in visited:continue
   visited.add(page);text=get('https://dev-plato.pusan.ac.kr/local/ubmessage/email_log.php?id=157301&page='+str(page));soup=BeautifulSoup(text,'html.parser')
-  for row in parse_email_history(text):records[row['eid']]={**row,'student_ids':sorted(row['student_ids'])}
+  school_dates=dates(text)
+  for row in parse_email_history(text):records[row['eid']]={**row,'student_ids':sorted(row['student_ids']),'native_clock_raw':school_dates.get(row['eid'])}
   links=_HistoryLinks();links.feed(text)
   for url in links.urls:
    n=int(parse_qs(urlsplit(url).query).get('page',[0])[0])
@@ -47,7 +49,7 @@ try:
   # Read all linked numeric pages; never stop at the first title/receipt match.
   if len(visited)%10==0:print(json.dumps({'pages':len(visited),'school_records':len(records)}),flush=True)
  save('native-email-history-private.json',{'since':since,'until':until,'pages':sorted(visited),'records':records})
- results=[];used=set();unverified=[];recoverable=[]
+ results=[];used=set();unverified=[];recoverable=[];clock_samples=[]
  for delivery in deliveries:
   eid=delivery['detail'].removeprefix('email_log:');record=records.get(eid);p=R/'.runtime/notification-attempts'/f"{delivery['id']}.json";attempt=json.loads(p.read_text()) if p.exists() else None
   if not attempt:
@@ -57,6 +59,7 @@ try:
    matches=[r for r in records.values() if r['subject']==normalize(attempt['subject']) and set(r['student_ids'])==set(attempt['student_ids'])]
    if len(matches)==1:record=matches[0];eid=record['eid']
   good=bool(record and attempt and record['subject']==normalize(attempt['subject']) and set(record['student_ids'])==set(attempt['student_ids']) and len(record['student_ids'])==delivery['recipients'])
+  if good and attempt.get('started_at') and record.get('native_clock_raw') is not None:clock_samples.append((record['native_clock_raw'],attempt['started_at']))
   result={'delivery_id':delivery['id'],'eid':eid,'verified':good,'subject':record['subject'] if record else None,'recipients':delivery['recipients'],'attempt_keys':sorted(attempt) if attempt else [],'started_at':attempt.get('started_at') if attempt else None}
   result['policy_assumed_without_receipt']=delivery['detail']=='final_retry_assumed_unverified';results.append(result)
   if eid.isdigit():used.add(eid)
@@ -73,8 +76,10 @@ try:
     overlap=set(a['student_ids'])&set(b['student_ids'])
     if overlap:duplicates.append({'subject':subject,'eids':[eid,fid],'overlap_count':len(overlap)})
  # Keep every unmatched school receipt in covered numeric range for reverse review.
- minimum=min(map(int,used),default=0);maximum=max(map(int,used),default=0);extras=[{'eid':eid,'subject':row['subject'],'recipients':len(row['student_ids'])} for eid,row in records.items() if minimum<=int(eid)<=maximum and eid not in used]
+ clock_offset=calibrate(clock_samples)
+ coverage=clock_offset is not None and all(r.get('native_clock_raw') is not None for r in records.values())
+ extras=[{'eid':eid,'subject':row['subject'],'recipients':len(row['student_ids'])} for eid,row in records.items() if clock_offset is not None and row.get('native_clock_raw') is not None and since<=row['native_clock_raw']+clock_offset<=until and eid not in used]
  save('email-reconciliation-private.json',{'results':results,'duplicates':duplicates,'unmapped_native':extras,'unverified':unverified})
- safe={'checked_at':datetime.now().astimezone().isoformat(),'since':since,'until':until,'history_pages':len(visited),'expected_deliveries':len(deliveries),'verified':sum(v['verified'] for v in results),'unverified':unverified,'overlapping_subject_candidates':duplicates,'unmapped_native':extras,'new_sends':0}
+ safe={'checked_at':datetime.now().astimezone().isoformat(),'since':since,'until':until,'school_clock_offset_seconds':clock_offset,'native_time_coverage_verified':coverage,'history_pages':len(visited),'expected_deliveries':len(deliveries),'verified':sum(v['verified'] for v in results),'unverified':unverified,'overlapping_subject_candidates':duplicates,'unmapped_native':extras,'new_sends':0}
  save('email-reconciliation.json',safe);print(json.dumps(safe,ensure_ascii=False),flush=True)
 finally:http.close()

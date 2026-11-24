@@ -94,7 +94,7 @@ def verdict(step, proof):
     if step == 'messages':
         return proof.get('verified_events') == proof.get('expected_events') and not any(proof.get(k) for k in ('unverified', 'duplicates', 'native_not_in_intents'))
     if step == 'email':
-        return proof.get('verified') == proof.get('expected_deliveries') and not any(proof.get(k) for k in ('unverified', 'overlapping_subject_candidates', 'unmapped_native'))
+        return proof.get('verified') == proof.get('expected_deliveries') and proof.get('native_time_coverage_verified') is True and not any(proof.get(k) for k in ('unverified', 'overlapping_subject_candidates', 'unmapped_native'))
     if step == 'publications':
         return proof.get('checked') == proof.get('expected_receipts') and not proof.get('errors') and all(not r.get('error') and not r.get('stars_before_current_day') for r in proof.get('star_search', []))
     if step == 'discord':
