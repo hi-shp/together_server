@@ -12,7 +12,7 @@ for p in posts:
 decisions=collections.defaultdict(list)
 for l in (O/'events.jsonl').open():
  e=json.loads(l)
- if e.get('stage')=='중복' and e.get('source_url'):decisions[e['source_url']].append(e)
+ if e.get('stage')=='중복' and e.get('source_url') and datetime.fromisoformat(e['time']).timestamp()>=C.get('pipeline_since',C['since']):decisions[e['source_url']].append(e)
 index={r.get('source_url'):r for r in receipts.values()};unfinished={x.get('url') or x.get('source_url') for x in pending['pending']};missing=[]
 for source,events in decisions.items():
  last=events[-1]
@@ -23,4 +23,4 @@ for title,rs in groups.items():
  if len(rs)<2 or len(title)<10 or not any(C['publication_since']<=datetime.fromisoformat(x['notice']['observed_at']).timestamp()<=C['until'] for x in rs):continue
  if all(x['board']=='장학금' for x in rs):continue
  risky.append({'title':title,'posts':[{'url':x['article_url'],'source':x['notice']['source_url'],'department':x['notice'].get('department'),'at':x['notice']['observed_at'],'board':x['board']} for x in rs]})
-result={'at':time.time(),'source_decisions':len(decisions),'new_decision_without_receipt_binding_or_pending':missing,'source_bound_to_multiple_posts':{u:ls for u,ls in by_source.items() if len(set(ls))>1},'same_exact_title_review_candidates':risky,'pending_count_now':len(pending['pending']),'pending_records_fields':[sorted(x) for x in pending['pending']],'first_notice_gap_not_automatically_proven':False};(O/'pipeline-reconciliation.json').write_text(json.dumps(result,ensure_ascii=False,indent=2));print(json.dumps(result,ensure_ascii=False))
+result={'at':time.time(),'source_decisions':len(decisions),'new_decision_without_receipt_binding_or_pending':missing,'source_bound_to_multiple_posts':{u:ls for u,ls in by_source.items() if len(set(ls))>1 and any(p.get('board')!='장학금' and u in p.get('sources',[]) for p in posts if not p.get('duplicate_of') and not p.get('moved_to'))},'same_exact_title_review_candidates':risky,'pending_count_now':len(pending['pending']),'pending_records_fields':[sorted(x) for x in pending['pending']],'first_notice_gap_not_automatically_proven':False};(O/'pipeline-reconciliation.json').write_text(json.dumps(result,ensure_ascii=False,indent=2));print(json.dumps(result,ensure_ascii=False))

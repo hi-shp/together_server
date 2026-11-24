@@ -6,7 +6,9 @@ from datetime import datetime
 import requests
 from dotenv import dotenv_values
 R=Path(os.environ.get('TOGETHER_ROOT','/home/ubuntu/together/Source'));O=Path(os.environ['TOGETHER_AUDIT_OUTPUT']);env=dotenv_values(R/'.env')
+C=json.loads((O/'context.json').read_text());discord_since=C.get('discord_since',C['since'])
 events=[json.loads(line) for line in (O/'events.jsonl').open()]
+events=[e for e in events if datetime.fromisoformat(e['time']).timestamp()>=discord_since]
 selected={}
 for e in events:
     if e.get('stage')=='Discord' and e.get('message_id'):selected[e['channel'],e['message_id']]=e
@@ -47,7 +49,7 @@ C=json.loads((O/'context.json').read_text());unmatched=[]
 for p in (R/'logs').glob('log_*.txt'):
     try:at=datetime.strptime(p.stem,'log_%Y-%m-%d_%H-%M-%S').astimezone().timestamp()
     except ValueError:continue
-    if C['since']<=at<=C['until'] and p.name not in files and p.name not in C.get('logs_still_in_progress_at_cut',[]):unmatched.append(p.name)
+    if discord_since<=at<=C['until'] and p.name not in files and p.name not in C.get('logs_still_in_progress_at_cut',[]):unmatched.append(p.name)
 proof={'checked_at':datetime.now().astimezone().isoformat(),'expected_known_message_ids':len(selected),'checked':len(results),'message_types':dict(collections.Counter(row['channel'] for row in results)),'full_files_sha256_matches':sum(file.get('sha256_matches') is True for row in results for file in row.get('files',[])),'local_original_unavailable':missing_local,'logs_without_retained_send_receipt':sorted(unmatched),'errors':errors,'whole_channel_unknown_messages_enumerated':False,'limitation':'Webhook token can read its known message ids but cannot enumerate channel history; no bot channel-history token is available. Telemetry retention also leaves a historical gap.','new_sends':0,'results':results}
 p=O/'discord.json';p.write_text(json.dumps(proof,ensure_ascii=False,indent=2));p.chmod(0o600)
 print(json.dumps({k:v for k,v in proof.items() if k not in ('results','logs_without_retained_send_receipt','local_original_unavailable')},ensure_ascii=False))

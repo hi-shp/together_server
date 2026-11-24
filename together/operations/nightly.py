@@ -81,7 +81,7 @@ def activity(base, slot):
 
 def verdict(step, proof):
     if step == 'core':
-        return proof.get('telemetry', {}).get('invalid_lines') == 0
+        return proof.get('telemetry', {}).get('invalid_lines') == 0 and proof.get('telemetry', {}).get('retained_start_covers_requested') is True
     if step == 'resources':
         return not proof.get('health_critical')
     if step == 'registry':
@@ -125,6 +125,7 @@ def context(base, state, slot):
     return {'scheduled_kst': slot.isoformat(), 'since': since, 'until': slot.timestamp(),
             'message_since': cursors.get('messages', default), 'email_since': cursors.get('email', default),
             'publication_since': cursors.get('publications', default), 'semantic_since': cursors.get('semantic', default),
+            'discord_since':cursors.get('discord',default),'pipeline_since':cursors.get('pipeline',default),
             'logs_still_in_progress_at_cut': sorted(running), 'prior_gaps_preserved': True}
 
 
