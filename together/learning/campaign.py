@@ -71,7 +71,7 @@ class Campaign:
     def finish(self,observation,result,origin):
         if not observation:return
         # Local fallback/cache results must never become teacher labels.
-        valid=origin in ('api','cache') and not result.get('_local_fallback') and not result.get('_local_primary')
+        valid=origin in ('api','cache','work','work_cache') and not result.get('_local_fallback') and not result.get('_local_primary')
         with self.db() as db:
             if valid:
                 db.execute("UPDATE observations SET teacher=?,origin=? WHERE id=? AND teacher=''",(json.dumps(result,ensure_ascii=False),origin,observation['id']))
@@ -100,12 +100,15 @@ class Campaign:
 
     def wants_teacher(self,observation):
         if self.comparing:return True
+        return self.needs_review(observation)
+
+    def needs_review(self,observation,thresholds=None):
         if not observation:return True
         # A confident score cannot bypass unresolved source/first-notice evidence.
         if observation.get('task')=='duplicate_decision' and self.local_result(observation).get('relation')=='needs_context':
             return True
         # Confidence thresholds change frequency, not a daily spend/processing cap.
-        thresholds=self.config.get('review_below',{'notice_category':0.35,'duplicate_decision':0.45})
+        thresholds=thresholds or self.config.get('review_below',{'notice_category':0.35,'duplicate_decision':0.45})
         return observation['prediction']['confidence']<thresholds.get(observation['task'],0.35)
 
     def reserve(self,request,model_name="gpt-5.4-mini-2026-03-17"):

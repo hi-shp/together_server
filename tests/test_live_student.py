@@ -34,6 +34,19 @@ class CampaignTests(unittest.TestCase):
   obs=self.c.begin(self.request,{})
   self.c.finish(obs,{'category':'해당없음','_local_fallback':True},'cache')
   with self.c.db() as db:self.assertEqual(db.execute('SELECT teacher FROM observations').fetchone()[0],'')
+
+ def test_subscription_teacher_keeps_its_distinct_origin(self):
+  obs=self.c.begin(self.request,{})
+  self.c.finish(obs,{'category':'교육/특강/프로그램','_work_remote':True},'work')
+  with self.c.db() as db:
+   teacher,origin=db.execute('SELECT teacher,origin FROM observations').fetchone()
+  self.assertEqual(origin,'work');self.assertEqual(json.loads(teacher)['category'],'교육/특강/프로그램')
+
+ def test_post_credit_review_uses_explicit_thresholds_not_november_comparison(self):
+  obs=self.c.begin(self.request,{})
+  self.assertTrue(self.c.wants_teacher(obs))
+  self.assertFalse(self.c.needs_review(obs,{'notice_category':.8}))
+  self.assertTrue(self.c.needs_review(obs,{'notice_category':.95}))
  def test_reserve_stops_extra_comparison_not_crawler(self):
   self.c.config['grant_balance_usd']=5.00001
   self.assertIsNone(self.c.reserve(self.request));obs=self.c.begin(self.request,{});self.assertEqual(self.c.local_result(obs)['category'],'해당없음')

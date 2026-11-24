@@ -111,7 +111,7 @@ class ApiAccounting:
             db.execute("DELETE FROM usage WHERE at<?", (time.time() - 180 * 86400,))
 
     def store(self, model, request, result):
-        if result.get('_local_fallback'):
+        if result.get('_local_fallback') or result.get('_work_remote'):
             return  # 대체 판단을 실제 API 응답 캐시에 섞지 않는다.
         task = request.get("response_format", {}).get("json_schema", {}).get("name", "")
         ttl = 30 * 86400 if "duplicate" in task else 7 * 86400

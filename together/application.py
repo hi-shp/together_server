@@ -116,7 +116,7 @@ def categorize_announcement(title, content_text):
         truncated_content = truncate_text(combined_text, 1000)
         category = answer_gpt(truncated_content)
         review = review_for(truncated_content)
-        method = "local_api_fallback" if review.get('local_fallback') else "local_primary" if review.get('local_primary') else "gpt_context_review"
+        method = "local_api_fallback" if review.get('local_fallback') else "local_primary" if review.get('local_primary') else "work_context_review" if review.get('work_remote') else "gpt_context_review"
     if os.getenv("NOTICE_CLASSIFIER_MODE", "hybrid") != "legacy":
         from together.notices.intelligence.routing import verified_activity_category
         confirmed = verified_activity_category(title, content_text)
@@ -132,12 +132,14 @@ def categorize_announcement(title, content_text):
         if method == "local_primary"
         else "로컬 대체·API 오류"
         if method == "local_api_fallback"
+        else "Work 본문 검토"
+        if method == "work_context_review"
         else "GPT 본문 검토"
         if method == "gpt_context_review"
         else hint.get("reason") or "제목 규칙·로컬 모델 대조"
     )
     from together.operations.events import decision_explanation
-    explanation = decision_explanation(explanation, review_for(truncated_content).get('reason') if method in ('gpt_context_review', 'local_api_fallback') else '')
+    explanation = decision_explanation(explanation, review_for(truncated_content).get('reason') if method in ('gpt_context_review', 'work_context_review', 'local_api_fallback') else '')
     event(
         "분류",
         f"카테고리 분류 결과: {category} ({explanation})",

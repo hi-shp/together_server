@@ -14,6 +14,7 @@ from together.notices.intelligence.text import (
     normalize_title,
 )
 from together.storage.api_usage import ApiAccounting
+from together.storage.decision_provider import DecisionProvider, CreditUnavailable, credit_exhausted
 from together.storage.decision_samples import observe_decision
 from together.storage.fallback_reviews import FallbackReviews
 from together.operations.events import notice_context, event
@@ -50,9 +51,13 @@ def _validate(result, request):
 def _decision(model, request, *, require_remote=False):
     global _retry_api_at
     accounting = ApiAccounting(BASE_DIR)
+    provider = DecisionProvider(BASE_DIR)
     campaign = None
     observation = None
     reservation = None
+    credit_reservation = None
+    api_attempted = False
+    api_error = None
     try:
         from together.learning.campaign import Campaign
         campaign = Campaign(BASE_DIR)
@@ -72,17 +77,34 @@ def _decision(model, request, *, require_remote=False):
     if cached is not None:
         observe_decision(BASE_DIR,model,request,cached,'cache',notice_context())
         return compared(cached, 'cache')
-    if observation and not require_remote and not campaign.wants_teacher(observation):
+    def work_decision():
+        from together.integrations.work_client import WorkClient
+        result = _validate(WorkClient(BASE_DIR, provider.config).decide(request), request)
+        origin = 'work_cache' if result.get('_work_cached') else 'work'
+        observe_decision(BASE_DIR, 'work:' + result['_work_model'], request, result, origin, notice_context())
+        return compared(result, origin)
+    wants_remote = True
+    if observation:
+        if provider.enabled:
+            if provider.exhausted:
+                wants_remote = campaign.needs_review(observation, provider.config.get('work_review_below'))
+        else:
+            wants_remote = campaign.wants_teacher(observation)
+    if observation and not require_remote and not wants_remote:
         result = campaign.local_result(observation)
         observe_decision(BASE_DIR, model, request, result, 'local_primary', notice_context())
         return compared(result, 'local_primary')
     response = None
     deferred = False
     try:
+        if provider.enabled and provider.exhausted:
+            return work_decision()
         if not require_remote and time.monotonic() < _retry_api_at:
             deferred = True
             raise ConnectionError('API recovery probe deferred; crawler continues locally')
-        if campaign and campaign.active:
+        if provider.enabled:
+            credit_reservation = provider.reserve(model, request)
+        if campaign and campaign.active and not provider.enabled:
             reservation = campaign.reserve(request, model)
             if reservation is None:
                 if require_remote:
@@ -91,7 +113,9 @@ def _decision(model, request, *, require_remote=False):
                 result = campaign.local_result(observation) if observation else local_decision(request, BASE_DIR)
                 observe_decision(BASE_DIR, model, request, result, 'credit_reserve_local', notice_context())
                 return compared(result, 'credit_reserve_local')
-        response = client.chat.completions.create(
+        api_attempted = True
+        api_client = client.with_options(max_retries=0) if provider.enabled else client
+        response = api_client.chat.completions.create(
             model=model, max_completion_tokens=500, reasoning_effort="none", **request
         )
         content = response.choices[0].message.content
@@ -103,8 +127,24 @@ def _decision(model, request, *, require_remote=False):
         _retry_api_at = 0
         return compared(result, 'api')
     except Exception as exc:
-        if not deferred:
+        api_error = exc
+        if not deferred and (not provider.enabled or api_attempted):
             accounting.record(model, request, response=response, error=exc)
+        if provider.enabled:
+            if credit_exhausted(exc):
+                provider.mark_exhausted('provider_confirmed_credit_exhausted')
+                event('API', 'API 크레딧 소진 · 이후 불확실 판단은 Work로 전환', console=False)
+            if provider.exhausted and observation and not require_remote and not campaign.needs_review(observation, provider.config.get('work_review_below')):
+                result = campaign.local_result(observation)
+                observe_decision(BASE_DIR, model, request, result, 'local_primary', notice_context())
+                return compared(result, 'local_primary')
+            # A failed Work session is not retried in this decision. Its durable
+            # cooldown and the existing fallback review preserve the request.
+            if not provider.exhausted or api_attempted or isinstance(exc, CreditUnavailable):
+                try:
+                    return work_decision()
+                except Exception as work_error:
+                    exc = work_error
         _retry_api_at = time.monotonic() + 120
         if require_remote:
             raise
@@ -117,6 +157,8 @@ def _decision(model, request, *, require_remote=False):
         event('API', '로컬 대체 판단 · 복구 후 재검토 대기', level='WARN', error=type(exc).__name__, notice_id=key[:10])
         return compared(result, 'local_fallback')
     finally:
+        if credit_reservation:
+            provider.settle(credit_reservation, response, api_error)
         if campaign and reservation:
             try:
                 campaign.settled(reservation, response)
@@ -194,6 +236,7 @@ def check_title_similarity(new_title, recent_titles, *, context_provider=None):
     used_context = False
     used_model = False
     used_local = False
+    used_work = False
     reviews = []
     final_relation = "different_event"
     labels = {
@@ -232,6 +275,7 @@ def check_title_similarity(new_title, recent_titles, *, context_provider=None):
         used_model = True
         result = _decision(DUPLICATE_MODEL, request)
         used_local = used_local or bool(result.get('_local_fallback') or result.get('_local_primary'))
+        used_work = used_work or bool(result.get('_work_remote'))
         relation = result.get("relation")
         if relation not in labels:
             raise ValueError("Unknown duplicate relation")
@@ -251,7 +295,7 @@ def check_title_similarity(new_title, recent_titles, *, context_provider=None):
             final_relation = relation
     duplicate_review_reason.set(" / ".join(reviews))
     duplicate_review.set(
-        ("로컬 대체·" if used_local else "본문 조건 대조·" if not used_model else "GPT 본문 검토·" if used_context else "GPT 후보 검토·")
+        ("로컬 대체·" if used_local else "Work 본문 검토·" if used_work and used_context else "Work 후보 검토·" if used_work else "본문 조건 대조·" if not used_model else "GPT 본문 검토·" if used_context else "GPT 후보 검토·")
         + labels[final_relation]
     )
     return "중복" if final_relation == "same_event" else "중복 아님"

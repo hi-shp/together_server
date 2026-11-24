@@ -224,7 +224,20 @@ def move_category(service, base_dir, source, category, key):
 def review_pending(service, base_dir):
     from together.storage.api_usage import ApiAccounting
     store = FallbackReviews(base_dir)
-    for row in store.pending():
+    pending = store.pending()
+    # Only waiting, unreconciled decisions are batched. Normal notices keep
+    # their original sequential comparison / first-match-stop behavior.
+    from together.storage.decision_provider import DecisionProvider
+    provider = DecisionProvider(base_dir)
+    if provider.enabled and provider.exhausted:
+        batch = [json.loads(row['request']) for row in pending if not row['reviewed_result']][:8]
+        if batch:
+            from together.integrations.work_client import WorkClient
+            try:
+                WorkClient(base_dir, provider.config).decide_many(batch)
+            except Exception:
+                pass  # Normal recovery retains the unconfirmed records below.
+    for row in pending:
         from together.integrations.openai_client import _decision
         context, request, local = (json.loads(row[name]) for name in ('context', 'request', 'local_result'))
         try:

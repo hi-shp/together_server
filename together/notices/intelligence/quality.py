@@ -143,6 +143,7 @@ def remember_review(combined, result):
         "reason": str(result.get("reason", ""))[:400],
         "local_fallback": bool(result.get('_local_fallback')),
         "local_primary": bool(result.get('_local_primary')),
+        "work_remote": bool(result.get('_work_remote')),
     }
     if len(_reviews) > 128:
         _reviews.pop(next(iter(_reviews)))

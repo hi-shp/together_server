@@ -80,10 +80,11 @@ def report(root,manifest,db):
             task,teacher,context,origin=observations[key];m=tasks.setdefault(task,{'predictions':0,'errors':0,'common_verified':0,'agreement':0,'overlap':0,'unseen_verified':0,'unseen_agreement':0,'false_same':0,'missed_same':0,'seconds':0,'confusions':{}})
             m['predictions']+=1;m['seconds']+=elapsed
             if error:m['errors']+=1;continue
-            if key not in common or not teacher or origin not in ('api','cache'):continue
+            if key not in common or not teacher or origin not in ('api','cache','work','work_cache'):continue
             answer=json.loads(teacher);field='category' if task=='notice_category' else 'relation'
             if answer.get('_local_fallback') or answer.get('_local_primary') or field not in answer:continue
             label=json.loads(pred).get('label');truth=answer[field];m['common_verified']+=1;m['agreement']+=int(label==truth);m['overlap']+=overlap
+            sources=m.setdefault('teacher_origins',{});sources[origin]=sources.get(origin,0)+1
             if key not in contaminated:m['unseen_verified']+=1;m['unseen_agreement']+=int(label==truth)
             if label!=truth:
                 mistake=str(truth)+' -> '+str(label);m['confusions'][mistake]=m['confusions'].get(mistake,0)+1
