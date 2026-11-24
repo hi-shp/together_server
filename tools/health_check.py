@@ -23,6 +23,9 @@ def evaluate(metrics, previous=None):
 
     if metrics["free_bytes"] < 2 * GIB:
         add("disk_critical", "디스크 여유 공간이 2GB 아래입니다.")
+    inodes = metrics.get('inodes', {})
+    if inodes.get('total', 0) > 0 and inodes.get('available', 0) / inodes['total'] < .01:
+        add('inode_critical', '파일 개수 여유(inode)가 1% 아래입니다. 파일 저장이 중단될 수 있습니다.')
     running = metrics.get("crawler_running", metrics.get("service") == "active")
     if metrics.get("expected_running") and not running:
         add("crawler_stopped", "운영하도록 설정한 크롤러가 중지됐습니다.")
@@ -270,6 +273,7 @@ def collect(base_dir):
     runner = read_state(base_dir)
     memory = psutil.virtual_memory()
     free = shutil.disk_usage(base_dir).free
+    filesystem = os.statvfs(base_dir)
     api = ApiAccounting(base_dir).summary()
     quarantined = sum(
         path.stat().st_mtime > time.time() - 3600
@@ -307,6 +311,7 @@ def collect(base_dir):
         or runner.get("expected_running", False),
         "runner": runner,
         "free_bytes": free,
+        "inodes": {'total': filesystem.f_files, 'available': filesystem.f_favail},
         "memory_percent": memory.percent,
         "attachment_cache": AttachmentCache(base_dir).maintain(),
         "api": api,
@@ -342,6 +347,7 @@ def main():
         "work_credit_fallback_ready": metrics['work_credit_fallback_ready'],
         "email_confirmation_waiting_recipients": metrics['email_confirmation_waiting_recipients'],
         "free_gib": round(metrics["free_bytes"] / GIB, 2),
+        "inodes": metrics['inodes'],
         "api": metrics["api"],
         "attachment_cache": metrics["attachment_cache"],
     }

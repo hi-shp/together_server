@@ -46,7 +46,8 @@ def cachekey(u):return hashlib.sha256(u.encode()).hexdigest()
 def route_page(m,data):
  if not data:return m,data
  soup=BeautifulSoup(data,'html.parser')
- if not any(x in str(soup) for x in ('pnuDomainChk.do','http-equiv="refresh"',"http-equiv='refresh'")):return m,data
+ rendered=str(soup)
+ if not any(x in rendered for x in ('pnuDomainChk.do','http-equiv="refresh"',"http-equiv='refresh'")):return m,data
  if not hasattr(LOCAL,'session'):LOCAL.session=requests.Session()
  visited={m.get('final_url',m['url'])}
  chain=[]

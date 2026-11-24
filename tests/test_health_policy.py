@@ -10,6 +10,12 @@ from together.operations.health_policy import work_credit_fallback_ready
 
 
 class HealthPolicyTests(unittest.TestCase):
+    def test_inode_pressure_is_detected_even_when_disk_bytes_are_available(self):
+        metrics={'free_bytes':10**11, 'inodes':{'total':100000,'available':999}}
+        self.assertIn('inode_critical',{row['code'] for row in evaluate(metrics)[0]})
+        self.assertEqual(evaluate(dict(metrics,inodes={'total':0,'available':0}))[0],[])
+        self.assertEqual(evaluate(dict(metrics,inodes={'total':100000,'available':2000}))[0],[])
+
     def prepare_mail(self, root, started):
         runtime = root/'.runtime'
         attempts = runtime/'notification-attempts'
