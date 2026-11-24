@@ -11,6 +11,7 @@ from together.config import BASE_DIR, notify
 from together.operations.state import read_state
 from together.storage.attachments import AttachmentCache, GIB
 from together.storage.api_usage import ApiAccounting
+from together.operations.health_policy import email_confirmation_grace, waiting_email_job, work_credit_fallback_ready
 
 
 def evaluate(metrics, previous=None):
@@ -91,6 +92,7 @@ def evaluate(metrics, previous=None):
             "대기 중인 이메일을 처리할 발송 작업자가 중지됐습니다.",
         )
     errors = metrics.get("api", {}).get("errors_last_day", {})
+    credit_fallback = metrics.get('work_credit_fallback_ready') is True
     for code in (
         "insufficient_quota",
         "invalid_api_key",
@@ -98,7 +100,7 @@ def evaluate(metrics, previous=None):
         "AuthenticationError",
         "DailyApiBudgetExceeded",
     ):
-        if errors.get(code, 0):
+        if errors.get(code, 0) and not (code == 'insufficient_quota' and credit_fallback):
             add("api_" + code, "API 인증·잔액·모델 설정 확인이 필요합니다: " + code)
     budget = metrics.get("budget", {})
     if budget.get("balance_source") == "key_changed":
@@ -111,17 +113,18 @@ def evaluate(metrics, previous=None):
     if (
         budget.get("estimated_remaining_usd") is not None
         and budget["estimated_remaining_usd"] < 0.25
+        and not credit_fallback
     ):
         add(
             "api_balance_low",
             "기록된 API 사용량을 반영한 잔액 추정치가 $0.25 아래입니다. 실제 잔액 확인이 필요합니다.",
         )
-    if budget.get("forecast_days") is not None and budget["forecast_days"] < 7:
+    if budget.get("forecast_days") is not None and budget["forecast_days"] < 7 and not credit_fallback:
         add(
             "api_runout_soon",
             "최근 실제 운영 사용량 기준으로 API 잔액 추정 소진 시점이 7일 이내입니다.",
         )
-    if budget.get("expires_in_days") is not None and budget["expires_in_days"] <= 7:
+    if budget.get("expires_in_days") is not None and budget["expires_in_days"] <= 7 and not credit_fallback:
         add("api_credit_expiry", "확인해 둔 API 크레딧 만료일이 7일 이내입니다.")
     return issues, {"memory_checks": memory_checks}
 
@@ -190,13 +193,24 @@ def budget_status(base_dir, api):
 def delivery_metrics(base_dir, now=None):
     now = time.time() if now is None else now
     unknown = 0
+    waiting = set()
+    waiting_events = set()
+    waiting_recipients = 0
     ledger = base_dir / ".runtime/notification-deliveries.sqlite3"
     if ledger.exists():
         with sqlite3.connect(ledger) as db:
+            waiting, waiting_events = email_confirmation_grace(base_dir, db, now)
             unknown = db.execute(
                 "SELECT COALESCE(SUM(recipients),0) FROM deliveries WHERE (state='unknown' AND updated<?) OR (state='sending' AND updated + MAX(900,recipients*30+120) < ?)",
                 (now - 300, now),
             ).fetchone()[0]
+            if waiting:
+                placeholders = ','.join('?' for _ in waiting)
+                waiting_recipients = db.execute(
+                    "SELECT COALESCE(SUM(recipients),0) FROM deliveries WHERE state='unknown' AND updated<? AND id IN ("+placeholders+")",
+                    (now-300, *waiting),
+                ).fetchone()[0]
+                unknown -= waiting_recipients
     queue_pending = queue_blocked = 0
     queue_oldest = queue_idle = 0
     outbox = base_dir / ".runtime/email-outbox.sqlite3"
@@ -215,8 +229,16 @@ def delivery_metrics(base_dir, now=None):
             ).fetchone()[0]
             if oldest:
                 queue_idle = max(0, now - max(oldest, progress or oldest))
+            columns = {r[1] for r in db.execute('PRAGMA table_info(jobs)')}
+            if waiting_events and 'payload' in columns:
+                jobs = db.execute("SELECT state,recipients,created,payload FROM jobs WHERE state!='sent'").fetchall()
+                grace = [row for row in jobs if row[0] == 'unknown' and waiting_email_job(row[3], waiting_events)]
+                queue_blocked -= sum(row[1] for row in grace if row[2] < now-120)
+                actionable = [row[2] for row in jobs if row not in grace]
+                queue_idle = max(0, now-max(min(actionable),progress or min(actionable))) if actionable else 0
     return {
         "unknown_delivery_recipients": unknown,
+        "email_confirmation_waiting_recipients": waiting_recipients,
         "email_queue_pending": queue_pending,
         "email_queue_blocked": queue_blocked,
         "email_queue_oldest_seconds": queue_oldest,
@@ -289,6 +311,7 @@ def collect(base_dir):
         "attachment_cache": AttachmentCache(base_dir).maintain(),
         "api": api,
         "budget": budget_status(base_dir, api),
+        "work_credit_fallback_ready": work_credit_fallback_ready(base_dir),
         "recent_quarantined": quarantined,
         "unverified_publications": unverified,
         "recipient_directory_mismatch": mismatch,
@@ -316,6 +339,8 @@ def main():
         "service": metrics["service"],
         "expected_running": metrics["expected_running"],
         "budget": metrics["budget"],
+        "work_credit_fallback_ready": metrics['work_credit_fallback_ready'],
+        "email_confirmation_waiting_recipients": metrics['email_confirmation_waiting_recipients'],
         "free_gib": round(metrics["free_bytes"] / GIB, 2),
         "api": metrics["api"],
         "attachment_cache": metrics["attachment_cache"],
