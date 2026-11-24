@@ -51,7 +51,7 @@ class CatalogTests(unittest.TestCase):
 
     def test_moved_school_boards_preserve_saved_number_and_subscription_identity(self):
         from together.crawler.pages import URL_OVERRIDES
-        for host, old, new, number in [('larc','72331','18236',6), ('primate','71680','18295',0), ('shinlab','71292','18249',69), ('bioenergy','28644','18105',55), ('marketing','27901','18266',44)]:
+        for host, old, new, number in [('larc','72331','18236',6), ('primate','71680','18295',0), ('shinlab','71292','18249',69), ('bioenergy','28644','18105',55), ('marketing','27901','18266',44), ('powerlab','24686','18776',3), ('powerlab','24698','18777',2)]:
             old_url=f'https://{host}.pusan.ac.kr/{host}/{old}/subview.do'
             row=next(r for r in records().values() if r['page_url']==old_url)
             page=AnnouncementPage(row['identity_department'],old_url,'',number)
