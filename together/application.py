@@ -149,7 +149,7 @@ def categorize_announcement(title, content_text):
         score=prediction.get("score"),
         model=(
             os.getenv("GPT_CATEGORY_MODEL", "gpt-5.4-mini-2026-03-17")
-            if method == "gpt_context_review"
+            if method in ("gpt_context_review", "work_context_review")
             else prediction.get("model_sha256", "local-rules")
         ),
         reason=(

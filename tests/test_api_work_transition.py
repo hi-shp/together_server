@@ -133,6 +133,16 @@ class TransitionTests(unittest.TestCase):
             with self.assertRaises(ValueError): WorkClient(self.base, self.config).decide_many([])
             run.assert_not_called()
 
+    def test_new_work_items_keep_the_same_minimal_prefix_context(self):
+        work = WorkClient(self.base, self.config)
+        another = category_request('학생 특강 두 번째 신청', CATEGORIES, '다른 특강 참가자를 모집합니다.')
+        with patch('together.integrations.work_client.subprocess.run', side_effect=self.fake_cli) as run:
+            work.decide(self.request)
+            work.decide(another)
+        self.assertEqual(run.call_count, 2)
+        self.assertEqual(run.call_args_list[0].kwargs['cwd'], run.call_args_list[1].kwargs['cwd'])
+        self.assertEqual(run.call_args_list[0].kwargs['env']['CODEX_HOME'], run.call_args_list[1].kwargs['env']['CODEX_HOME'])
+
     def test_api_is_used_first_and_credit_exhaustion_switches_once(self):
         api = self.adapter()
         api.client.chat.completions.create.side_effect = QuotaError()

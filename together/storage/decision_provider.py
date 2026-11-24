@@ -95,7 +95,7 @@ class DecisionProvider:
     def settle(self, key, response=None, error=None):
         # A received SDK error without usage cannot be charged as a completion.
         # Transport/unknown outcomes retain their reservation for reconciliation.
-        known_error = getattr(error, 'status_code', None) in (400, 401, 403, 404, 429)
+        known_error = credit_exhausted(error) or getattr(error, 'status_code', None) in (400, 401, 403, 404, 429)
         if key and (getattr(response, 'usage', None) is not None or known_error):
             with self.db() as db:
                 db.execute("UPDATE reservations SET state='settled' WHERE id=?", (key,))

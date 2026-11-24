@@ -111,6 +111,10 @@ class WorkClient:
                 db.execute('INSERT INTO attempts VALUES (?,?,?,?,0,0,0,?)', (attempt, time.time(), 'started', len(items), ''))
             with tempfile.TemporaryDirectory(prefix='job-', dir=self.root) as job:
                 job = Path(job)
+                # A random working directory changes the early model context and
+                # defeats shared-prefix caching across otherwise identical jobs.
+                execution = self.root / 'execution'
+                execution.mkdir(exist_ok=True, mode=0o700)
                 schema_path, result_path = job / 'schema.json', job / 'result.json'
                 schema_path.write_text(json.dumps(schema, ensure_ascii=False), encoding='utf-8')
                 schema_path.chmod(0o600)
@@ -136,7 +140,7 @@ class WorkClient:
                            '-c', 'model_reasoning_effort="low"', '-c', 'model_verbosity="low"',
                            '--output-schema', str(schema_path.resolve()), '--output-last-message', str(result_path.resolve()), '-']
                 process = subprocess.run(command, input=prompt, text=True, encoding='utf-8', capture_output=True,
-                                         cwd=job, env=env, timeout=55)
+                                         cwd=execution, env=env, timeout=55)
                 if process.returncode or not result_path.exists():
                     raise WorkUnavailable('Work session did not return a complete decision')
                 output = json.loads(result_path.read_text(encoding='utf-8'))
