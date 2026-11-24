@@ -10,6 +10,15 @@ import time
 from .nightly import read, save, timestamp
 
 
+def compact_notice(notice):
+    result=dict(notice)
+    text=result.get('body_excerpt') or result.get('body') or result.get('body_text','')
+    result['body_excerpt']=text
+    for name in ('body','body_text'):
+        if result.get(name)==text:result.pop(name,None)
+    return result
+
+
 def batches(rows, maximum=96000):
     pending, size = [], 0
     for row in rows:
@@ -49,8 +58,8 @@ def collect(base, C):
                         # published near-duplicates, not obvious rejected pairs.
                         continue
                     left, right = row['left'], row['right']
-                    left = dict(left, body_excerpt=left.get('body') or left.get('body_excerpt',''))
-                    right = dict(right, body_excerpt=right.get('body') or right.get('body_excerpt',''))
+                    left = compact_notice(left)
+                    right = compact_notice(right)
                     request = duplicate_request(left['title'], [right['title']], {'new_notice':left, 'recent_notices':[right]})
                 else:
                     continue
@@ -92,7 +101,7 @@ def collect(base, C):
             seen.add(pair)
             def notice(post):
                 n=post['notice']
-                return dict(n,body_excerpt=n.get('body_excerpt') or n.get('body_text') or n.get('body',''))
+                return compact_notice(n)
             a,b=notice(left),notice(right)
             request=duplicate_request(a['title'],[b['title']],{'new_notice':a,'recent_notices':[b]})
             add(request,{'relation':'different_event'},a.get('source_url'),{'kind':'actual_separate_posts_candidate','articles':list(pair)})

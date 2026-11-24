@@ -10,8 +10,8 @@ from unittest.mock import patch
 
 from together.operations.nightly import KST,activity,advance,read,run,scheduled_slot,verdict
 from together.operations.nightly_http import cached_response
-from together.operations.nightly_semantic import batches,collect
-from together.operations.nightly_email_clock import dates,calibrate
+from together.operations.nightly_semantic import batches,collect,compact_notice
+from together.operations.nightly_email_clock import dates,calibrate,membership
 
 
 class ScheduleTests(unittest.TestCase):
@@ -25,6 +25,16 @@ class ScheduleTests(unittest.TestCase):
         self.assertIsNone(calibrate([]))
         html='<table><tr><td>2026-11-24 05:51:09</td><td><a href="/local/ubmessage/email_send.php?id=157301&amp;eid=12">제목</a></td><td></td><td></td><td></td></tr></table>'
         self.assertEqual(dates(html)['12'],datetime(2026,11,24,5,51,9,tzinfo=timezone.utc).timestamp())
+
+    def test_real_school_12h_clock_keeps_ambiguous_cutoff_unverified(self):
+        raw=datetime(2026,11,24,5,51,9,tzinfo=timezone.utc).timestamp()
+        actual=raw+10800
+        self.assertEqual(calibrate([(raw,actual),(raw+10,actual+10)]),'kst_12h')
+        since=datetime(2026,11,24,9,tzinfo=KST).timestamp()
+        until=datetime(2026,11,24,22,tzinfo=KST).timestamp()
+        self.assertIsNone(membership(raw,'kst_12h',since,until))
+        self.assertTrue(membership(raw,'kst_12h',since,until,actual=actual))
+        self.assertTrue(membership(raw,'kst_12h',since,until,lower=actual-60))
     def test_friday_runs_at_2200_korea_not_utc(self):
         now=datetime(2026,11,27,13,0,tzinfo=timezone.utc)
         self.assertEqual(scheduled_slot(now).isoformat(),'2026-11-27T22:00:00+09:00')
@@ -152,6 +162,13 @@ class AuditTests(unittest.TestCase):
         rows=collect(self.base,{'semantic_since':0,'until':200})
         self.assertEqual(len(rows),1)
         self.assertEqual(rows[0]['expected']['relation'],'same_event')
+        payload=json.loads(rows[0]['request']['messages'][-1]['content'])
+        self.assertEqual(payload['new_notice']['body_excerpt'],'학생 프로그램')
+        self.assertNotIn('body',payload['new_notice'])
+
+    def test_different_body_evidence_is_never_removed_by_compaction(self):
+        row={'title':'제목','source_url':'u','body':'더 긴 신청 조건','body_excerpt':'짧은 행사 소개','year':2026}
+        self.assertEqual(compact_notice(row),row)
 
     def test_obvious_rejected_pairs_do_not_get_another_work_request(self):
         self.pair_sample('different_event',.999,'different_event')

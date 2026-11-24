@@ -11,7 +11,8 @@ from together.plato.auth import http_login_session
 from together.plato.http_client import PlatoHttpClient
 from together.plato.notifications import parse_email_history,parse_send_form,normalize
 from together.plato.email_dispatch import _HistoryLinks
-from together.operations.nightly_email_clock import dates,calibrate
+from together.operations.nightly_email_clock import dates,calibrate,membership
+from bisect import bisect_left
 C=json.loads((O/'context.json').read_text());since=C['email_since'];until=C['until']
 def save(name,v):
  p=O/name;p.write_text(json.dumps(v,ensure_ascii=False,indent=2));p.chmod(0o600)
@@ -76,10 +77,22 @@ try:
     overlap=set(a['student_ids'])&set(b['student_ids'])
     if overlap:duplicates.append({'subject':subject,'eids':[eid,fid],'overlap_count':len(overlap)})
  # Keep every unmatched school receipt in covered numeric range for reverse review.
- clock_offset=calibrate(clock_samples)
- coverage=clock_offset is not None and all(r.get('native_clock_raw') is not None for r in records.values())
- extras=[{'eid':eid,'subject':row['subject'],'recipients':len(row['student_ids'])} for eid,row in records.items() if clock_offset is not None and row.get('native_clock_raw') is not None and since<=row['native_clock_raw']+clock_offset<=until and eid not in used]
+ anchors={}
+ with sqlite3.connect('file:'+str(R/'.runtime/notification-deliveries.sqlite3')+'?mode=ro',uri=True) as db:
+  for did,detail in db.execute("SELECT id,detail FROM deliveries WHERE kind='email' AND state='sent' AND detail LIKE 'email_log:%'"):
+   eid=detail.removeprefix('email_log:');p=R/'.runtime/notification-attempts'/(did+'.json');record=records.get(eid)
+   if not record or not p.exists():continue
+   attempt=json.loads(p.read_text())
+   if attempt.get('started_at') and record['subject']==normalize(attempt.get('subject','')) and set(record['student_ids'])==set(map(str,attempt.get('student_ids',[]))):
+    anchors[eid]=attempt['started_at']
+    if record.get('native_clock_raw') is not None:clock_samples.append((record['native_clock_raw'],attempt['started_at']))
+ clock_offset=calibrate(clock_samples);anchor_ids=sorted(map(int,anchors));scope={}
+ for eid,record in records.items():
+  pos=bisect_left(anchor_ids,int(eid));lower=anchors[str(anchor_ids[pos-1])] if pos else None;upper=anchors[str(anchor_ids[pos])] if pos<len(anchor_ids) else None
+  scope[eid]=membership(record.get('native_clock_raw'),clock_offset,since,until,actual=anchors.get(eid),lower=lower,upper=upper)
+ coverage=clock_offset is not None and all(v is not None for v in scope.values())
+ extras=[{'eid':eid,'subject':row['subject'],'recipients':len(row['student_ids'])} for eid,row in records.items() if scope[eid] is True and eid not in used]
  save('email-reconciliation-private.json',{'results':results,'duplicates':duplicates,'unmapped_native':extras,'unverified':unverified})
- safe={'checked_at':datetime.now().astimezone().isoformat(),'since':since,'until':until,'school_clock_offset_seconds':clock_offset,'native_time_coverage_verified':coverage,'history_pages':len(visited),'expected_deliveries':len(deliveries),'verified':sum(v['verified'] for v in results),'unverified':unverified,'overlapping_subject_candidates':duplicates,'unmapped_native':extras,'new_sends':0}
+ safe={'checked_at':datetime.now().astimezone().isoformat(),'since':since,'until':until,'school_clock_format':clock_offset,'ambiguous_native_clock_records':sum(v is None for v in scope.values()),'school_clock_offset_seconds':clock_offset if isinstance(clock_offset,int) else None,'native_time_coverage_verified':coverage,'history_pages':len(visited),'expected_deliveries':len(deliveries),'verified':sum(v['verified'] for v in results),'unverified':unverified,'overlapping_subject_candidates':duplicates,'unmapped_native':extras,'new_sends':0}
  save('email-reconciliation.json',safe);print(json.dumps(safe,ensure_ascii=False),flush=True)
 finally:http.close()
