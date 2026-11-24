@@ -13,6 +13,20 @@ from together.crawler.pages import AnnouncementPage
 
 
 class CatalogTests(unittest.TestCase):
+    def test_verified_centers_and_teacher_support_are_in_their_own_sections(self):
+        rows = list(records().values())
+        expected = {
+            'bali': ('70 연구소·센터', 'research'),
+            'super-erc': ('70 연구소·센터', 'research'),
+            'aiedap': ('32 학생 이용 기관', 'support'),
+        }
+        for site, (section, kind) in expected.items():
+            matched = [row for row in rows if '/' + site + '/' in row['page_url']]
+            self.assertTrue(matched)
+            for row in matched:
+                self.assertEqual((row['sort_group'], row['kind']), (section, kind))
+                self.assertEqual(row['affiliation_confidence'], '공식 페이지 확인')
+
     def test_smart_city_follows_urban_engineering_in_the_same_college(self):
         rows = sorted(records().values(), key=lambda row: row['order'])
         urban = [row for row in rows if row['organization'] == '도시공학과']
