@@ -85,12 +85,19 @@ def collect(base, C):
         try:return timestamp(p['notice']['observed_at'])
         except (KeyError,ValueError,TypeError):return 0
     def normalized(p):return re.sub(r'\W+','',p['notice']['title'].lstrip('⭐').lower())
-    fresh = [p for p in active if C['semantic_since'] <= at(p) <= C['until']]
+    # A delayed first publication must enter the audit when it is actually
+    # recorded, even if its source was first observed before the last cursor.
+    updates = {}
+    for receipt in read(base/'.runtime/published-receipts.json',{}).values():
+        url=receipt.get('article_url')
+        if url and receipt.get('updated_at') is not None:
+            updates[url]=max(updates.get(url,0),timestamp(receipt['updated_at']))
+    fresh = [p for p in active if C['semantic_since'] <= updates.get(p['article_url'],at(p)) <= C['until']]
     seen = set()
     for left in fresh:
         candidates = []
         for right in active:
-            if left['article_url']==right['article_url'] or not 0 <= at(left)-at(right) <= 14*86400:
+            if left['article_url']==right['article_url'] or abs(at(left)-at(right)) > 14*86400:
                 continue
             score = SequenceMatcher(None,normalized(left),normalized(right)).ratio()
             if score >= .5:

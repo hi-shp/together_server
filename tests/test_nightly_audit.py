@@ -55,6 +55,26 @@ class ScheduleTests(unittest.TestCase):
 
 
 class AuditTests(unittest.TestCase):
+    def test_late_publication_is_reviewed_using_receipt_time_not_source_time(self):
+        root=Path(tempfile.mkdtemp());self.addCleanup(__import__('shutil').rmtree,root)
+        path=root/'.runtime/intelligence/published-posts.json';path.parent.mkdir(parents=True)
+        posts=[{'article_url':url,'board':'교육','notice':{'title':'2026 KWP 교류 프로그램','observed_at':at,'source_url':url,'body_text':'동일한 프로그램 안내'}} for url,at in [('new-post',90),('old-post',100)]]
+        path.write_text(json.dumps({'posts':posts}))
+        receipts=root/'.runtime/published-receipts.json'
+        receipts.write_text(json.dumps({'new':{'article_url':'new-post','updated_at':250},'old':{'article_url':'old-post','updated_at':100}}))
+        rows=collect(root,{'semantic_since':200,'until':300})
+        self.assertEqual(len(rows),1)
+        self.assertEqual(rows[0]['evidence']['kind'],'actual_separate_posts_candidate')
+
+    def test_after_cutoff_publication_waits_for_next_interval(self):
+        root=Path(tempfile.mkdtemp());self.addCleanup(__import__('shutil').rmtree,root)
+        path=root/'.runtime/intelligence/published-posts.json';path.parent.mkdir(parents=True)
+        posts=[{'article_url':url,'board':'교육','notice':{'title':'2026 KWP 교류 프로그램','observed_at':at,'source_url':url,'body_text':'동일한 프로그램 안내'}} for url,at in [('new-post',250),('old-post',90)]]
+        path.write_text(json.dumps({'posts':posts}))
+        (root/'.runtime/published-receipts.json').write_text(json.dumps({'new':{'article_url':'new-post','updated_at':350},'old':{'article_url':'old-post','updated_at':100}}))
+        self.assertEqual(collect(root,{'semantic_since':200,'until':300}),[])
+        self.assertEqual(len(collect(root,{'semantic_since':300,'until':400})),1)
+
     def setUp(self):
         self.temp=tempfile.TemporaryDirectory();self.addCleanup(self.temp.cleanup)
         self.base=Path(self.temp.name)
