@@ -140,6 +140,8 @@ def run(base, *, now=None, manual=False, plan=False):
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except BlockingIOError:
         lock.close()
+        if slot is not None and not manual and not plan:
+            save(root/'deferred'/slot.strftime('%Y%m%dT%H%M%S.json'),{'scheduled_kst':slot.isoformat(),'status':'queued_after_active_audit'})
         return {'status': 'already_running'}
     try:
         if slot is None:

@@ -65,6 +65,14 @@ class AuditTests(unittest.TestCase):
     def test_missing_evidence_is_unknown_not_a_quiet_zero(self):
         self.assertIsNone(activity(self.base,self.slot))
 
+    def test_2200_slot_is_queued_when_an_immediate_audit_is_still_running(self):
+        import fcntl
+        root=self.base/'.runtime/nightly-audit';root.mkdir(parents=True)
+        with (root/'execution.lock').open('a') as lock:
+            fcntl.flock(lock,fcntl.LOCK_EX)
+            self.assertEqual(run(self.base,now=self.slot)['status'],'already_running')
+        self.assertEqual(read(root/'deferred/20261124T220000.json')['status'],'queued_after_active_audit')
+
     def test_no_activity_does_not_run_helpers_or_work(self):
         self.observations([])
         with patch('together.operations.nightly.subprocess.run') as execute:
