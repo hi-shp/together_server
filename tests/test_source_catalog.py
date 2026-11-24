@@ -13,6 +13,59 @@ from together.crawler.pages import AnnouncementPage
 
 
 class CatalogTests(unittest.TestCase):
+    def test_smart_city_follows_urban_engineering_in_the_same_college(self):
+        rows = sorted(records().values(), key=lambda row: row['order'])
+        urban = [row for row in rows if row['organization'] == '도시공학과']
+        smart = [row for row in rows if row['organization'] == '스마트시티전공']
+        future = [row for row in rows if row['organization'] == '미래도시건축환경융합전공']
+        self.assertEqual(smart[0]['order'], urban[-1]['order'] + 1)
+        self.assertEqual(future[0]['order'], smart[-1]['order'] + 1)
+        self.assertTrue(all(row['sort_group'] == '10 공과대학' for row in urban + smart + future))
+        self.assertEqual(len({row['related_group'] for row in urban + smart + future}), 1)
+
+    def test_college_sections_and_related_academic_fields_are_contiguous(self):
+        rows = sorted(records().values(), key=lambda row: row['order'])
+        for field in ('sort_group', 'organization'):
+            groups = {}
+            for row in rows:
+                # The university itself owns the core, student and staff boards.
+                key = row[field]
+                if field == 'organization' and key == '부산대학교':
+                    continue
+                groups.setdefault(key, []).append(row['order'])
+            for key, positions in groups.items():
+                with self.subTest(field=field, key=key):
+                    self.assertEqual(positions, list(range(positions[0], positions[-1] + 1)))
+        academic_groups = {}
+        for row in rows:
+            self.assertTrue(row['related_group'].strip())
+            if '10' <= row['sort_group'][:2] <= '29':
+                key = (row['sort_group'], row['related_group'])
+                academic_groups.setdefault(key, []).append(row['order'])
+        for key, positions in academic_groups.items():
+            with self.subTest(academic_group=key):
+                self.assertEqual(positions, list(range(positions[0], positions[-1] + 1)))
+
+    def test_college_notice_precedes_its_departments(self):
+        rows = sorted(records().values(), key=lambda row: row['order'])
+        for section in {row['sort_group'] for row in rows if '10' <= row['sort_group'][:2] <= '27'}:
+            members = [row for row in rows if row['sort_group'] == section]
+            college = section[3:]
+            headers = [row for row in members if row['organization'] == college]
+            if headers:
+                with self.subTest(college=college):
+                    self.assertEqual(members[0]['organization'], college)
+
+    def test_labs_with_verified_department_are_kept_together(self):
+        rows = sorted(records().values(), key=lambda row: row['order'])
+        groups = {}
+        for row in rows:
+            if row['sort_group'].startswith('60 '):
+                groups.setdefault(row['affiliation'], []).append(row['order'])
+        for affiliation, positions in groups.items():
+            with self.subTest(affiliation=affiliation):
+                self.assertEqual(positions, list(range(positions[0], positions[-1] + 1)))
+
     def test_new_official_boards_have_distinct_identities_and_stay_with_their_organization(self):
         rows = list(records().values())
         keys = {'k2web:omse:1213', 'k2web:fsn:654', 'k2web:archaeology:393', 'k2web:chemistrylab:10270', 'k2web:chemistrylab:10271', 'k2web:molbiology:800', 'k2web:rocket-:19117'}
