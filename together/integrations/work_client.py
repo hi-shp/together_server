@@ -33,10 +33,11 @@ def validate(value, schema):
 
 
 class WorkClient:
-    def __init__(self, base_dir, config):
+    def __init__(self, base_dir, config, *, audit=False):
         self.base = Path(base_dir)
         self.config = config
-        self.root = self.base / '.runtime/work-codex'
+        self.auth_home = self.base / '.runtime/work-codex'
+        self.root = self.auth_home / 'nightly' if audit else self.auth_home
         self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
         self.model = config.get('work_model', 'gpt-6.1-sol')
 
@@ -131,7 +132,7 @@ class WorkClient:
                 instructions.chmod(0o600)
                 # Only the dedicated ChatGPT auth cache is visible to the CLI config.
                 env = {k: v for k, v in os.environ.items() if k in ('PATH', 'HOME', 'LANG', 'LC_ALL', 'TMPDIR', 'SSL_CERT_FILE', 'SSL_CERT_DIR')}
-                env['CODEX_HOME'] = str(self.root.resolve())
+                env['CODEX_HOME'] = str(self.auth_home.resolve())
                 command = [binary, 'exec', '--ignore-user-config', '--ignore-rules', '--ephemeral', '--skip-git-repo-check',
                            '--sandbox', 'read-only', '--json', '--model', self.model,
                            '--disable', 'shell_tool', '--disable', 'apps', '--disable', 'plugins',

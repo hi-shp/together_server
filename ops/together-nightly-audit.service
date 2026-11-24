@@ -1,0 +1,20 @@
+[Unit]
+Description=Together incremental read-only daily audit using ChatGPT Work
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=ubuntu
+WorkingDirectory=/home/ubuntu/together/Source
+ExecStart=/usr/bin/python3 /home/ubuntu/together/Source/tools/nightly_audit.py
+UMask=0077
+Nice=15
+CPUQuota=35%
+MemoryMax=384M
+MemorySwapMax=512M
+IOWeight=10
+IOSchedulingClass=idle
+OOMPolicy=stop
+TimeoutStartSec=6h
+KillMode=control-group

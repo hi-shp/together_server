@@ -1,0 +1,12 @@
+[Unit]
+Description=Together weekday audit at 22:00 Korea time
+
+[Timer]
+OnCalendar=Mon..Fri *-*-* 22:00:00 Asia/Seoul
+Persistent=true
+AccuracySec=1s
+RandomizedDelaySec=0
+Unit=together-nightly-audit.service
+
+[Install]
+WantedBy=timers.target
