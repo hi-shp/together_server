@@ -36,6 +36,7 @@ class WorkClient:
     def __init__(self, base_dir, config, *, audit=False):
         self.base = Path(base_dir)
         self.config = config
+        self.audit = audit
         self.auth_home = self.base / '.runtime/work-codex'
         self.root = self.auth_home / 'nightly' if audit else self.auth_home
         self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -72,8 +73,9 @@ class WorkClient:
 
     def decide_many(self, requests):
         """Batch only already waiting reviews; preserve the caller's item order."""
-        if not requests or len(requests) > 8:
-            raise ValueError('Work review batches contain one to eight decisions')
+        limit = 16 if self.audit else 8
+        if not requests or len(requests) > limit:
+            raise ValueError('Work review batch exceeds its decision limit')
         cached = [self.cached(request) for request in requests]
         missing = {}
         for request, result in zip(requests, cached):
@@ -143,7 +145,7 @@ class WorkClient:
                            '-c', 'model_reasoning_effort="low"', '-c', 'model_verbosity="low"',
                            '--output-schema', str(schema_path.resolve()), '--output-last-message', str(result_path.resolve()), '-']
                 process = subprocess.run(command, input=prompt, text=True, encoding='utf-8', capture_output=True,
-                                         cwd=execution, env=env, timeout=55)
+                                         cwd=execution, env=env, timeout=120 if self.audit else 55)
                 if process.returncode or not result_path.exists():
                     raise WorkUnavailable('Work session did not return a complete decision')
                 output = json.loads(result_path.read_text(encoding='utf-8'))

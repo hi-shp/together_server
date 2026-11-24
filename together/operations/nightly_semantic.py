@@ -10,11 +10,11 @@ import time
 from .nightly import read, save, timestamp
 
 
-def batches(rows, maximum=24000):
+def batches(rows, maximum=96000):
     pending, size = [], 0
     for row in rows:
         length = len(json.dumps(row['request'], ensure_ascii=False).encode())
-        if pending and (len(pending) == 8 or size + length > maximum):
+        if pending and (len(pending) == 16 or size + length > maximum):
             yield pending
             pending, size = [], 0
         pending.append(row)

@@ -91,7 +91,7 @@ class AuditTests(unittest.TestCase):
         rows=[{'id':str(i),'request':{'text':'a'*2500}} for i in range(19)]
         groups=list(batches(rows,maximum=8000))
         self.assertEqual([r['id'] for g in groups for r in g],[str(i) for i in range(19)])
-        self.assertTrue(all(len(g)<=8 for g in groups))
+        self.assertTrue(all(len(g)<=16 for g in groups))
 
     def test_audit_work_does_not_share_the_live_execution_lock(self):
         from together.integrations.work_client import WorkClient
@@ -100,6 +100,15 @@ class AuditTests(unittest.TestCase):
         self.assertNotEqual(live.root,audit.root)
         self.assertEqual(live.auth_home,audit.auth_home)
         self.assertEqual(live.root,self.base/'.runtime/work-codex')
+
+    def test_larger_audit_batch_never_expands_live_batch_limits(self):
+        from together.integrations.work_client import WorkClient
+        live=WorkClient(self.base,{})
+        with self.assertRaises(ValueError):live.decide_many([{}]*9)
+        audit=WorkClient(self.base,{},audit=True)
+        with self.assertRaises(ValueError):audit.decide_many([{}]*17)
+        self.assertFalse(live.audit)
+        self.assertTrue(audit.audit)
 
     def test_snapshot_reuse_preserves_exact_bytes_and_encoding(self):
         url='https://sample.pusan.ac.kr/test/1/subview.do';key=hashlib.sha256(url.encode()).hexdigest()
