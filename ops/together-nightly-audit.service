@@ -16,5 +16,6 @@ MemorySwapMax=512M
 IOWeight=10
 IOSchedulingClass=idle
 OOMPolicy=stop
+OOMScoreAdjust=750
 TimeoutStartSec=6h
 KillMode=control-group
