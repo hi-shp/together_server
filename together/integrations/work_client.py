@@ -22,6 +22,8 @@ def validate(value, schema):
             raise ValueError('Incomplete Work decision')
         for key, spec in schema['properties'].items():
             validate(value[key], spec)
+        if value.get('relation') == 'same_event' and 'matched_index' in value and value['matched_index'] < 0:
+            raise ValueError('A same-event decision requires an actual candidate index')
     else:
         kind = {'string': str, 'integer': int, 'boolean': bool}.get(schema.get('type'))
         if kind and type(value) is not kind:

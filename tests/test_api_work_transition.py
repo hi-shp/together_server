@@ -133,6 +133,14 @@ class TransitionTests(unittest.TestCase):
             with self.assertRaises(ValueError): WorkClient(self.base, self.config).decide_many([])
             run.assert_not_called()
 
+    def test_same_event_without_a_matched_candidate_is_not_cached(self):
+        request = duplicate_request('새 프로그램 안내', ['기존 프로그램 안내'])
+        work = WorkClient(self.base, self.config)
+        self.answer = {'relation': 'same_event', 'matched_index': -1, 'reason': '일치 후보를 지정하지 못한 잘못된 응답'}
+        with patch('together.integrations.work_client.subprocess.run', side_effect=self.fake_cli):
+            with self.assertRaises(ValueError): work.decide(request)
+        self.assertIsNone(work.cached(request))
+
     def test_new_work_items_keep_the_same_minimal_prefix_context(self):
         work = WorkClient(self.base, self.config)
         another = category_request('학생 특강 두 번째 신청', CATEGORIES, '다른 특강 참가자를 모집합니다.')
