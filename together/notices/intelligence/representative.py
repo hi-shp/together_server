@@ -210,21 +210,40 @@ def verify_representative(service,evidence,base_dir,boards,*,current_notice=None
                 result.update(status='verified',article_url=url,reason='actual_indexed_representative_exists')
                 return result
         if not matches and current_notice and active:
-            # 실제 대표가 보관 기간으로 색인에서 빠졌을 때, 무관한 현재 글 세 개로
-            # 판단을 뒤집기 전에 학교에 남은 같은 제목부터 원문 연결로 확인한다.
+            from together.notices.history import candidate_title_similarities, comparison_title, calculate_similarity
+            ranked = candidate_title_similarities(current_notice['title'], [r['notice']['title'] for r in active])
+            available = list(active)
+            selected = []
+            for _, cleaned in ranked:
+                match = next((r for r in available if comparison_title(r['notice']['title']) == cleaned), None)
+                if match:
+                    selected.append(match)
+                    available.remove(match)
+            # 제목 이력의 학과별 전달 제목은 실제 대표 제목과 다를 수 있다.
+            # 가까운 실제 색인을 먼저 읽고, 원문 문맥으로 다시 판단한다.
+            # 이 유사도는 중복 확정이 아니라 대표 조회 순서에만 사용한다.
+            nearby = [r for r in selected if calculate_similarity(
+                comparison_title(title), comparison_title(r['notice']['title'])) >= 0.85]
+            actual = []
+            for record in nearby:
+                remote_candidate_seen = True
+                primary = record['notice'].get('source_url', '')
+                if primary and _article(client, record['article_url'], record['notice']['title'], primary, indexed=True):
+                    actual.append(record)
+            if actual:
+                result.update(status='recheck', reason='indexed_title_variant_requires_actual_source_context',
+                              _actual_candidates=[{'title': r['notice']['title'], 'source_url': r['notice']['source_url'],
+                                                   'department': r['notice'].get('department', ''),
+                                                   'body_excerpt': r['notice'].get('body_text', ''),
+                                                   'publication_time': r['notice'].get('publication_time', ''),
+                                                   'publication_time_is_explicit': bool(r['notice'].get('publication_time'))}
+                                                  for r in actual])
+                return result
+            # 색인 밖의 과거 대표도 학교의 전체 검색 결과로 확인한다.
             archived = _archived_title(client, boards, title, source, result)
             if archived:
                 return archived
-            # 제목 이력에는 '다른 글의 중복이라 게시하지 않았던 제목'도 있다.
-            # 그 제목을 못 찾았다는 이유로 다시 게시하지 않고 실제 게시된
-            # 원문 후보를 이용해 의미 판정을 한 번 다시 하도록 돌려준다.
-            from together.notices.history import candidate_title_similarities,comparison_title
-            ranked=candidate_title_similarities(current_notice['title'],[r['notice']['title'] for r in active])
-            available=list(active);selected=[]
-            for _,cleaned in ranked:
-                match=next((r for r in available if comparison_title(r['notice']['title'])==cleaned),None)
-                if match:
-                    selected.append(match);available.remove(match)
+            # 미게시 이력 별칭은 실제 게시된 후보 원문으로 의미를 재검토한다.
             if selected:
                 result.update(status='recheck',reason='history_alias_requires_actual_published_candidates',
                               _actual_candidates=[{'title':r['notice']['title'],'source_url':r['notice']['source_url'],

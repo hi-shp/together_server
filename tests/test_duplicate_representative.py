@@ -185,4 +185,45 @@ class DuplicateRepresentativeTests(unittest.TestCase):
             self.assertEqual(result['status'], 'recheck')
             self.assertEqual([v['title'] for v in result['_actual_candidates']], [previous])
 
+    def test_published_title_variant_is_verified_before_fragile_alias_search(self):
+        from unittest.mock import MagicMock
+        title = '연구윤리 표절예방 프로그램 Turnitin 이용교육 안내'
+        alias = '[도서관]연구윤리 표절예방 프로그램 Turnitin 이용교육 안내'
+        current = '대원, 교대원] 도서관 연구윤리 표절예방 프로그램 Turnitin 이용교육 안내'
+        record = {'article_url': ARTICLE, 'sources': [SOURCE],
+                  'notice': {'title': title, 'source_url': SOURCE, 'body_text': ''}}
+        client = MagicMock()
+        with tempfile.TemporaryDirectory() as root, patch('together.notices.intelligence.representative.PublishedNoticeStore') as store, patch('together.notices.intelligence.representative._article', return_value=True) as article, patch('together.notices.intelligence.representative._archived_title', side_effect=TimeoutError('alias search unavailable')) as search:
+            store.return_value.load.return_value = [record]
+            result = verify_representative(types.SimpleNamespace(_http=client),
+                {'title': alias, 'current_source_url': SOURCE + '9'}, root,
+                ['교육/특강/프로그램'], current_notice={'title': current})
+            self.assertEqual(result['status'], 'recheck')
+            self.assertEqual(result['_actual_candidates'][0]['source_url'], SOURCE)
+            article.assert_called_once_with(client, ARTICLE, title, SOURCE, indexed=True)
+            search.assert_not_called()
+
+    def test_failed_known_title_variant_read_cannot_become_first_publication(self):
+        title = '연구윤리 표절예방 프로그램 Turnitin 이용교육 안내'
+        record = {'article_url': ARTICLE, 'sources': [SOURCE],
+                  'notice': {'title': title, 'source_url': SOURCE}}
+        for error in [TimeoutError('temporary read failure'), ValueError('changed source link')]:
+            with self.subTest(error=type(error).__name__), tempfile.TemporaryDirectory() as root, patch('together.notices.intelligence.representative.PublishedNoticeStore') as store, patch('together.notices.intelligence.representative._article', side_effect=error), patch('together.notices.intelligence.representative._archived_title', side_effect=TimeoutError('search unavailable')):
+                store.return_value.load.return_value = [record]
+                result = verify_representative(types.SimpleNamespace(_http=types.SimpleNamespace()),
+                    {'title': '[도서관]' + title, 'current_source_url': SOURCE + '9'}, root,
+                    ['교육/특강/프로그램'], current_notice={'title': '대원, 교대원] 도서관 ' + title})
+                self.assertEqual(result['status'], 'pending')
+                self.assertEqual(result['post_or_send_requests'], 0)
+
+    def test_unrelated_published_post_does_not_block_a_first_notice(self):
+        record = {'article_url': ARTICLE, 'sources': [SOURCE],
+                  'notice': {'title': '2026 지역기업 신입사원 채용', 'source_url': SOURCE}}
+        with tempfile.TemporaryDirectory() as root, patch('together.notices.intelligence.representative.PublishedNoticeStore') as store, patch('together.notices.intelligence.representative._archived_title', side_effect=TimeoutError('search unavailable')):
+            store.return_value.load.return_value = [record]
+            result = verify_representative(types.SimpleNamespace(_http=types.SimpleNamespace()),
+                {'title': '연구윤리 표절예방 프로그램 Turnitin 교육', 'current_source_url': SOURCE + '9'},
+                root, ['교육/특강/프로그램'], current_notice={'title': '도서관 Turnitin 이용교육'})
+            self.assertEqual(result['status'], 'first_publication')
+
 if __name__=='__main__':unittest.main()
