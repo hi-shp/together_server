@@ -150,6 +150,9 @@ def _archived_title(client, boards, title, source, result):
 
 def verify_representative(service,evidence,base_dir,boards,*,current_notice=None):
     """verified/missing/pending. 미확인을 미게시로 바꾸거나 재요청하지 않는다."""
+    # 분류의 '해당없음'은 실제 PLATO 게시판 이름이 아니다.
+    # 게시할 때와 같은 기타 게시판을 검색해야 마지막 범위까지 확인된다.
+    boards = list(dict.fromkeys('기타 공지사항' if name == '해당없음' else name for name in (boards or ())))
     title=evidence.get('title','');source=evidence.get('source_url','')
     result={'status':'pending','candidate_title':title,'candidate_source_url':source,
             'current_source_url':evidence.get('current_source_url',''),

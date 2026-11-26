@@ -68,6 +68,23 @@ class DuplicateRepresentativeTests(unittest.TestCase):
         self.assertEqual(result['status'],'missing')
         self.assertEqual(result['searched_boards'],1)
 
+    def test_unclassified_label_searches_the_actual_miscellaneous_board(self):
+        looked_up = []
+        def board_url(name):
+            looked_up.append(name)
+            if name == '해당없음':
+                raise ValueError('Classification label is not a PLATO board')
+            return BOARD
+        client = types.SimpleNamespace(board_url=board_url,
+            get=lambda *a, **k: Response('<form id="ubboard_list_form"></form>'))
+        with tempfile.TemporaryDirectory() as root, patch('together.notices.intelligence.representative.PublishedNoticeStore') as store:
+            store.return_value.load.return_value = []
+            result = verify_representative(types.SimpleNamespace(_http=client),
+                {'title': TITLE}, root, ['교육/특강/프로그램', '해당없음', '기타 공지사항'])
+        self.assertEqual(looked_up, ['교육/특강/프로그램', '기타 공지사항'])
+        self.assertEqual(result['status'], 'missing')
+        self.assertEqual(result['searched_boards'], 2)
+
     def test_representative_on_next_search_page_is_not_missed(self):
         calls=[]
         def get(url,**kw):
