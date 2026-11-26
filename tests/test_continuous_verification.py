@@ -46,6 +46,7 @@ class ContinuousVerification(unittest.TestCase):
                 patch.object(supervisor, "read_state", return_value={"consecutive_failures": 5}),
                 patch.object(supervisor,"cleanup_old_logs",side_effect=[None]*6+[EndTest()]),
                 patch.object(supervisor.time, "sleep", side_effect=AssertionError("Unexpected inter-cycle wait")),
+                patch('together.operations.events._revision', return_value='a' * 40),
             ):
                 with self.assertRaises(EndTest):
                     supervisor.run_main()
@@ -53,6 +54,47 @@ class ContinuousVerification(unittest.TestCase):
             state = json.loads((folder / "health/runner.json").read_text())
             self.assertEqual(state["last_exit"], 0)
             self.assertEqual(state["consecutive_failures"], 0)
+    def test_supervisor_refreshes_log_revision_after_a_between_cycle_deployment(self):
+        from together.operations.events import _revision
+        head = ['a' * 40]
+        revisions = []
+        calls = 0
+
+        def cleanup(_):
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                head[0] = 'b' * 40
+            if calls == 3:
+                head[0] = 'c' * 40
+            if calls == 5:
+                raise StopFixture()
+
+        def cycle(path):
+            path.write_text('full cycle log', encoding='utf-8')
+            return 0
+
+        _revision.cache_clear()
+        try:
+            with tempfile.TemporaryDirectory() as temp:
+                root = Path(temp)
+                (root / '.runtime').mkdir()
+                (root / '.runtime/verification-mode.json').write_text('{"continuous":true}')
+                with patch('together.operations.events.subprocess.run', side_effect=lambda *a, **kw: types.SimpleNamespace(stdout=head[0])):
+                    self.assertEqual(_revision(str(root)), 'a' * 40)
+                    with (
+                        patch.object(supervisor, 'BASE_DIR', root),
+                        patch.object(supervisor, 'cleanup_old_logs', side_effect=cleanup),
+                        patch.object(supervisor, 'run_cycle', side_effect=cycle),
+                        patch.object(supervisor, 'notify', return_value=True),
+                        patch.object(supervisor, 'event', side_effect=lambda *a, **kw: revisions.append(_revision(str(root)))),
+                    ):
+                        with self.assertRaises(StopFixture):
+                            supervisor.run_main()
+                    self.assertEqual(revisions, ['b' * 40, 'c' * 40])
+        finally:
+            _revision.cache_clear()
+
     def setUp(self):
         self.cwd = Path.cwd()
 

@@ -71,6 +71,7 @@ class LegacyPresentationTests(unittest.TestCase):
             patch.object(run_main, "run_cycle", side_effect=sample_cycle) as cycle,
             patch.object(run_main, "notify", side_effect=check_upload) as notify,
             patch.object(run_main.time, "sleep", side_effect=AssertionError("Unexpected inter-cycle wait")),
+            patch('together.operations.events._revision', return_value='a' * 40),
             contextlib.redirect_stdout(output),
         ):
             with self.assertRaises(StopIteration):

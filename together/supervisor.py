@@ -17,7 +17,7 @@ from datetime import datetime
 from together.config import BASE_DIR, notify
 from together.plato.browser_runtime import scratch_root
 from together.operations.state import update_state, read_state
-from together.operations.events import event
+from together.operations.events import event, _revision
 
 LOG_NAME = re.compile(r"log_\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}\.txt")
 
@@ -159,6 +159,8 @@ def run_main():
             log_path = log_dir / f"log_{now:%Y-%m-%d_%H-%M-%S}.txt"
             # Deployers can hold LOCK_EX between cycles without a fixed sleep.
             fcntl.flock(boundary,fcntl.LOCK_SH)
+            # 완료 경계에서 적용된 코드 버전을 이번 로그와 영수증에 기록한다.
+            _revision.cache_clear()
             update_state(
                 BASE_DIR,
                 status="running",
