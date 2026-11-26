@@ -139,4 +139,20 @@ class DuplicateRepresentativeTests(unittest.TestCase):
             self.assertEqual(result['_actual_candidates'][0]['source_url'],SOURCE)
             client.get.assert_not_called()
 
+    def test_unbound_korean_alias_rechecks_actual_korean_post_not_three_english_posts(self):
+        from unittest.mock import MagicMock
+        english = '2026학년도 겨울학기 대학원 학위청구 외국어시험(영어) 대체강좌 수강생 모집'
+        korean = english.replace('영어', '한국어')
+        previous = '2026학년도 겨울학기 대학원 학위청구 외국어시험 대체강좌 (한국어) 수강생 모집'
+        titles = [english, english, '[대학원] ' + english + ' 안내', previous]
+        records = [{'article_url': ARTICLE + str(i), 'sources': [SOURCE + str(i)],
+                    'notice': {'title': title, 'source_url': SOURCE + str(i), 'body_text': '공식 강좌 본문'}}
+                   for i, title in enumerate(titles)]
+        with tempfile.TemporaryDirectory() as root, patch('together.notices.intelligence.representative.PublishedNoticeStore') as store, patch('together.notices.intelligence.representative._archived_title', return_value=None):
+            store.return_value.load.return_value = records
+            result = verify_representative(types.SimpleNamespace(_http=MagicMock()),
+                {'title': '학교 검색에 없는 이력 별칭'}, root, ['교육/특강/프로그램'], current_notice={'title': korean})
+            self.assertEqual(result['status'], 'recheck')
+            self.assertEqual([v['title'] for v in result['_actual_candidates']], [previous])
+
 if __name__=='__main__':unittest.main()

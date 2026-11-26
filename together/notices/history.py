@@ -69,6 +69,10 @@ def candidate_title_similarities(new_title, titles, mode="hybrid"):
     for index, (original, value) in enumerate(zip(titles, cleaned)):
         if not value:
             continue
+        # 대표 게시글을 다시 찾는 경로도 같은 조건으로 후보를 고른다.
+        # 다른 언어의 유사 제목 세 개가 같은 언어 후보를 밀어내지 않게 한다.
+        if occurrence_conflict(new_title, original) or focus_conflict(new_title, original):
+            continue
         score = calculate_similarity(query, value)
         if current_ids & identifiers(original) and rounds & set(identity(original)["rounds"]):
             score += 0.35

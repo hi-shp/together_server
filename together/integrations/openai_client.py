@@ -185,8 +185,12 @@ def answer_gpt(user_content):
 
 
 def check_title_similarity(new_title, recent_titles, *, context_provider=None):
-    from together.notices.intelligence.focus import focus_conflict
-    from together.operations.events import duplicate_match
+    from together.notices.intelligence.focus import focus_conflict, shared_language_course
+    from together.operations.events import duplicate_match, duplicate_review_reason
+    # 대표 원문 재검토도 독립된 판단이다. 앞선 동일 판정의 근거를 남기지 않는다.
+    duplicate_review.set("")
+    duplicate_review_reason.set("")
+    duplicate_match.set(None)
     shared_program = lambda title: "현장실습학기제" in normalize_title(title).replace(" ", "")
     shared_exchange = lambda title: bool(
         re.search(
@@ -198,9 +202,6 @@ def check_title_similarity(new_title, recent_titles, *, context_provider=None):
     # 단어만으로 학과별 별도 공지라고 확정하던 경로는 공통 안내를 복제했다.
     shared_registration = lambda title: bool(
         re.search(r'(?:계절|도약).*(?:개설강좌|희망과목\s*담기).*수강신청',normalize_title(title))
-    )
-    shared_language_course = lambda title: bool(
-        re.search(r'외국어\s*시험.*대체\s*강좌', normalize_title(title))
     )
     shared_notice = lambda title: (
         shared_program(title) or shared_exchange(title) or shared_registration(title)

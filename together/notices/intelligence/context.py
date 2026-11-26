@@ -24,6 +24,13 @@ def department_conditions_differ(context):
         # A department can give its own cutoff without repeating its full name.
         # Preserve that local submission step even when the common timetable matches.
         for match in re.finditer(r"(?:학과|학부|전공)(?:사무실|행정실)|(?:제출처|접수처)[:：]", body):
+            # 공통 안내의 '학과사무실로 문의' 뒤에 다음 절의 제출서류가
+            # 이어져도 학과 자체 접수 기한으로 오인하지 않는다.
+            following = body[match.end():match.end() + 100]
+            clause = re.split(r'[.。!?]', following, maxsplit=1)[0]
+            if (re.match(r'(?:으로|로|에)?(?:먼저|반드시)?문의', following)
+                    and not re.search(r'제출|접수', clause)):
+                continue
             start, end = max(0, match.start() - 100), min(len(body), match.end() + 100)
             local = body[start:end]
             if re.search(r"제출|접수", local) and re.search(r"기한|마감|까지|제출서류|제출방법", local):

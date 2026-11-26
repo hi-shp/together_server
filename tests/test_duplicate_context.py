@@ -223,6 +223,15 @@ class ContextTests(unittest.TestCase):
         body = '학생은 11/2까지 제출처: 학과사무실에 수학신청원 제출. 제출서류와 공통 일정을 확인하세요.'
         self.assertFalse(department_conditions_differ({'new_notice': {'body_excerpt': body}, 'recent_notices': [{'body_excerpt': body}]}))
 
+    def test_common_office_inquiry_does_not_borrow_the_next_section_deadline(self):
+        common = '언어교육원 홈페이지에서 신청. 수강자격은 증명서 제출자 또는 면접 통과자.'
+        old = '경영학과 대학원생은 학과사무실로 문의하신 후 수강 신청 바람. 4. 제출서류: 수강신청 마감일까지 어학성적 제출. ' + common
+        context = {'new_notice': {'department': '의류학과', 'body_excerpt': common},
+                   'recent_notices': [{'department': '수학과', 'body_excerpt': old}]}
+        self.assertFalse(department_conditions_differ(context))
+        context['recent_notices'][0]['body_excerpt'] = '학과사무실로 문의 후 11/2까지 서류 제출. ' + common
+        self.assertTrue(department_conditions_differ(context))
+
     def test_common_course_registration_with_missing_body_keeps_first_notice(self):
         check,decision=self.protected_checker()
         title='2026학년도 겨울 계절·도약수업 개설강좌 확정 및 수강신청 안내'
@@ -249,6 +258,52 @@ class ContextTests(unittest.TestCase):
         decision.return_value = {'relation': 'same_event', 'matched_index': 0, 'reason': '잘못된 일치'}
         for candidate in (title, title.replace('영어', '한국어'), title.replace('겨울', '여름')):
             self.assertEqual(check(title, [candidate]), '중복 아님')
+        decision.assert_not_called()
+
+    def test_shortened_degree_language_title_still_requires_body_review(self):
+        check, decision = self.protected_checker()
+        title = '2026학년도 겨울학기 대학원 학위청구 대체강좌(영어) 수강생 모집 안내'
+        previous = '2026학년도 겨울학기 대학원 학위청구 외국어시험(영어) 대체강좌 수강생 모집'
+        body = '대학원 공통 영어 대체강좌. 12월 1~11일 언어교육원 홈페이지 신청, 180명. ' * 5
+        context = {'new_notice': {'department': '수소미래에너지융합전공', 'body_excerpt': body},
+                   'recent_notices': [{'title': previous, 'department': '수학과', 'body_excerpt': body}]}
+        decision.return_value = {'relation': 'same_event', 'matched_index': 0, 'reason': '대상·접수·강의일정 일치'}
+        self.assertEqual(check(title, [previous], context_provider=lambda _: context), '중복')
+        decision.assert_called_once()
+        decision.reset_mock()
+        self.assertEqual(check(title, [previous]), '중복 아님')
+        decision.assert_not_called()
+        context['new_notice']['body_excerpt'] = '수소미래에너지융합전공 학생은 전공사무실에 신청서 제출, 3학년만 이수 인정. ' + body
+        self.assertEqual(check(title, [previous], context_provider=lambda _: context), '중복 아님')
+        decision.assert_not_called()
+
+    def test_language_mismatch_is_excluded_even_with_shortened_title(self):
+        from together.notices.intelligence.focus import focus_conflict
+        check, decision = self.protected_checker()
+        english = '2026학년도 겨울학기 대학원 학위청구 대체강좌(영어) 수강생 모집 안내'
+        korean = '2026학년도 겨울학기 대학원 학위청구 외국어시험(한국어) 대체강좌 수강생 모집'
+        body = '언어교육원 신청 및 강의일정 안내. ' * 10
+        provider = lambda _: {'new_notice': {'body_excerpt': body}, 'recent_notices': [{'body_excerpt': body}]}
+        self.assertEqual(focus_conflict(english, korean), 'substitute_course_language_conflict')
+        self.assertEqual(check(english, [korean], context_provider=provider), '중복 아님')
+        decision.assert_not_called()
+
+    def test_actual_representative_ranking_does_not_starve_same_language(self):
+        korean = '2026학년도 겨울학기 대학원 학위청구 외국어시험(한국어) 대체강좌 수강생 모집'
+        english = korean.replace('한국어', '영어')
+        previous = '2026학년도 겨울학기 대학원 학위청구 외국어시험 대체강좌 (한국어) 수강생 모집'
+        candidates = [english, english, '[대학원] ' + english + ' 안내', previous]
+        ranked = candidate_title_similarities(korean, candidates)
+        self.assertEqual([v for _, v in ranked], [comparison_title(previous)])
+
+    def test_recheck_without_candidates_clears_previous_reason_and_match(self):
+        from together.operations.events import duplicate_match
+        check, decision = self.protected_checker()
+        duplicate_review_reason.set('앞선 후보와 일치한다는 오래된 근거')
+        duplicate_match.set({'title': '이전 후보', 'source_url': 'https://school.invalid/old'})
+        self.assertEqual(check('새로운 공지', []), '중복 아님')
+        self.assertEqual(duplicate_review_reason.get(), '')
+        self.assertIsNone(duplicate_match.get())
         decision.assert_not_called()
 
     def test_later_candidate_failure_is_not_reported_as_a_complete_review(self):
