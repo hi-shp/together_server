@@ -139,6 +139,19 @@ class DuplicateRepresentativeTests(unittest.TestCase):
             self.assertEqual(result['_actual_candidates'][0]['source_url'],SOURCE)
             client.get.assert_not_called()
 
+    def test_school_lowercased_literal_search_keeps_the_same_query(self):
+        from together.notices.intelligence.representative import _search
+        client = types.SimpleNamespace(get=lambda *a, **k: Response(
+            '<form id="ubboard_list_form"></form><input name="keyword" value="google">'))
+        self.assertEqual(_search(client, BOARD, 'Google Chrome 보안 업데이트'), ([], 1))
+
+    def test_school_search_for_a_different_word_is_still_rejected(self):
+        from together.notices.intelligence.representative import _search, RepresentativeUnconfirmed
+        client = types.SimpleNamespace(get=lambda *a, **k: Response(
+            '<form id="ubboard_list_form"></form><input name="keyword" value="unrelated">'))
+        with self.assertRaises(RepresentativeUnconfirmed):
+            _search(client, BOARD, 'Google Chrome 보안 업데이트')
+
     def test_unbound_korean_alias_rechecks_actual_korean_post_not_three_english_posts(self):
         from unittest.mock import MagicMock
         english = '2026학년도 겨울학기 대학원 학위청구 외국어시험(영어) 대체강좌 수강생 모집'

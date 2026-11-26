@@ -70,7 +70,9 @@ def _search(client,board,title,source=''):
         if not form:
             raise RepresentativeUnconfirmed('Full school title search was not verified')
         keyword=soup.select_one('input[name="keyword"]')
-        if keyword is not None and keyword.get('value','')!=anchor:
+        # 학교는 영문 검색어를 소문자로 되돌려준다. 다른 낱말로 바뀐
+        # 검색은 계속 거부하되 대소문자 차이만으로 정상 검색을 막지 않는다.
+        if keyword is not None and keyword.get('value','').casefold()!=anchor.casefold():
             raise RepresentativeUnconfirmed('School search transformed the literal query')
         for a in form.select('a[href]'):
             link=urljoin(url,a['href']);parts=urlsplit(link);args=parse_qs(parts.query)
