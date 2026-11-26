@@ -103,10 +103,20 @@ def _first_publication(base_dir, evidence, current):
         return any(notice_identity(u) in sources for u in urls if u) or any(
             name==t or name.endswith(' '+t) for t in titles)
     # Retain uncertain saves and historical/moved/manual posts for reconciliation.
-    for r in _load(base_dir).values():
+    receipts = list(_load(base_dir).values())
+    records = PublishedNoticeStore(base_dir).load()
+    for r in receipts:
         if matches(r.get('subject'),[r.get('source_url')]):return False
-    for r in PublishedNoticeStore(base_dir).load():
+    for r in records:
         if matches(r['notice'].get('title'),[*r.get('sources',[]),r['notice'].get('source_url')]):return False
+    # 인증된 조회 수단 자체가 없을 때도 알려진 대표의 제목 변형을
+    # 첫 게시로 간주하지 않는다. 실제 원문 대조를 마친 뒤 처리한다.
+    from together.notices.history import candidate_title_similarities, comparison_title, calculate_similarity
+    previous = [r.get('subject', '') for r in receipts] + [r['notice'].get('title', '') for r in records]
+    for title in titles:
+        ranked = candidate_title_similarities(title, previous)
+        if any(calculate_similarity(comparison_title(title), cleaned) >= 0.85 for _, cleaned in ranked):
+            return False
     return True
 
 

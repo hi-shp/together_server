@@ -226,4 +226,16 @@ class DuplicateRepresentativeTests(unittest.TestCase):
                 root, ['교육/특강/프로그램'], current_notice={'title': '도서관 Turnitin 이용교육'})
             self.assertEqual(result['status'], 'first_publication')
 
+    def test_unavailable_client_keeps_known_title_variant_pending(self):
+        title = '연구윤리 표절예방 프로그램 Turnitin 이용교육 안내'
+        record = {'article_url': ARTICLE, 'sources': [SOURCE],
+                  'notice': {'title': title, 'source_url': SOURCE}}
+        with tempfile.TemporaryDirectory() as root, patch('together.notices.intelligence.representative.PublishedNoticeStore') as store:
+            store.return_value.load.return_value = [record]
+            result = verify_representative(types.SimpleNamespace(),
+                {'title': '[도서관]' + title, 'current_source_url': SOURCE + '9'}, root,
+                ['교육/특강/프로그램'], current_notice={'title': '대원, 교대원] 도서관 ' + title})
+            self.assertEqual(result['status'], 'pending')
+            self.assertEqual(result['post_or_send_requests'], 0)
+
 if __name__=='__main__':unittest.main()
