@@ -117,10 +117,11 @@ def categorize_announcement(title, content_text):
         category = answer_gpt(truncated_content)
         review = review_for(truncated_content)
         method = "local_api_fallback" if review.get('local_fallback') else "local_primary" if review.get('local_primary') else "work_context_review" if review.get('work_remote') else "gpt_context_review"
-    if os.getenv("NOTICE_CLASSIFIER_MODE", "hybrid") != "legacy":
-        from together.notices.intelligence.routing import verified_activity_category
-        confirmed = verified_activity_category(title, content_text)
-        if confirmed and category != confirmed['category']:
+    from together.notices.intelligence.routing import verified_activity_category
+    confirmed = verified_activity_category(title, content_text)
+    if confirmed and (os.getenv("NOTICE_CLASSIFIER_MODE", "hybrid") != "legacy"
+                      or confirmed['method'] == 'result_news'):
+        if category != confirmed['category']:
             event('분류', '본문 활동 형식 대조로 분류 보정', console=False,
                   prior_category=category, category=confirmed['category'], reason=confirmed['reason'])
             hint = confirmed

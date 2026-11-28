@@ -234,8 +234,35 @@ def category_hint(
     }
 
 
+def result_news_category(title, body):
+    """종료된 행사 결과와 수상 소식을 게시판 분류에 반영한다."""
+    title = re.sub(r'\s+', '', str(title)).rstrip(' .,!\"\'“”‘’()[]')
+    body = re.sub(r'\s+', '', str(body or ''))
+    participation = re.search(
+        r'모집|신청|응모|접수(?:안내|기간|방법)|참가(?:자|팀)?(?:모집|안내|신청)'
+        r'|(?:발표회|공유회|전시회|시상식).*(?:참가|참여|관람|안내)', title)
+    result = re.search(
+        r'(?:수상|입상)(?:소식|결과|안내|성과|기념)?$'
+        r'|(?:수상작|수상자|입상작|입상자|선정작|당선작)(?:선정)?(?:결과|발표|안내|공고|명단)'
+        r'|(?:수상|입상).*(?:인터뷰|소식)'
+        r'|(?:공모전|대회|경진|콘테스트|경연|캠프|축제|행사|프로그램|특강).*'
+        r'(?:결과(?:발표|공고|안내|보고)?$|개최결과|성과(?:소개|홍보)|성료|후기(?:공유|안내)?$)'
+        r'|성황리(?:에)?개최|수상소식|입상소식|성과홍보', title)
+    reported_outcome = re.search(r'소식|성과|동향', title) and re.search(
+        r'수상(?:했다|하였|하였다|했으며)|입상(?:했다|하였)|우승(?:했다|하였)'
+        r'|성황리에(?:마쳤|개최)|성과를거뒀', body)
+    if participation or not (result or reported_outcome):
+        return None
+    return {'category': '해당없음', 'method': 'result_news',
+            'reason': '종료된 대회·행사의 수상·결과·성과를 전하는 소식'}
+
+
 def verified_activity_category(title, body):
     """본문으로 확인한 활동 형식만 강제한다. 단어 하나로 결과를 뒤집지 않는다."""
+
+    news = result_news_category(title, body)
+    if news:
+        return news
 
     # 교직 이수자의 교과목·학점 인정 절차는 새 봉사자 참여 모집과 구분한다.
     if (re.search(r'교육봉사활동', str(title))
