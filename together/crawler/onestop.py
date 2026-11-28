@@ -40,6 +40,23 @@ def safe_rows(reply):
     return result
 
 
+def dismiss_sso_notices(driver, timeout):
+    """통합로그인 화면의 공지 창을 기존 닫기 버튼으로 닫는다."""
+    from selenium.webdriver.common.by import By
+    from selenium.webdriver.support.ui import WebDriverWait
+    from selenium.webdriver.support import expected_conditions as EC
+
+    for popup in driver.find_elements(By.CSS_SELECTOR, '.popup_layer'):
+        if not popup.is_displayed():
+            continue
+        for button in popup.find_elements(By.CSS_SELECTOR, 'a.n-btn-label'):
+            if ''.join(button.text.split()) not in ('닫기', 'X닫기'):
+                continue
+            button.click()
+            WebDriverWait(driver, timeout).until(EC.invisibility_of_element(popup))
+            break
+
+
 class OnestopClient:
     def __init__(self):
         self.browser = None
@@ -121,6 +138,7 @@ class OnestopClient:
                 raise OnestopError("Student support credentials are not configured")
             d.execute_script("ssoOpen()")
             WebDriverWait(d,min(25,_remaining_board_time())).until(lambda d: urlsplit(d.current_url).hostname == "login.pusan.ac.kr")
+            dismiss_sso_notices(d, min(10, _remaining_board_time()))
             d.find_element(By.LINK_TEXT, "아이디 로그인").click()
             WebDriverWait(d,min(10,_remaining_board_time())).until(lambda d: d.find_element(By.ID, "login_id").is_displayed())
             d.find_element(By.ID, "login_id").send_keys(os.environ["PLATO_ID"])
