@@ -59,6 +59,48 @@ class OfflineRecoveryTests(unittest.TestCase):
             self.assertEqual(queue.summary(), {'correction_pending': 1})
             self.assertEqual(json.loads(queue.pending()[0]['reviewed_result']), remote)
 
+    def test_remote_recovery_cannot_move_result_news_back_to_a_contest(self):
+        from together.notices.intelligence import recovery
+        with tempfile.TemporaryDirectory() as root:
+            request = category_request('학생팀 특허 대회 우수상 수상', CATEGORIES, '학생팀이 수상했고 시상식이 개최됐다.')
+            queue = FallbackReviews(root)
+            queue.record('test', request, {'category': '해당없음'}, {'source_url': 'https://example.org/result'}, TimeoutError())
+            remote = {'category': '[공모전] 공학/IT/SW', 'notice_type': 'notice', 'needs_body': False, 'reason': '경진대회 형식'}
+            adapter = types.SimpleNamespace(_decision=MagicMock(return_value=remote))
+            with patch.dict('sys.modules', {'together.integrations.openai_client': adapter}), patch.object(recovery, 'move_category') as correction:
+                recovery.review_pending(MagicMock(), root)
+            correction.assert_not_called()
+            with queue.connection() as db:
+                state, reviewed, action = db.execute('SELECT state,reviewed_result,action FROM reviews').fetchone()
+            self.assertEqual(state, 'verified')
+            self.assertEqual(json.loads(reviewed), remote)
+            self.assertEqual(json.loads(action)['effective_category'], '해당없음')
+            self.assertEqual(ApiAccounting(root).cached('test', request), remote)
+
+    def test_recovery_applies_result_policy_even_when_old_local_and_remote_agree(self):
+        from together.notices.intelligence import recovery
+        cases = [
+            ('학생팀 전국 대회 우수상 수상', '지난 대회에 참가해 우수상을 수상했다.', '[공모전] 공학/IT/SW', '해당없음'),
+            ('특허 대회 참가팀 모집', '지난해 수상 실적을 소개하며 올해 새 참가팀을 모집합니다.', '해당없음', '[공모전] 공학/IT/SW'),
+        ]
+        for title, body, local, expected in cases:
+            with self.subTest(title=title), tempfile.TemporaryDirectory() as root:
+                request = category_request(title, CATEGORIES, body)
+                queue = FallbackReviews(root)
+                queue.record('test', request, {'category': local}, {'source_url': 'https://example.org/post'}, TimeoutError())
+                remote = {'category': '[공모전] 공학/IT/SW', 'notice_type': 'notice', 'needs_body': False, 'reason': '경진대회 형식'}
+                adapter = types.SimpleNamespace(_decision=MagicMock(return_value=remote))
+                with patch.dict('sys.modules', {'together.integrations.openai_client': adapter}), patch.object(recovery, 'move_category', return_value={'done': True}) as correction:
+                    recovery.review_pending(MagicMock(), root)
+                self.assertEqual(correction.call_args.args[3], expected)
+                self.assertEqual(queue.summary(), {'corrected': 1})
+                with queue.connection() as db:
+                    reviewed, action = db.execute('SELECT reviewed_result,action FROM reviews').fetchone()
+                self.assertEqual(json.loads(reviewed), remote)
+                if expected == '해당없음':
+                    self.assertEqual(json.loads(action)['remote_category'], remote['category'])
+                    self.assertEqual(json.loads(action)['effective_category'], expected)
+
     def test_title_similarity_alone_does_not_drop_different_occurrences(self):
         with tempfile.TemporaryDirectory() as root:
             request = duplicate_request('2026년 제3기 창업 캠프 모집', ['2026년 제4기 창업 캠프 모집'])

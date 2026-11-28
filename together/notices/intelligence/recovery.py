@@ -247,21 +247,35 @@ def review_pending(service, base_dir):
             break  # 장애 중에도 이후의 공지 수집은 계속한다.
         task = request['response_format']['json_schema']['name']
         field = 'category' if task == 'notice_category' else 'relation'
-        if result[field] == local[field]:
-            store.update(row['key'], 'verified', result, {'reason': 'remote_agrees'})
+        effective = result
+        policy_action = {}
+        if task == 'notice_category':
+            from .routing import result_news_category
+            payload = json.loads(request['messages'][-1]['content'])
+            policy = result_news_category(payload['title'], payload.get('body', ''))
+            if policy:
+                # Retain the raw teacher response/cache for audit and training.
+                # Recovery must obey the same user policy as initial posting.
+                effective = dict(result, category=policy['category'])
+                policy_action = {'policy': 'result_news', 'remote_category': result['category'],
+                                 'effective_category': policy['category']}
+        if effective[field] == local[field]:
+            store.update(row['key'], 'verified', result, {
+                'reason': 'result_news_policy' if policy_action else 'remote_agrees', **policy_action})
             continue
         store.update(row['key'], 'correction_pending', result)
         try:
             set_notice(context.get('source_url', ''), context.get('department', ''), context.get('title', ''))
-            if task == 'notice_category' and result['category'] != '판단보류':
-                action = move_category(service, base_dir, context.get('source_url', ''), result['category'], row['key'])
+            if task == 'notice_category' and effective['category'] != '판단보류':
+                action = move_category(service, base_dir, context.get('source_url', ''), effective['category'], row['key'])
             else:
                 # 동일성 오판은 본문/기존 게시물 연결까지 확인한 뒤 수정한다.
                 from .recovery_duplicates import correct_duplicate
                 action = correct_duplicate(service, base_dir, row, result)
+            action = {**action, **policy_action}
             store.update(row['key'], 'corrected' if action.get('done') else 'correction_pending', result, action)
             event('재검토', '로컬 대체 판단 재검토 · ' + ('수정 완료' if action.get('done') else '보존 후 추가 확인'), outcome='corrected' if action.get('done') else 'correction_pending', console=False)
         except Exception as exc:
-            store.update(row['key'], 'correction_pending', result, {'error': type(exc).__name__})
+            store.update(row['key'], 'correction_pending', result, {'error': type(exc).__name__, **policy_action})
         finally:
             clear_notice()
